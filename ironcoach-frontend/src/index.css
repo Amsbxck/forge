@@ -1,0 +1,32 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-base:    #07080f;
+  --bg-surface: #0d0f17;
+  --bg-card:    #111318;
+  --border:     #1e2228;
+  --accent:     #00d4ff;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: #e8eaf0;
+  min-height: 100vh;
+  font-family: 'DM Sans', system-ui, sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #07080f; }
+::-webkit-scrollbar-thumb { background: #1e2228; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3a3f4a; }
+
+/* Date input dark mode */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.6);
+  cursor: pointer;
+}
