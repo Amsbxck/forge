@@ -523,7 +523,7 @@ export default function History() {
   useEffect(() => { load() }, [showDeleted])
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 page-enter">
       <h1 className="text-3xl font-bold tracking-tight text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
         HISTORY
       </h1>

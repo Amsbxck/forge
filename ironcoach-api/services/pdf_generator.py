@@ -1,3 +1,4 @@
+import re
 from io import BytesIO
 from datetime import datetime
 from reportlab.lib import colors
@@ -18,6 +19,28 @@ ORANGE = colors.HexColor("#E65100")
 GREEN = colors.HexColor("#2E7D32")
 GRAY_BG = colors.HexColor("#F5F5F5")
 WHITE = colors.white
+
+def P(text, style) -> "Paragraph":
+    """Paragraph mit automatischer Latin-1 Bereinigung."""
+    return Paragraph(_safe(text), style)
+
+
+def _safe(text) -> str:
+    """Ersetzt Unicode-Zeichen die Helvetica/Latin-1 nicht kennt."""
+    if not isinstance(text, str):
+        text = str(text)
+    replacements = {
+        '—': '-', '–': '-', '‒': '-',  # em/en dash
+        '’': "'", '‘': "'", '“': '"', '”': '"',
+        '→': '->', '←': '<-', '•': '*', '…': '...',
+        '°': 'deg', '×': 'x', '÷': '/',
+    }
+    for orig, repl in replacements.items():
+        text = text.replace(orig, repl)
+    # Emojis und alle restlichen non-Latin-1 Zeichen entfernen
+    text = re.sub(r'[^\x00-\xff]', '', text)
+    return text
+
 
 SESSION_COLORS = {
     "bike": colors.HexColor("#1565C0"),
@@ -148,7 +171,7 @@ def _day_section_header(day_obj: dict, st: dict):
 
     header_text = f"{day_name.upper()} {date_str} – {label}{duration_text}"
 
-    table_data = [[Paragraph(header_text, st["section_header"])]]
+    table_data = [[P(header_text, st["section_header"])]]
     t = Table(table_data, colWidths=[170 * mm])
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), color),
@@ -171,7 +194,7 @@ def _render_blocks(blocks, st: dict) -> list:
         # Einfache String-Liste
         items = []
         for b in blocks:
-            items.append(Paragraph(f"• {b}", st["body"]))
+            items.append(P(f"• {b}", st["body"]))
         return items
 
     # Ermittle alle Spalten
@@ -185,11 +208,11 @@ def _render_blocks(blocks, st: dict) -> list:
         return []
 
     # Header-Zeile
-    header_row = [Paragraph(k.upper(), st["table_header"]) for k in all_keys]
+    header_row = [P(k.upper(), st["table_header"]) for k in all_keys]
     data = [header_row]
 
     for b in blocks:
-        row = [Paragraph(str(b.get(k, "–")), st["table_cell"]) for k in all_keys]
+        row = [P(str(b.get(k, "–")), st["table_cell"]) for k in all_keys]
         data.append(row)
 
     col_w = 170 * mm / len(all_keys)
@@ -242,7 +265,7 @@ def _render_details(details: dict, st: dict) -> list:
             "structure": "Struktur",
         }
         label = label_map.get(key, key.replace("_", " ").title())
-        elements.append(Paragraph(label, st["subsection"]))
+        elements.append(P(label, st["subsection"]))
 
         if isinstance(val, list):
             block_els = _render_blocks(val, st)
@@ -250,30 +273,30 @@ def _render_details(details: dict, st: dict) -> list:
                 elements.extend(block_els)
             else:
                 for item in val:
-                    elements.append(Paragraph(f"• {item}", st["body"]))
+                    elements.append(P(f"• {item}", st["body"]))
         elif isinstance(val, dict):
             for k, v in val.items():
-                elements.append(Paragraph(f"<b>{k}:</b> {v}", st["body"]))
+                elements.append(P(f"<b>{k}:</b> {v}", st["body"]))
         else:
-            elements.append(Paragraph(str(val), st["body"]))
+            elements.append(P(str(val), st["body"]))
 
     # Restliche Schlüssel
     for key, val in details.items():
         if key in rendered_keys:
             continue
-        elements.append(Paragraph(key.replace("_", " ").title(), st["subsection"]))
+        elements.append(P(key.replace("_", " ").title(), st["subsection"]))
         if isinstance(val, list):
             block_els = _render_blocks(val, st)
             if block_els:
                 elements.extend(block_els)
             else:
                 for item in val:
-                    elements.append(Paragraph(f"• {item}", st["body"]))
+                    elements.append(P(f"• {item}", st["body"]))
         elif isinstance(val, dict):
             for k, v in val.items():
-                elements.append(Paragraph(f"<b>{k}:</b> {v}", st["body"]))
+                elements.append(P(f"<b>{k}:</b> {v}", st["body"]))
         else:
-            elements.append(Paragraph(str(val), st["body"]))
+            elements.append(P(str(val), st["body"]))
 
     return elements
 
@@ -281,10 +304,10 @@ def _render_details(details: dict, st: dict) -> list:
 def _overview_table(days: list, st: dict) -> Table:
     """Wochenübersichts-Tabelle."""
     header = [
-        Paragraph("Tag", st["table_header"]),
-        Paragraph("Datum", st["table_header"]),
-        Paragraph("Einheit", st["table_header"]),
-        Paragraph("Dauer", st["table_header"]),
+        P("Tag", st["table_header"]),
+        P("Datum", st["table_header"]),
+        P("Einheit", st["table_header"]),
+        P("Dauer", st["table_header"]),
     ]
     data = [header]
 
@@ -293,10 +316,10 @@ def _overview_table(days: list, st: dict) -> Table:
         label = SESSION_LABELS.get(session_type, session_type.upper())
         duration = f"{d.get('duration_min', '–')} min" if d.get("duration_min") else "–"
         row = [
-            Paragraph(d.get("day", ""), st["table_cell"]),
-            Paragraph(d.get("date", ""), st["table_cell"]),
-            Paragraph(label, st["table_cell"]),
-            Paragraph(duration, st["table_cell"]),
+            P(d.get("day", ""), st["table_cell"]),
+            P(d.get("date", ""), st["table_cell"]),
+            P(label, st["table_cell"]),
+            P(duration, st["table_cell"]),
         ]
         data.append(row)
 
@@ -354,23 +377,23 @@ def generate_plan_pdf(plan: dict) -> bytes:
     elements = []
 
     # ── Titel ──
-    elements.append(Paragraph(f"WOCHE {week} – {phase}", st["title"]))
+    elements.append(P(f"WOCHE {week} – {phase}", st["title"]))
     if date_range:
-        elements.append(Paragraph(date_range, st["subtitle"]))
+        elements.append(P(date_range, st["subtitle"]))
 
     # ── Coaching-Kommentar ──
     if coaching_comment:
-        elements.append(Paragraph(coaching_comment, st["note"]))
+        elements.append(P(coaching_comment, st["note"]))
 
     # ── Anpassungen ──
     if adjustments:
         adj_text = " | ".join(adjustments)
-        elements.append(Paragraph(adj_text, st["progress"]))
+        elements.append(P(adj_text, st["progress"]))
 
     elements.append(HRFlowable(width="100%", thickness=0.5, color=PURPLE, spaceAfter=4 * mm))
 
     # ── Wochenübersicht ──
-    elements.append(Paragraph("Wochenübersicht", st["subsection"]))
+    elements.append(P("Wochenübersicht", st["subsection"]))
     elements.append(_overview_table(days, st))
     elements.append(Spacer(1, 6 * mm))
 
@@ -387,9 +410,9 @@ def generate_plan_pdf(plan: dict) -> bytes:
         if notes:
             # Warnungen hervorheben
             if any(w in notes.lower() for w in ["stopp", "achtung", "vorsicht", "sofort"]):
-                elements.append(Paragraph(f"⚠ {notes}", st["warning"]))
+                elements.append(P(f"⚠ {notes}", st["warning"]))
             else:
-                elements.append(Paragraph(notes, st["note"]))
+                elements.append(P(notes, st["note"]))
 
         # Details
         details = day_obj.get("details", {})
@@ -400,7 +423,7 @@ def generate_plan_pdf(plan: dict) -> bytes:
 
     # ── Zusammenfassung ──
     elements.append(PageBreak())
-    elements.append(Paragraph(f"Woche {week} – Zusammenfassung", st["title"]))
+    elements.append(P(f"Woche {week} – Zusammenfassung", st["title"]))
     elements.append(Spacer(1, 4 * mm))
 
     # Zähle Sessions
@@ -412,17 +435,17 @@ def generate_plan_pdf(plan: dict) -> bytes:
         total_min += d.get("duration_min") or 0
 
     summary_header = [
-        Paragraph("Einheit", st["table_header"]),
-        Paragraph("Anzahl", st["table_header"]),
-        Paragraph("Gesamtdauer", st["table_header"]),
+        P("Einheit", st["table_header"]),
+        P("Anzahl", st["table_header"]),
+        P("Gesamtdauer", st["table_header"]),
     ]
     summary_data = [summary_header]
     for s_type, count in counts.items():
         dur = sum(d.get("duration_min") or 0 for d in days if d.get("session_type") == s_type)
         summary_data.append([
-            Paragraph(SESSION_LABELS.get(s_type, s_type.upper()), st["table_cell"]),
-            Paragraph(f"{count}×", st["table_cell"]),
-            Paragraph(f"~{dur} min" if dur else "Nach Plan", st["table_cell"]),
+            P(SESSION_LABELS.get(s_type, s_type.upper()), st["table_cell"]),
+            P(f"{count}×", st["table_cell"]),
+            P(f"~{dur} min" if dur else "Nach Plan", st["table_cell"]),
         ])
 
     sum_table = Table(summary_data, colWidths=[60 * mm, 40 * mm, 70 * mm])

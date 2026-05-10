@@ -50,6 +50,9 @@ def parse_fit_file(file_path: str, ftp: int = 238, max_hr: int | None = None) ->
     swim_avg_swolf = None
     swim_lap_times = []  # reine Schwimmzeiten pro Bahn (ohne Pausen)
 
+    # TSS vom Gerät (Garmin/Wahoo berechnen eigenes TSS)
+    device_tss = None
+
     for record in fitfile.get_messages("record"):
         data = {f.name: f.value for f in record if f.value is not None}
         if "heart_rate" in data:
@@ -91,6 +94,8 @@ def parse_fit_file(file_path: str, ftp: int = 238, max_hr: int | None = None) ->
             swim_num_lengths = data["num_lengths"]
         if "avg_swolf_score" in data and data["avg_swolf_score"]:
             swim_avg_swolf = data["avg_swolf_score"]
+        if "training_stress_score" in data and data["training_stress_score"]:
+            device_tss = data["training_stress_score"]
 
     # Lap Messages: nur aktive Schwimmbahnen (kein Rest)
     for lap_msg in fitfile.get_messages("length"):
@@ -109,7 +114,10 @@ def parse_fit_file(file_path: str, ftp: int = 238, max_hr: int | None = None) ->
     max_hr = max(hr_data) if hr_data else None
     avg_watts = round(sum(power_data) / len(power_data)) if power_data else None
     np = calculate_np(power_data) if power_data else None
-    if power_data:
+    if device_tss is not None:
+        # Gerät hat TSS bereits berechnet — diesen Wert verwenden
+        tss = device_tss
+    elif power_data:
         tss = calculate_tss(power_data, ftp, duration_sec)
     elif discipline in ("run", "swim") and avg_hr and duration_min:
         threshold_hr = int((max_hr or 190) * 0.88)

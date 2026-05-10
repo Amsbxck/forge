@@ -11,6 +11,11 @@ def get_current_week(profile: AthleteProfile) -> int:
     return max(1, min(33, delta // 7 + 1))
 
 
+def get_week_for_date(profile: AthleteProfile, target_date: date) -> int:
+    delta = (target_date - profile.plan_start_date).days
+    return max(1, min(33, delta // 7 + 1))
+
+
 def build_athlete_dict(profile: AthleteProfile) -> dict:
     return {
         "ftp_watts": profile.ftp_watts,
@@ -88,10 +93,10 @@ async def generate_and_save_plan(
         season_context=season_context_text,
     )
 
-    target_week = current_week + 1
+    target_week = current_week
     week_start, week_end = get_week_dates(target_week, profile.plan_start_date)
 
-    plan_text_lines = [f"Wochenplan {target_week} ({week_start} – {week_end})", ""]
+    plan_text_lines = [f"Wochenplan {current_week} ({week_start} – {week_end})", ""]
     for day in plan_content.get("days", []):
         plan_text_lines.append(
             f"{day['day']} ({day['date']}): {day['session_type'].upper()} "

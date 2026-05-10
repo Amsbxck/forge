@@ -6,7 +6,7 @@ from database import get_db, SessionLocal
 from models import AthleteProfile, TrainingSession
 from schemas import StravaAuthUrl, StravaConnected
 from services.strava_service import StravaService
-from services.plan_generator import get_current_week
+from services.plan_generator import get_week_for_date
 from core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -45,12 +45,18 @@ async def process_new_strava_activity(activity_id: int, athlete_id: int):
         service = StravaService(db)
         profile = db.query(AthleteProfile).first()
         ftp = profile.ftp_watts if profile else 238
-        current_week = get_current_week(profile) if profile else 1
 
         activity = await service.fetch_activity(activity_id, athlete_id)
         streams = await service.fetch_activity_streams(activity_id, athlete_id)
 
-        session_data = service.map_strava_to_session(activity, streams, ftp, current_week)
+        from datetime import datetime, date as _date
+        try:
+            session_date = datetime.strptime(activity.get("start_date_local", "")[:10], "%Y-%m-%d").date()
+        except Exception:
+            session_date = _date.today()
+        week_number = get_week_for_date(profile, session_date) if profile else 1
+
+        session_data = service.map_strava_to_session(activity, streams, ftp, week_number)
 
         existing = db.query(TrainingSession).filter(
             TrainingSession.strava_activity_id == activity_id

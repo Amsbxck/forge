@@ -228,7 +228,7 @@ export default function Dashboard() {
   const SECTION_TITLE = 'text-xs font-mono tracking-widest text-[#8a909e] mb-4'
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 page-enter">
 
       {/* Page header */}
       <div className="flex items-baseline gap-3">
@@ -281,9 +281,29 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
         {/* HRV card — spans 2 cols */}
-        <div className={`${CARD} p-5 md:col-span-2 flex items-center gap-5`}>
+        <div
+          className={`${CARD} p-5 md:col-span-2 flex items-center gap-5 relative overflow-hidden`}
+          style={{ transition: 'box-shadow 0.6s ease' }}
+        >
+          {/* Status radial glow — the whole card breathes with readiness */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: `radial-gradient(ellipse 60% 80% at 18% 50%, ${statusColor}0e 0%, transparent 70%)`,
+              animation: 'hrvGlow 3s ease-in-out infinite',
+            }}
+          />
+
           {/* Ring */}
-          <div className="relative flex-shrink-0">
+          <div className="relative flex-shrink-0 z-10">
+            {/* Breathing outer ring */}
+            <div
+              className="absolute inset-0 rounded-full"
+              style={{
+                boxShadow: `0 0 18px 4px ${statusColor}30`,
+                animation: 'hrvBreath 3s ease-in-out infinite',
+              }}
+            />
             <svg width="72" height="72" viewBox="0 0 72 72">
               <circle cx="36" cy="36" r="30" fill="none" stroke="#1e2228" strokeWidth="5" />
               <circle
@@ -293,7 +313,7 @@ export default function Dashboard() {
                 strokeDashoffset={`${2 * Math.PI * 30 * (1 - Math.min(Math.max((hrv?.rmssd || 61) - 61, 0) / (99 - 61), 1))}`}
                 strokeLinecap="round"
                 transform="rotate(-90 36 36)"
-                style={{ filter: `drop-shadow(0 0 8px ${statusColor}55)`, transition: 'stroke-dashoffset 0.6s ease' }}
+                style={{ filter: `drop-shadow(0 0 6px ${statusColor}88)`, transition: 'stroke-dashoffset 0.6s ease' }}
               />
             </svg>
             <div className="absolute inset-0 flex items-center justify-center">
@@ -304,7 +324,7 @@ export default function Dashboard() {
           </div>
 
           {/* Text */}
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 z-10">
             <div className={LABEL}>HRV TODAY</div>
             <div className="text-xl font-bold mt-1 mb-1" style={{ color: statusColor, fontFamily: 'Barlow Condensed, sans-serif' }}>
               {HRV_TEXT[status]}
@@ -380,6 +400,16 @@ export default function Dashboard() {
       {/* ── Row 6: Glossary ── */}
       <GlossarySection />
 
+      <style>{`
+        @keyframes hrvBreath {
+          0%, 100% { opacity: 0.4; transform: scale(0.95); }
+          50%       { opacity: 1;   transform: scale(1.05); }
+        }
+        @keyframes hrvGlow {
+          0%, 100% { opacity: 0.6; }
+          50%       { opacity: 1; }
+        }
+      `}</style>
     </div>
   )
 }

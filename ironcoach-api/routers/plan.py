@@ -1,11 +1,17 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import WeeklyPlan
+from models import AthleteProfile, WeeklyPlan
 from schemas import WeeklyPlanOut
-from services.plan_generator import generate_and_save_plan
+from services.plan_generator import generate_and_save_plan, get_current_week
+
+
+def _safe_filename(name: str) -> str:
+    name = name.replace('—', '-').replace('–', '-')
+    return re.sub(r'[^\x00-\x7f]', '', name).replace(' ', '_')
 from services.pdf_generator import generate_plan_pdf
 
 router = APIRouter()
@@ -27,9 +33,16 @@ async def generate_plan(
 
 @router.get("/plan/current", response_model=WeeklyPlanOut)
 def get_current_plan(db: Session = Depends(get_db)):
-    plan = db.query(WeeklyPlan).order_by(WeeklyPlan.generated_at.desc()).first()
+    profile = db.query(AthleteProfile).first()
+    current_week = get_current_week(profile) if profile else 1
+    plan = (
+        db.query(WeeklyPlan)
+        .filter(WeeklyPlan.week_number == current_week)
+        .order_by(WeeklyPlan.generated_at.desc())
+        .first()
+    )
     if not plan:
-        raise HTTPException(status_code=404, detail="Kein Plan vorhanden — erst /api/plan/generate aufrufen")
+        raise HTTPException(status_code=404, detail="Kein Plan für diese Woche — erst /api/plan/generate aufrufen")
     return plan
 
 
@@ -39,7 +52,7 @@ def download_current_plan_pdf(db: Session = Depends(get_db)):
     if not plan:
         raise HTTPException(status_code=404, detail="Kein Plan vorhanden")
     pdf_bytes = generate_plan_pdf({"plan_content": plan.plan_content})
-    filename = f"IronCoach_Woche_{plan.week_number}_{plan.plan_phase or 'Plan'}.pdf".replace(" ", "_")
+    filename = _safe_filename(f"IronCoach_Woche_{plan.week_number}_{plan.plan_phase or 'Plan'}.pdf")
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -58,7 +71,7 @@ def download_plan_pdf(week_number: int, db: Session = Depends(get_db)):
     if not plan:
         raise HTTPException(status_code=404, detail=f"Kein Plan für Woche {week_number}")
     pdf_bytes = generate_plan_pdf({"plan_content": plan.plan_content})
-    filename = f"IronCoach_Woche_{week_number}_{plan.plan_phase or 'Plan'}.pdf".replace(" ", "_")
+    filename = _safe_filename(f"IronCoach_Woche_{week_number}_{plan.plan_phase or 'Plan'}.pdf")
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",

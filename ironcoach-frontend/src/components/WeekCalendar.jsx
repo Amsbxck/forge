@@ -62,8 +62,13 @@ function DetailsSection({ details, sessionType }) {
   )
 }
 
+const DAY_ORDER = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
+
 export default function WeekCalendar({ days: initialDays }) {
-  const [days, setDays] = useState(initialDays)
+  const sorted = [...(initialDays || [])].sort(
+    (a, b) => DAY_ORDER.indexOf(a.day) - DAY_ORDER.indexOf(b.day)
+  )
+  const [days, setDays] = useState(sorted)
   const [dragIndex, setDragIndex] = useState(null)
   const [overIndex, setOverIndex] = useState(null)
 

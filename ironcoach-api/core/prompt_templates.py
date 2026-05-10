@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from core.zwift_catalog import get_phase_workouts
 
 
 def get_phase(week: int) -> str:
@@ -82,12 +83,19 @@ def build_plan_prompt(
     plan_start: date = date(2025, 12, 22),
     season_context: str = "",
 ) -> str:
-    phase = get_phase(week + 1)
+    phase = get_phase(week)
     hrv_status = analyze_hrv_trend(hrv[-3:] if hrv else [])
     session_summary = format_sessions(sessions)
     hrv_text = format_hrv(hrv)
-    week_start, week_end = get_week_dates(week + 1, plan_start)
-    is_deload = (week + 1) % 4 == 0
+    week_start, week_end = get_week_dates(week, plan_start)
+    is_deload = week % 4 == 0
+    phase_workouts_sst = get_phase_workouts(phase, is_deload, "sst_tempo")
+    phase_workouts_endurance = get_phase_workouts(phase, is_deload, "endurance")
+    phase_workouts_threshold = get_phase_workouts(phase, is_deload, "threshold")
+    phase_workouts_vo2max = get_phase_workouts(phase, is_deload, "vo2max")
+    day_names = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+    week_days = [(day_names[i], str(week_start + timedelta(days=i))) for i in range(7)]
+    week_days_str = "\n".join(f"- {name}: {d}" for name, d in week_days)
 
     return f"""## Athletenprofil
 - Name: Amir
@@ -99,9 +107,11 @@ def build_plan_prompt(
 - Schwächen: Schienbein-Reha, Glutes/Abduktoren-Schwäche
  
 ## Aktuelle Position
-- Woche {week}/33 abgeschlossen → Plane Woche {week + 1}
+- Aktuelle Woche: {week}/33
 - Phase: {phase}
 - Zeitraum: {week_start} bis {week_end}
+- Tages-Daten (EXAKT verwenden, nicht selbst berechnen):
+{week_days_str}
  
 ## Trainingsdaten letzte 7-14 Tage
 {session_summary}
@@ -122,7 +132,29 @@ def build_plan_prompt(
 ## HR-Modifikatoren
 - Kühlung (Ventilator + kühle Luft): senkt HR ~8-12 bpm
 - Volle Glykogenspeicher (Carbs): senkt HR ~3-5 bpm
- 
+
+## Zwift Workout Bibliothek (Phase: {phase}{" — DELOAD" if is_deload else ""})
+Verwende für jede Bike-Session EINE dieser Strukturen als Basis.
+Skaliere alle FTP%-Angaben auf absolute Watt: FTP = {athlete_profile['ftp_watts']}W.
+Beispiel: 88% FTP = {int(athlete_profile['ftp_watts'] * 0.88)}W, 95% FTP = {int(athlete_profile['ftp_watts'] * 0.95)}W.
+
+**Intensitätsregel:**
+- 🟢 HRV grün: FTP%-Werte wie angegeben verwenden (bis 95% der Katalog-Prozente)
+- 🟡 HRV gelb: alle FTP%-Werte −3-5% reduzieren
+- 🔴 HRV rot: Nur Endurance-Einheiten, keine Sweet Spot / Threshold / VO2max
+
+### 🟦 Endurance (Z2-Z3 Grundlage)
+{phase_workouts_endurance}
+
+### 🟨 Sweet Spot & Tempo (Z3-Z4 Übergang)
+{phase_workouts_sst}
+
+### 🟧 Threshold / Lactate (Z4 Schwelle)
+{phase_workouts_threshold}
+
+### 🟥 VO2max & Anaerob (Z5-Z6)
+{phase_workouts_vo2max}
+
 ## 33-Wochen Saisonstruktur
 | Phase | Wochen | Fokus | Deload |
 |-------|--------|-------|--------|
@@ -179,16 +211,16 @@ def build_plan_prompt(
 ---
  
 ## Aufgabe
- 
-Erstelle **Woche {week + 1}** ({week_start} – {week_end}).
- 
+
+Erstelle den Plan für **Woche {week}** ({week_start} – {week_end}).
+
 {'🔄 DELOAD-WOCHE: Volumen -40-50%, keine neue Intensität!' if is_deload else ''}
- 
+
 **Antworte NUR mit JSON:**
- 
+
 ```json
 {{
-  "week": {week + 1},
+  "week": {week},
   "phase": "{phase}",
   "week_start": "{week_start}",
   "week_end": "{week_end}",
@@ -208,10 +240,11 @@ Erstelle **Woche {week + 1}** ({week_start} – {week_end}).
 ```
  
 ### details-Format:
- 
-**bike:**
+
+**bike:** (Zwift-Workout-Name in "workout" angeben)
 ```json
 {{
+  "workout": "Name aus der Bibliothek (z.B. Tempo #1)",
   "warmup": "10 min Ramp 100→140 W, Kadenz 70-75 rpm",
   "blocks": [
     {{"block": "1", "watt": "145-155 W", "rpm": "76-80", "dauer": "14 min", "zone": "Z2"}},

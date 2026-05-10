@@ -19,6 +19,36 @@ body {
   font-family: 'DM Sans', system-ui, sans-serif;
 }
 
+/* Noise grain overlay */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 256px 256px;
+}
+
+/* Staggered page entry */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.page-enter > * {
+  opacity: 0;
+  animation: fadeUp 0.4s ease forwards;
+}
+.page-enter > *:nth-child(1) { animation-delay: 0ms; }
+.page-enter > *:nth-child(2) { animation-delay: 55ms; }
+.page-enter > *:nth-child(3) { animation-delay: 110ms; }
+.page-enter > *:nth-child(4) { animation-delay: 165ms; }
+.page-enter > *:nth-child(5) { animation-delay: 220ms; }
+.page-enter > *:nth-child(6) { animation-delay: 275ms; }
+.page-enter > *:nth-child(7) { animation-delay: 330ms; }
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: #07080f; }

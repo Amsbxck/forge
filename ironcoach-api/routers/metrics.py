@@ -19,6 +19,7 @@ def week_metrics(db: Session = Depends(get_db)):
     sessions = (
         db.query(TrainingSession)
         .filter(TrainingSession.week_number == current_week)
+        .filter(TrainingSession.deleted_at == None)
         .all()
     )
 

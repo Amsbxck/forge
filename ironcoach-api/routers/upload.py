@@ -8,7 +8,7 @@ from database import get_db
 from models import AthleteProfile, TrainingSession
 from schemas import UploadResponse
 from services.fit_parser import parse_fit_file, parse_gpx_file
-from services.plan_generator import get_current_week
+from services.plan_generator import get_week_for_date
 from core.config import settings
 
 router = APIRouter()
@@ -49,11 +49,12 @@ async def upload_file(
         os.remove(file_path)
         raise HTTPException(status_code=422, detail=f"Datei konnte nicht geparst werden: {str(e)}")
 
-    current_week = get_current_week(profile) if profile else 1
+    session_date = parsed["session_date"]
+    week_number = get_week_for_date(profile, session_date) if profile else 1
 
     session = TrainingSession(
-        session_date=parsed["session_date"],
-        week_number=current_week,
+        session_date=session_date,
+        week_number=week_number,
         discipline=parsed["discipline"],
         duration_min=parsed.get("duration_min"),
         distance_km=parsed.get("distance_km"),
