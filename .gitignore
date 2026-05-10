@@ -21,6 +21,7 @@ build/
 
 # Runtime
 uploads/
+workouts/
 *.log
 
 # Nested git repos
