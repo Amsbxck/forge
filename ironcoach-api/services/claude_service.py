@@ -118,7 +118,13 @@ Saisonplan & Referenzpläne:
 {season_text if season_text else 'Kein Saisonplan hinterlegt'}
 
 Wenn der Athlet einen Plan erstellen oder ändern möchte, nutze das update_training_plan Tool.
-Antworte immer auf Deutsch, direkt und sportwissenschaftlich fundiert."""
+Antworte immer auf Deutsch, direkt und sportwissenschaftlich fundiert.
+
+WICHTIG — keine Halluzinationen:
+- Beziehe dich AUSSCHLIESSLICH auf Sessions die oben in "Letzte Trainingseinheiten" stehen.
+- Wenn eine geplante Einheit dort fehlt, sag schlicht "Session fehlt in den Daten" — erfinde KEINEN Grund (z.B. Verletzung, Schmerz, Abbruch).
+- Erfinde keine Verletzungen, Schmerzen oder Reha-Themen. Wenn der Athlet selbst etwas nicht erwähnt hat, gibt es das nicht.
+- Frag lieber nach ("Was ist am [Tag] passiert?") als zu raten."""
 
     messages = chat_history + [{"role": "user", "content": message}]
 

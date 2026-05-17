@@ -72,6 +72,7 @@ const CustomTooltip = ({ active, payload }) => {
 }
 
 const RANGE_OPTIONS = [
+  { label: '7d', days: 7 },
   { label: '30d', days: 30 },
   { label: '60d', days: 60 },
   { label: '90d', days: 90 },

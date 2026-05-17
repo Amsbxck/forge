@@ -1,0 +1,193 @@
+import { useState, useMemo } from 'react'
+
+const STATUS_COLOR = { green: '#22c55e', yellow: '#eab308', red: '#ef4444' }
+const STATUS_LABEL = { green: 'Good', yellow: 'Caution', red: 'Rest' }
+const DAY_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', 'Sun']
+
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function buildGrid(data, weeksBack, weeksForward) {
+  const byDate = new Map()
+  for (const d of data) byDate.set(d.measured_at?.slice(0, 10), d)
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const todayIso = isoDate(today)
+  const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1
+
+  const startMonday = new Date(today)
+  startMonday.setDate(today.getDate() - dayOfWeek - (weeksBack - 1) * 7)
+
+  const totalWeeks = weeksBack + weeksForward
+  const columns = []
+  for (let w = 0; w < totalWeeks; w++) {
+    const colMonday = new Date(startMonday)
+    colMonday.setDate(startMonday.getDate() + w * 7)
+    const days = []
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(colMonday)
+      d.setDate(colMonday.getDate() + i)
+      const iso = isoDate(d)
+      const entry = byDate.get(iso)
+      const isFuture = d > today
+      days.push({
+        date: iso,
+        future: isFuture,
+        today: iso === todayIso,
+        ...(entry || {}),
+      })
+    }
+    columns.push({
+      days,
+      monthLabel: colMonday.getDate() <= 7 ? colMonday.toLocaleString('en', { month: 'short' }) : '',
+    })
+  }
+  return columns
+}
+
+function Cell({ day, onHover, isActive }) {
+  if (!day) return <div className="w-[18px] h-[18px]" />
+  const hasData = day.rmssd != null
+  const isFuture = day.future
+  const isToday = day.today
+
+  let color = '#1a1d24'
+  if (hasData) color = STATUS_COLOR[day.hrv_status] || '#3a3f4a'
+  else if (isFuture) color = '#0e1015'
+
+  return (
+    <div
+      className="w-[18px] h-[18px] rounded-sm transition-all cursor-pointer"
+      style={{
+        background: color,
+        opacity: isActive ? 1 : hasData ? 0.92 : isFuture ? 0.7 : 0.6,
+        transform: isActive ? 'scale(1.4)' : 'scale(1)',
+        boxShadow: isActive ? `0 0 8px ${color}` : 'none',
+        border: isToday ? '1px solid #00d4ff' : '1px solid transparent',
+      }}
+      onMouseEnter={() => onHover(day)}
+      onMouseLeave={() => onHover(null)}
+    />
+  )
+}
+
+export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate }) {
+  const [hover, setHover] = useState(null)
+  const computedForward = useMemo(() => {
+    if (weeksForward != null) return weeksForward
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const end = endDate ? new Date(endDate) : new Date(today.getFullYear(), 11, 31)
+    const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1
+    const thisWeekMonday = new Date(today)
+    thisWeekMonday.setDate(today.getDate() - dayOfWeek)
+    const diffDays = Math.ceil((end - thisWeekMonday) / 86400000)
+    return Math.max(0, Math.ceil(diffDays / 7))
+  }, [weeksForward, endDate])
+
+  const columns = useMemo(
+    () => buildGrid(data || [], weeksBack, computedForward),
+    [data, weeksBack, computedForward]
+  )
+
+  if (!data?.length) {
+    return (
+      <div className="text-center py-6 text-sm font-mono" style={{ color: '#8a909e' }}>
+        No HRV data yet.
+      </div>
+    )
+  }
+
+  const totalDays = data.length
+  const greenDays = data.filter(d => d.hrv_status === 'green').length
+  const greenPct = Math.round((greenDays / totalDays) * 100)
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2 items-start overflow-x-auto pb-1">
+        {/* Day labels */}
+        <div className="flex flex-col gap-1 pt-5 font-mono shrink-0" style={{ color: '#3a3f4a' }}>
+          {DAY_LABELS.map((d, i) => (
+            <div key={i} className="h-3.5 flex items-center" style={{ fontSize: '9px', lineHeight: 1 }}>
+              {d}
+            </div>
+          ))}
+        </div>
+
+        {/* Heatmap grid */}
+        <div className="shrink-0">
+          {/* Month labels */}
+          <div className="flex gap-1 mb-1 font-mono" style={{ color: '#3a3f4a' }}>
+            {columns.map((c, i) => (
+              <div key={i} className="w-[18px] text-center" style={{ fontSize: '9px' }}>
+                {c.monthLabel}
+              </div>
+            ))}
+          </div>
+
+          {/* Cells */}
+          <div className="flex gap-1">
+            {columns.map((col, ci) => (
+              <div key={ci} className="flex flex-col gap-1">
+                {col.days.map((day, di) => (
+                  <Cell
+                    key={di}
+                    day={day}
+                    onHover={setHover}
+                    isActive={hover && day && hover.date === day.date}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Hover details — fixed height to prevent layout shift */}
+      <div className="text-xs font-mono h-5 px-1 flex items-center" style={{ color: '#8a909e' }}>
+        {hover ? (
+          hover.rmssd != null ? (
+            <span className="flex items-center gap-2">
+              <span style={{ color: '#e8eaf0' }}>{hover.date}</span>
+              <span style={{ color: '#3a3f4a' }}>·</span>
+              <span style={{ color: '#00d4ff' }} className="font-semibold">{hover.rmssd} ms</span>
+              {hover.readiness_score != null && (
+                <>
+                  <span style={{ color: '#3a3f4a' }}>·</span>
+                  <span>Body Battery <span style={{ color: '#e8eaf0' }}>{hover.readiness_score}</span></span>
+                </>
+              )}
+              <span style={{ color: '#3a3f4a' }}>·</span>
+              <span style={{ color: STATUS_COLOR[hover.hrv_status] }} className="uppercase tracking-wider">
+                {STATUS_LABEL[hover.hrv_status]}
+              </span>
+            </span>
+          ) : (
+            <span>
+              <span style={{ color: '#e8eaf0' }}>{hover.date}</span>
+              <span className="mx-2" style={{ color: '#3a3f4a' }}>·</span>
+              <span style={{ color: '#3a3f4a' }}>
+                {hover.future ? 'Upcoming' : hover.today ? 'Today — no entry yet' : 'No measurement'}
+              </span>
+            </span>
+          )
+        ) : (
+          <span style={{ color: '#3a3f4a' }}>
+            {totalDays} measurements · {greenPct}% green days
+          </span>
+        )}
+      </div>
+
+      {/* Legend */}
+      <div className="flex gap-2 items-center text-xs font-mono pt-1" style={{ color: '#3a3f4a' }}>
+        <span style={{ fontSize: '10px' }}>STATUS</span>
+        <span className="w-3 h-3 rounded-sm ml-1" style={{ background: '#1a1d24' }} title="No data" />
+        <span className="w-3 h-3 rounded-sm" style={{ background: '#ef4444' }} title="Rest" />
+        <span className="w-3 h-3 rounded-sm" style={{ background: '#eab308' }} title="Caution" />
+        <span className="w-3 h-3 rounded-sm" style={{ background: '#22c55e' }} title="Good" />
+      </div>
+    </div>
+  )
+}

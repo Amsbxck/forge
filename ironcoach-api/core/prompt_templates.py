@@ -104,8 +104,97 @@ def build_plan_prompt(
 - Max HR: {athlete_profile['max_hr']} bpm
 - HR-Zonen: Z1 0-{athlete_profile['z1_hr_max']} | Z2 {athlete_profile['z2_hr_min']}-{athlete_profile['z2_hr_max']} | Z3 {athlete_profile['z3_hr_min']}-{athlete_profile['z3_hr_max']} | Z4 {athlete_profile['z4_hr_min']}-{athlete_profile['z4_hr_max']} | Z5 >{athlete_profile['max_hr']}
 - Equipment: Wahoo KICKR Core, Zwift, Garmin Forerunner 255, Wahoo Elemnt Bolt v2
-- Schwächen: Schienbein-Reha, Glutes/Abduktoren-Schwäche
- 
+
+## SCHIENBEIN-PROTOKOLL (KRITISCH — bei JEDEM Plan beachten)
+
+**Status:** Stabil, aktuell kein Schmerz, aber Zwicken/Spannungen bei höherer Pace möglich.
+Die Schienbeine adaptieren sich progressiv an neue Belastungen — sie brauchen kontrollierte Reize um stärker zu werden.
+
+### LAUF-FORMAT (Standard)
+- **Walk-Run Intervalle** sind die Basis: X km joggen + 90sec–2min gehen, wiederholen
+- **Aktuelle Kapazität:** aus den Trainingsdaten der letzten 2 Wochen ableiten
+- **Progression:** Intervall-Distanz erhöhen ODER Gehpause verkürzen — NIE beides gleichzeitig
+- **Steigerung NUR wenn:** Vorwoche war 🟢 (kein Zwicken erwähnt)
+
+### STRIDES (erlaubt!)
+- **Was:** 4–6× 15–20 Sekunden schnell laufen + 60–90 Sekunden gehen
+- **Wann:** Am ENDE eines Laufs (aufgewärmt)
+- **Frequenz:** Max 1× pro Woche, nicht jede Session
+- **Warum:** Progressive Adaptation der Schienbeine an höhere Pace
+- **NICHT in Brick-Sessions!**
+
+### LAUF-TYPEN
+| Typ | Format | Wann |
+|-----|--------|------|
+| Walk-Run Intervalle | 4–5× 2–2.5km jog + 90sec–2min gehen | Standard, 1–2×/Woche |
+| Walk-Run + Strides | Intervalle + 4–6× 20sec schnell am Ende | Max 1×/Woche |
+| Brick-Lauf | 3–4× 800m–1km jog + 2min gehen | Nach Rad, 1×/Woche |
+
+### LAUF-AMPEL (für Feedback-Interpretation aus letzten Sessions)
+| Gefühl | Bedeutung | Nächste Woche |
+|--------|-----------|---------------|
+| 🟢 Nichts spürbar | Voll adaptiert | Progression möglich |
+| 🟡 Zwicken bei neuer Pace | Adaptation läuft | Level halten, Strides OK |
+| 🟠 Zwicken bei alter Pace | Überlastung beginnt | −20% Volumen, keine Strides |
+| 🔴 Schmerz >3/10 | Stopp! | Session abbrechen, Woche pausieren |
+
+### LAUF — VERBOTEN
+- Hill Sprints, Bergläufe
+- Track-Intervalle (400m Repeats mit kurzer Pause)
+- Läufe >12km in einer Session
+- Strides in Brick-Sessions
+- Standalone-Lauf am Tag NACH einem Brick (Brick enthält bereits Lauf)
+- Dauerlauf ohne Gehpausen (noch nicht stabil genug)
+
+---
+
+## BRICK-SESSIONS
+
+### REGELN
+- Nur **Bike → Run** (Swim → Bike erst ab Peak Phase W25+)
+- **Laufanteil IMMER als Walk-Run Intervalle**, nicht kontinuierlich
+- IMMER kürzer als Standalone-Lauf der gleichen Woche
+- KEINE Strides in Brick-Läufen
+- Ziel: Umgewöhnung der Beine, NICHT Pace
+- Tag nach Brick = Rest, Schwimmen oder Rad — KEIN Standalone-Lauf
+
+### BRICK-PROGRESSION
+| Phase | Bike | Run |
+|-------|------|-----|
+| Base 3 | 50–60min Z2 | 3×5min jog + 2min walk |
+| Build 1–2 | 60–75min Z2 + Sweet Spot | 3–4×800m–1km jog + 2min walk |
+| Build 3 | 75–90min mit Threshold-Block | 4×1km jog + 90sec walk |
+| Peak | Race-Simulation | 15–20min kontinuierlich (NUR wenn 4 Wochen schmerzfrei) |
+
+---
+
+## RAD-LOGIK
+
+**Quelle für konkrete Workout-Strukturen ist die Zwift-Bibliothek weiter unten.**
+Hier nur die übergeordneten Regeln:
+
+- **Sessions/Woche dynamisch 2–3**, je nach Phase und HRV
+- **Ab Build 2: Threshold UND VO2max erlaubt** (nicht erst ab Build 3)
+- **Sweet Spot bleibt Brot-und-Butter** in allen Build-Phasen
+- **Max 2 Intensitäts-Sessions/Woche** (Rest ist Z2 oder Recovery)
+- **Rad ist die Hauptbelastungs-Quelle** — hier darf Volumen und Intensität hoch sein
+
+### SESSION-SKALIERUNG NACH HRV
+| HRV Status | Anpassung |
+|------------|-----------|
+| 🟢 >80ms | Plan wie vorgesehen, 3× Rad mit 2× Intensität OK |
+| 🟡 70–80ms | 2–3× Rad, max 1× Intensität (Threshold streichen, Sweet Spot bleibt) |
+| 🟠 65–70ms | Nur 2× Rad Z2, keine Intensität |
+| 🔴 <65ms | 1× Rad Z2 oder Rest, Volumen −30% |
+| ⚠️ Fallend 3+ Tage | Deload-Signale beachten, eine Session streichen |
+
+### TYPISCHE BUILD 2 WOCHE (HRV 🟢)
+- 3× Rad (1× Sweet Spot, 1× Threshold ODER VO2max, 1× Z2/Feel)
+- 2× Lauf (1× Walk-Run + Strides, 1× im Brick)
+- 2× Schwimmen
+- 1× Brick (Sa)
+- 0–1× Gym
+
 ## Aktuelle Position
 - Aktuelle Woche: {week}/33
 - Phase: {phase}

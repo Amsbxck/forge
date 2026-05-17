@@ -1,10 +1,17 @@
+import { useState, useMemo } from 'react'
 import {
   ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, Area
 } from 'recharts'
+import HRVHeatmap from './HRVHeatmap'
 
 const STATUS_COLOR = { green: '#22c55e', yellow: '#eab308', red: '#ef4444' }
-const STATUS_LABEL = { green: 'Good', yellow: 'Caution', red: 'Rest' }
+
+const RANGE_OPTIONS = [
+  { label: '7d', days: 7 },
+  { label: '30d', days: 30 },
+  { label: '60d', days: 60 },
+]
 
 function computeBaseline(data) {
   return data.map((point, i) => {
@@ -37,6 +44,20 @@ const CustomTooltip = ({ active, payload }) => {
 }
 
 export default function HRVHistoryChart({ data }) {
+  const [range, setRange] = useState(30)
+
+  const allChartData = useMemo(() => {
+    if (!data?.length) return []
+    const sorted = [...data].sort((a, b) => a.measured_at?.localeCompare(b.measured_at))
+    return computeBaseline(sorted).map(d => ({
+      ...d,
+      date: d.measured_at?.slice(5),
+      fullDate: d.measured_at,
+    }))
+  }, [data])
+
+  const chartData = useMemo(() => allChartData.slice(-range), [allChartData, range])
+
   if (!data?.length) {
     return (
       <div className="text-center py-8 text-sm font-mono" style={{ color: '#8a909e' }}>
@@ -45,15 +66,26 @@ export default function HRVHistoryChart({ data }) {
     )
   }
 
-  const sorted = [...data].sort((a, b) => a.measured_at?.localeCompare(b.measured_at))
-  const chartData = computeBaseline(sorted).map(d => ({
-    ...d,
-    date: d.measured_at?.slice(5),
-    fullDate: d.measured_at,
-  }))
-
   return (
     <div className="space-y-4">
+      {/* Range toggle */}
+      <div className="flex gap-1.5">
+        {RANGE_OPTIONS.map(opt => (
+          <button
+            key={opt.days}
+            onClick={() => setRange(opt.days)}
+            className="px-3 py-1 rounded-lg text-xs font-mono transition-colors border"
+            style={{
+              borderColor: range === opt.days ? '#00d4ff44' : '#1e2228',
+              color: range === opt.days ? '#00d4ff' : '#8a909e',
+              background: range === opt.days ? '#00d4ff22' : '#111318',
+            }}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
       <ResponsiveContainer width="100%" height={200}>
         <ComposedChart data={chartData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#1e2228" vertical={false} />
@@ -91,34 +123,9 @@ export default function HRVHistoryChart({ data }) {
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm inline-block opacity-20" style={{ background: '#22c55e' }} /> Normal range</span>
       </div>
 
-      {/* Table */}
-      <div className="overflow-auto rounded-xl border" style={{ borderColor: '#1e2228' }}>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b" style={{ borderColor: '#1e2228', background: '#111318' }}>
-              {['Date', 'rMSSD', 'Body Battery', 'Status'].map(h => (
-                <th key={h} className={`px-4 py-2.5 font-normal text-xs uppercase tracking-wider ${h === 'Date' ? 'text-left' : 'text-right'}`} style={{ color: '#8a909e', fontFamily: 'Barlow Condensed, sans-serif' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {[...chartData].reverse().map((row, i) => (
-              <tr key={row.fullDate} className="border-b transition-colors" style={{ borderColor: '#1e2228', background: i === 0 ? '#111318' : 'transparent' }}>
-                <td className="px-4 py-2.5 font-mono text-xs" style={{ color: '#e8eaf0' }}>{row.fullDate}</td>
-                <td className="px-4 py-2.5 text-right font-mono font-semibold" style={{ color: '#00d4ff' }}>{row.rmssd} ms</td>
-                <td className="px-4 py-2.5 text-right font-mono" style={{ color: '#8a909e' }}>
-                  {row.readiness_score != null ? row.readiness_score : <span style={{ color: '#3a3f4a' }}>—</span>}
-                </td>
-                <td className="px-4 py-2.5 text-right">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full inline-block" style={{ background: STATUS_COLOR[row.hrv_status] || '#3a3f4a' }} />
-                    <span className="text-xs" style={{ color: '#8a909e' }}>{STATUS_LABEL[row.hrv_status] || '–'}</span>
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Heatmap */}
+      <div className="pt-2">
+        <HRVHeatmap data={data} weeksBack={14} />
       </div>
     </div>
   )
