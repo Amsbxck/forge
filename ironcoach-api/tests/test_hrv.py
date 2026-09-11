@@ -11,7 +11,11 @@ def test_create_hrv(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data["rmssd"] == 88.5
-    assert data["hrv_status"] == "green"
+    # Ohne hinterlegte Normalspanne bewertet die Ampel bewusst nicht: Eine
+    # geratene Schwelle wäre schlechter als keine, weil der Zustand in die
+    # Planung eingeht. Der Status bleibt deshalb leer, bis genug Messungen
+    # vorliegen oder die Spanne eingetragen wurde.
+    assert data["hrv_status"] is None
 
 
 def test_create_hrv_yellow(client):
@@ -20,7 +24,7 @@ def test_create_hrv_yellow(client):
         "rmssd": 78.0,
     })
     assert resp.status_code == 200
-    assert resp.json()["hrv_status"] == "yellow"
+    assert resp.json()["hrv_status"] is None
 
 
 def test_create_hrv_red(client):
@@ -29,7 +33,7 @@ def test_create_hrv_red(client):
         "rmssd": 65.0,
     })
     assert resp.status_code == 200
-    assert resp.json()["hrv_status"] == "red"
+    assert resp.json()["hrv_status"] is None
 
 
 def test_list_hrv(client):

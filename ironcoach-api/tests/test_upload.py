@@ -49,5 +49,7 @@ def test_get_profile(client):
     resp = client.get("/api/profile")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["ftp_watts"] == 238
-    assert data["max_hr"] == 212
+    # Der Standard ist ein neutraler Platzhalter, seit nicht mehr jeder neue
+    # Athlet mit Amirs Werten startet.
+    assert data["ftp_watts"] == 200
+    assert data["max_hr"] == 190

@@ -11,4 +11,12 @@ COPY . .
 
 RUN mkdir -p /app/uploads
 
-CMD ["sh", "-c", "alembic -c /app/alembic.ini upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"]
+# Kein --reload: Das ist der Entwicklungsserver. Er überwacht das Dateisystem,
+# läuft einprozessig und startet bei jeder Änderung neu — auf einem Server
+# kostet das Speicher und bringt nichts, weil sich dort nichts ändert.
+#
+# Die Portnummer kommt aus der Umgebung, weil Plattformen wie Railway sie
+# vorgeben; ohne Vorgabe bleibt es bei 8000. WEB_CONCURRENCY steuert die Zahl
+# der Prozesse — bei einem kleinen Server ist einer richtig, mehr Prozesse
+# teilen sich sonst denselben Kern und werden langsamer.
+CMD ["sh", "-c", "alembic -c /app/alembic.ini upgrade head && exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-1} --proxy-headers --forwarded-allow-ips='*'"]

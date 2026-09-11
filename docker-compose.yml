@@ -17,6 +17,12 @@ services:
 
   backend:
     build: ./ironcoach-api
+    # Der Reload gehört zur lokalen Entwicklung, nicht ins Abbild: Auf dem
+    # Server überwacht er ein Dateisystem, das sich nie ändert. Hier
+    # überschreibt er den Produktionsbefehl aus dem Dockerfile.
+    command: >
+      sh -c "alembic -c /app/alembic.ini upgrade head &&
+             uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     ports:
       - "8000:8000"
     environment:
@@ -25,7 +31,32 @@ services:
       STRAVA_CLIENT_ID: ${STRAVA_CLIENT_ID}
       STRAVA_CLIENT_SECRET: ${STRAVA_CLIENT_SECRET}
       STRAVA_VERIFY_TOKEN: ${STRAVA_VERIFY_TOKEN}
+      OBSIDIAN_BASE_URL: ${OBSIDIAN_BASE_URL:-}
+      OBSIDIAN_API_KEY: ${OBSIDIAN_API_KEY:-}
+      OBSIDIAN_VAULT_SUBDIR: ${OBSIDIAN_VAULT_SUBDIR:-Training}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-IronCoach}
+      MAIL_STARTTLS: ${MAIL_STARTTLS:-true}
+      MAIL_SSL: ${MAIL_SSL:-false}
+      JWT_SECRET: ${JWT_SECRET:-}
+      AUTH_REQUIRED: ${AUTH_REQUIRED:-true}
+      # Woher das Frontend kommen darf. Lokal ist das der Vite-Server; nach
+      # dem Deploy die Adresse bei Vercel, sonst blockiert der Browser jede
+      # Anfrage.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      RECONCILE_ENABLED: ${RECONCILE_ENABLED:-false}
+      RECONCILE_WINDOW_DAYS: ${RECONCILE_WINDOW_DAYS:-14}
+      RECONCILE_MINUTE: ${RECONCILE_MINUTE:-7}
       UPLOAD_DIR: /app/uploads
+    extra_hosts:
+      # host.docker.internal existiert auf Linux-Hosts nicht automatisch —
+      # ohne das läuft der Obsidian-Client nur unter Docker Desktop.
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./ironcoach-api:/app
       - ./uploads:/app/uploads

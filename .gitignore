@@ -27,3 +27,9 @@ workouts/
 # Nested git repos
 ironcoach-ai/
 .claude/
+
+# Datenbanksicherungen — enthalten alle Nutzerdaten im Klartext
+backups/
+
+# macOS-Ordnermetadaten
+.DS_Store

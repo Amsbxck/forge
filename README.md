@@ -4,7 +4,7 @@ A full-stack triathlon coaching platform that automates the weekly training plan
 
 **Use case:** Replace the manual loop of "paste training data → ask Claude → copy plan → make PDF" with an automated pipeline. Finish a workout, Garmin syncs to Strava, the Strava webhook pushes it into IronCoach, and a freshly adapted weekly plan is generated based on real performance metrics, HRV, and a structured Zwift workout catalog.
 
-Target: Sub-5:30h 70.3 Triathlon on 31 August 2026.
+Target: Sub-5:30h 70.3 Triathlon on 30 August 2026.
 
 ---
 
