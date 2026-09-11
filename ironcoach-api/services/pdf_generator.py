@@ -10,15 +10,31 @@ from reportlab.platypus import (
 )
 from reportlab.lib.enums import TA_LEFT, TA_CENTER
 
-# Farbpalette (passend zum PDF-Beispiel)
-PURPLE = colors.HexColor("#6B3FA0")
-PURPLE_LIGHT = colors.HexColor("#EDE7F6")
-DARK = colors.HexColor("#2D2D2D")
-GRAY_HEADER = colors.HexColor("#444444")
-ORANGE = colors.HexColor("#E65100")
-GREEN = colors.HexColor("#2E7D32")
-GRAY_BG = colors.HexColor("#F5F5F5")
+# Farbpalette der Anwendung. Das PDF sah bisher aus wie ein fremdes
+# Dokument — lila auf weiß, während die Oberfläche dunkel mit Cyan ist.
+# Wer den Plan ausdruckt, soll dieselbe Sache vor sich haben.
+GROUND = colors.HexColor("#07080f")     # Seitengrund
+PANEL = colors.HexColor("#111318")      # Karten
+PANEL_DEEP = colors.HexColor("#0d0f17")  # Eingabeflächen, Tabellenzeilen
+LINE = colors.HexColor("#1e2228")       # Trennlinien
+INK = colors.HexColor("#e8eaf0")        # Fließtext
+MUTED = colors.HexColor("#8a909e")      # Sekundärtext
+FAINT = colors.HexColor("#3a3f4a")      # Beschriftungen
+ACCENT = colors.HexColor("#00d4ff")     # Akzent
+
+WARN = colors.HexColor("#f59e0b")
+BAD = colors.HexColor("#ef4444")
 WHITE = colors.white
+
+# Rückwärtskompatible Namen — im Code wird an mehreren Stellen darauf
+# verwiesen, und ein Umbenennen dort brächte keinen Gewinn.
+PURPLE = ACCENT
+PURPLE_LIGHT = PANEL_DEEP
+DARK = INK
+GRAY_HEADER = PANEL_DEEP
+ORANGE = WARN
+GREEN = colors.HexColor("#22c55e")
+GRAY_BG = PANEL
 
 def P(text, style) -> "Paragraph":
     """Paragraph mit automatischer Latin-1 Bereinigung."""
@@ -42,13 +58,16 @@ def _safe(text) -> str:
     return text
 
 
+# Dieselben Farben wie in der Oberfläche (utils/colors.js): Ampelfarben
+# bleiben Bewertungen vorbehalten, Disziplinen bewerten nichts.
 SESSION_COLORS = {
-    "bike": colors.HexColor("#1565C0"),
-    "run": colors.HexColor("#2E7D32"),
-    "swim": colors.HexColor("#00838F"),
-    "gym": colors.HexColor("#6A1B9A"),
-    "brick": colors.HexColor("#BF360C"),
-    "rest": colors.HexColor("#757575"),
+    "swim": colors.HexColor("#38bdf8"),
+    "bike": colors.HexColor("#a855f7"),
+    "run": colors.HexColor("#ec4899"),
+    "brick": colors.HexColor("#d946ef"),
+    "gym": colors.HexColor("#94a3b8"),
+    "hike": colors.HexColor("#a1a1aa"),
+    "rest": colors.HexColor("#3a3f4a"),
 }
 
 SESSION_LABELS = {
@@ -70,7 +89,10 @@ def _styles():
         parent=base["Normal"],
         fontName="Helvetica-Bold",
         fontSize=24,
-        textColor=DARK,
+        # Ohne eigenes leading behält der Absatz die Zeilenhöhe der
+        # Grundschrift — die Unterzeile lief dann quer durch die Überschrift.
+        leading=27,
+        textColor=INK,
         spaceAfter=2 * mm,
     )
     s["subtitle"] = ParagraphStyle(
@@ -78,7 +100,7 @@ def _styles():
         parent=base["Normal"],
         fontName="Helvetica",
         fontSize=11,
-        textColor=colors.HexColor("#555555"),
+        textColor=MUTED,
         spaceAfter=4 * mm,
     )
     s["section_header"] = ParagraphStyle(
@@ -135,8 +157,8 @@ def _styles():
         "table_header",
         parent=base["Normal"],
         fontName="Helvetica-Bold",
-        fontSize=9,
-        textColor=WHITE,
+        fontSize=7.5,
+        textColor=MUTED,
         alignment=TA_CENTER,
     )
     s["table_cell"] = ParagraphStyle(
@@ -144,7 +166,7 @@ def _styles():
         parent=base["Normal"],
         fontName="Helvetica",
         fontSize=9,
-        textColor=DARK,
+        textColor=INK,
         alignment=TA_CENTER,
     )
     s["progress"] = ParagraphStyle(
@@ -171,10 +193,14 @@ def _day_section_header(day_obj: dict, st: dict):
 
     header_text = f"{day_name.upper()} {date_str} – {label}{duration_text}"
 
-    table_data = [[P(header_text, st["section_header"])]]
+    kopf_stil = ParagraphStyle(
+        "day_header", parent=st["section_header"], textColor=color, fontSize=11,
+    )
+    table_data = [[P(header_text, kopf_stil)]]
     t = Table(table_data, colWidths=[170 * mm])
     t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), color),
+        ("BACKGROUND", (0, 0), (-1, -1), PANEL),
+        ("LINEBEFORE", (0, 0), (0, -1), 3, color),
         ("TOPPADDING", (0, 0), (-1, -1), 6),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ("LEFTPADDING", (0, 0), (-1, -1), 8),
@@ -218,10 +244,9 @@ def _render_blocks(blocks, st: dict) -> list:
     col_w = 170 * mm / len(all_keys)
     t = Table(data, colWidths=[col_w] * len(all_keys))
     t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), GRAY_HEADER),
-        ("BACKGROUND", (0, 1), (-1, -1), GRAY_BG),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, GRAY_BG]),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CCCCCC")),
+        ("BACKGROUND", (0, 0), (-1, 0), PANEL_DEEP),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [PANEL, PANEL_DEEP]),
+        ("GRID", (0, 0), (-1, -1), 0.4, LINE),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
@@ -231,61 +256,59 @@ def _render_blocks(blocks, st: dict) -> list:
     return [t]
 
 
-def _render_details(details: dict, st: dict) -> list:
-    """Rendert das details-Objekt eines Trainingstags."""
+LABEL_MAP = {
+    "warmup": "Warm-up",
+    "warm_up": "Warm-up",
+    "hauptteil": "Hauptteil",
+    "main": "Hauptteil",
+    "blocks": "Trainingsblöcke",
+    "intervals": "Intervalle",
+    "kraftblock": "Kraftblock",
+    "exercises": "Übungen",
+    "cooldown": "Cool-down",
+    "cool_down": "Cool-down",
+    "struktur": "Struktur",
+    "structure": "Struktur",
+    "bike": "RAD",
+    "run": "LAUFEN",
+    "swim": "SCHWIMMEN",
+    "transition": "Wechsel",
+    "typ": "Typ",
+    "pace": "Pace",
+    "ziel_hr": "Ziel-HR",
+    "strides": "Strides",
+    "hinweis": "Hinweis",
+}
+
+
+def _label_for(key: str) -> str:
+    return LABEL_MAP.get(key, key.replace("_", " ").title())
+
+
+def _render_details(details: dict, st: dict, depth: int = 0) -> list:
+    """Rendert das details-Objekt eines Trainingstags rekursiv."""
     if not details or not isinstance(details, dict):
         return []
 
     elements = []
 
-    # Bekannte Schlüssel in sinnvoller Reihenfolge
-    order = ["warmup", "warm_up", "hauptteil", "main", "blocks", "intervals",
-             "kraftblock", "exercises", "cooldown", "cool_down", "struktur", "structure"]
+    order = ["bike", "transition", "run", "swim",
+             "warmup", "warm_up", "hauptteil", "main", "typ", "struktur", "structure",
+             "blocks", "intervals", "pace", "ziel_hr", "kraftblock", "exercises",
+             "cooldown", "cool_down", "strides", "hinweis"]
 
-    rendered_keys = set()
+    ordered_keys = [k for k in order if k in details]
+    remaining_keys = [k for k in details.keys() if k not in ordered_keys]
 
-    for key in order:
-        if key not in details:
-            continue
-        rendered_keys.add(key)
+    for key in ordered_keys + remaining_keys:
         val = details[key]
-
-        label_map = {
-            "warmup": "Warm-up",
-            "warm_up": "Warm-up",
-            "hauptteil": "Hauptteil",
-            "main": "Hauptteil",
-            "blocks": "Trainingsblöcke",
-            "intervals": "Intervalle",
-            "kraftblock": "Kraftblock",
-            "exercises": "Übungen",
-            "cooldown": "Cool-down",
-            "cool_down": "Cool-down",
-            "struktur": "Struktur",
-            "structure": "Struktur",
-        }
-        label = label_map.get(key, key.replace("_", " ").title())
-        elements.append(P(label, st["subsection"]))
-
-        if isinstance(val, list):
-            block_els = _render_blocks(val, st)
-            if block_els:
-                elements.extend(block_els)
-            else:
-                for item in val:
-                    elements.append(P(f"• {item}", st["body"]))
-        elif isinstance(val, dict):
-            for k, v in val.items():
-                elements.append(P(f"<b>{k}:</b> {v}", st["body"]))
-        else:
-            elements.append(P(str(val), st["body"]))
-
-    # Restliche Schlüssel
-    for key, val in details.items():
-        if key in rendered_keys:
+        if val is None or val == "":
             continue
-        elements.append(P(key.replace("_", " ").title(), st["subsection"]))
+
+        label = _label_for(key)
+
         if isinstance(val, list):
+            elements.append(P(label, st["subsection"]))
             block_els = _render_blocks(val, st)
             if block_els:
                 elements.extend(block_els)
@@ -293,10 +316,15 @@ def _render_details(details: dict, st: dict) -> list:
                 for item in val:
                     elements.append(P(f"• {item}", st["body"]))
         elif isinstance(val, dict):
-            for k, v in val.items():
-                elements.append(P(f"<b>{k}:</b> {v}", st["body"]))
+            # Recursive: subsection-style for nested blocks (bike/run in brick)
+            elements.append(P(label, st["subsection"]))
+            elements.extend(_render_details(val, st, depth=depth + 1))
         else:
-            elements.append(P(str(val), st["body"]))
+            if depth == 0:
+                elements.append(P(label, st["subsection"]))
+                elements.append(P(str(val), st["body"]))
+            else:
+                elements.append(P(f"<b>{label}:</b> {val}", st["body"]))
 
     return elements
 
@@ -329,13 +357,18 @@ def _overview_table(days: list, st: dict) -> Table:
     row_colors = []
     for i, d in enumerate(days, start=1):
         session_type = d.get("session_type", "rest")
-        c = SESSION_COLORS.get(session_type, GRAY_HEADER)
-        light = colors.Color(c.red, c.green, c.blue, alpha=0.12)
-        row_colors.append(("BACKGROUND", (0, i), (-1, i), light))
+        c = SESSION_COLORS.get(session_type, MUTED)
+        # Auf dunklem Grund reicht eine sehr schwache Einfärbung; mehr davon
+        # macht die Schrift darüber unlesbar.
+        row_colors.append(("BACKGROUND", (0, i), (-1, i),
+                           colors.Color(c.red, c.green, c.blue, alpha=0.10)))
+        # Farbkante links statt Gitternetz — dieselbe Zuordnung wie im
+        # Wochenkalender der Oberfläche.
+        row_colors.append(("LINEBEFORE", (0, i), (0, i), 2, c))
 
     t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), DARK),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#DDDDDD")),
+        ("BACKGROUND", (0, 0), (-1, 0), PANEL_DEEP),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.4, LINE),
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
@@ -345,6 +378,39 @@ def _overview_table(days: list, st: dict) -> Table:
         *row_colors,
     ]))
     return t
+
+
+def _page_furniture(canvas, doc):
+    """Dunkler Grund, Wortmarke oben, Seitenzahl unten.
+
+    ReportLab kennt keinen Seitenhintergrund — er wird als Rechteck über die
+    volle Seite gezeichnet, bevor der Inhalt darüberkommt.
+    """
+    canvas.saveState()
+    breite, hoehe = A4
+
+    canvas.setFillColor(GROUND)
+    canvas.rect(0, 0, breite, hoehe, stroke=0, fill=1)
+
+    # Wortmarke
+    canvas.setFillColor(ACCENT)
+    canvas.setFont("Helvetica-Bold", 12)
+    canvas.drawString(20 * mm, hoehe - 12 * mm, "F O R G E")
+    canvas.setFillColor(FAINT)
+    canvas.setFont("Helvetica", 6.5)
+    canvas.drawString(20 * mm, hoehe - 15.5 * mm, "I R O N C O A C H   A I")
+
+    # Haarlinie unter dem Kopf
+    canvas.setStrokeColor(LINE)
+    canvas.setLineWidth(0.5)
+    canvas.line(20 * mm, hoehe - 18 * mm, breite - 20 * mm, hoehe - 18 * mm)
+
+    # Fußzeile
+    canvas.setFillColor(FAINT)
+    canvas.setFont("Helvetica", 7)
+    canvas.drawRightString(breite - 20 * mm, 12 * mm, f"Seite {canvas.getPageNumber()}")
+    canvas.drawString(20 * mm, 12 * mm, datetime.now().strftime("%d.%m.%Y"))
+    canvas.restoreState()
 
 
 def generate_plan_pdf(plan: dict) -> bytes:
@@ -358,8 +424,8 @@ def generate_plan_pdf(plan: dict) -> bytes:
         pagesize=A4,
         leftMargin=20 * mm,
         rightMargin=20 * mm,
-        topMargin=18 * mm,
-        bottomMargin=18 * mm,
+        topMargin=26 * mm,
+        bottomMargin=20 * mm,
     )
 
     content = plan.get("plan_content", plan)  # akzeptiert plan_content oder direkt dict
@@ -469,5 +535,5 @@ def generate_plan_pdf(plan: dict) -> bytes:
         st["note"]
     ))
 
-    doc.build(elements)
+    doc.build(elements, onFirstPage=_page_furniture, onLaterPages=_page_furniture)
     return buf.getvalue()

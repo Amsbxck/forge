@@ -1,7 +1,31 @@
+import logging
 import os
 from datetime import date
 from fitparse import FitFile
+
+logger = logging.getLogger(__name__)
 from services.tss_calculator import calculate_np, calculate_tss, calculate_run_tss
+
+
+def zones_from_profile(profile) -> dict | None:
+    """Zonengrenzen aus dem Athletenprofil.
+
+    Ohne diese Anbindung rechnet alles mit den Standardwerten weiter, auch
+    nachdem die Zonen im Profil geändert wurden — der Fehler bliebe still,
+    weil die Zahlen weiterhin plausibel aussehen.
+    """
+    if profile is None:
+        return None
+    return {
+        "z1_max": profile.z1_hr_max,
+        "z2_max": profile.z2_hr_max,
+        "z3_max": profile.z3_hr_max,
+        "z4_max": profile.z4_hr_max,
+        # Für die pulsbasierte TSS. Getrennt von den Zonengrenzen, weil es
+        # ein gemessener Wert ist und keine abgeleitete Grenze.
+        "threshold_hr": profile.threshold_hr,
+        "swim_threshold_hr": profile.swim_threshold_hr,
+    }
 
 
 def calculate_hr_zones(hr_data: list, zones: dict | None = None) -> dict:
@@ -31,7 +55,12 @@ def sample_stream(data: list, interval: int = 10) -> list:
     return [data[i] for i in range(0, len(data), interval)]
 
 
-def parse_fit_file(file_path: str, ftp: int = 238, max_hr: int | None = None) -> dict:
+def parse_fit_file(
+    file_path: str,
+    ftp: int = 238,
+    max_hr: int | None = None,
+    hr_zone_bounds: dict | None = None,
+) -> dict:
     """
     Parst Garmin/Wahoo FIT Datei.
     Extrahiert: Dauer, Distanz, HR, Watt, Pace, TSS, HR-Zonen
@@ -52,6 +81,13 @@ def parse_fit_file(file_path: str, ftp: int = 238, max_hr: int | None = None) ->
 
     # TSS vom Gerät (Garmin/Wahoo berechnen eigenes TSS)
     device_tss = None
+
+    # Dauer aus der session-Message. Nötig, weil die Zahl der record-Messages
+    # nur bei 1-Hz-Aufzeichnung der Dauer entspricht — bei Garmins "Smart
+    # Recording" wird deutlich seltener geschrieben, und die Dauer fällt
+    # dramatisch zu niedrig aus (eine 234-min-Tour wurde so zu 68 min).
+    session_timer_time_sec = None
+    session_elapsed_time_sec = None
 
     for record in fitfile.get_messages("record"):
         data = {f.name: f.value for f in record if f.value is not None}
@@ -74,10 +110,19 @@ def parse_fit_file(file_path: str, ftp: int = 238, max_hr: int | None = None) ->
             sport = str(data["sport"]).lower()
             if "cycling" in sport or "bike" in sport or "virtual" in sport:
                 discipline = "bike"
+            elif "hiking" in sport or "walking" in sport:
+                # Vor der run-Prüfung: sonst wird eine Wanderung als Lauf
+                # gewertet und erzeugt Lauf-TSS, den es nie gab.
+                discipline = "hike"
             elif "running" in sport or "run" in sport:
                 discipline = "run"
             elif "swimming" in sport or "swim" in sport or "open_water" in sport:
                 discipline = "swim"
+            else:
+                # Unbekannte Sportart nicht stillschweigend als Rad verbuchen —
+                # genau so wurde eine Wanderung zur 68-Minuten-Radausfahrt.
+                logger.warning("Unbekannte FIT-Sportart '%s' — als 'other' importiert", sport)
+                discipline = "other"
         if "start_time" in data and data["start_time"]:
             try:
                 session_date = data["start_time"].date()
@@ -88,6 +133,9 @@ def parse_fit_file(file_path: str, ftp: int = 238, max_hr: int | None = None) ->
         # Swim aktive Zeit (ohne Pausen)
         if "total_timer_time" in data and data["total_timer_time"]:
             swim_active_time_sec = data["total_timer_time"]
+            session_timer_time_sec = data["total_timer_time"]
+        if "total_elapsed_time" in data and data["total_elapsed_time"]:
+            session_elapsed_time_sec = data["total_elapsed_time"]
         if "pool_length" in data and data["pool_length"]:
             swim_pool_length_m = data["pool_length"]
         if "num_lengths" in data and data["num_lengths"]:
@@ -107,8 +155,23 @@ def parse_fit_file(file_path: str, ftp: int = 238, max_hr: int | None = None) ->
     if session_date is None:
         session_date = date.today()
 
-    duration_sec = len(timestamps) if timestamps else 0
+    # Reihenfolge nach Verlässlichkeit: die vom Gerät gemeldete Bewegungszeit
+    # schlägt die Gesamtzeit, und beide schlagen die Zahl der Messpunkte.
+    if session_timer_time_sec:
+        duration_sec = int(session_timer_time_sec)
+    elif session_elapsed_time_sec:
+        duration_sec = int(session_elapsed_time_sec)
+    elif len(timestamps) >= 2:
+        # Zeitspanne statt Anzahl — robust gegen unregelmäßige Aufzeichnung.
+        duration_sec = int((max(timestamps) - min(timestamps)).total_seconds())
+    else:
+        duration_sec = len(timestamps)
     duration_min = round(duration_sec / 60) if duration_sec else None
+
+    # Laufleistung verwerfen — sie ist mit Radwatt nicht vergleichbar und
+    # würde gegen die Rad-FTP absurde TSS-Werte erzeugen.
+    if discipline in ("run", "hike"):
+        power_data = []
 
     avg_hr = round(sum(hr_data) / len(hr_data)) if hr_data else None
     max_hr = max(hr_data) if hr_data else None
@@ -119,8 +182,20 @@ def parse_fit_file(file_path: str, ftp: int = 238, max_hr: int | None = None) ->
         tss = device_tss
     elif power_data:
         tss = calculate_tss(power_data, ftp, duration_sec)
-    elif discipline in ("run", "swim") and avg_hr and duration_min:
-        threshold_hr = int((max_hr or 190) * 0.88)
+    elif avg_hr and duration_min and discipline != "rest":
+        # Schwellenpuls aus dem Profil, sonst hilfsweise aus dem Maximalpuls
+        # der Einheit. Vorher rechnete dieser Weg immer mit max × 0,88, der
+        # Strava-Weg dagegen mit der Zonengrenze aus dem Profil — dieselbe
+        # Einheit bekam je nach Importweg eine andere TSS.
+        # Gemessener Schwellenpuls zuerst; ohne ihn die Zonengrenze, und
+        # ganz ohne Profil hilfsweise aus dem Maximalpuls der Einheit.
+        grenzen = hr_zone_bounds or {}
+        threshold_hr = (
+            (grenzen.get("swim_threshold_hr") if discipline == "swim" else None)
+            or grenzen.get("threshold_hr")
+            or grenzen.get("z2_max")
+            or int((max_hr or 190) * 0.88)
+        )
         tss = calculate_run_tss(duration_min, avg_hr, threshold_hr)
     else:
         tss = None
@@ -133,7 +208,7 @@ def parse_fit_file(file_path: str, ftp: int = 238, max_hr: int | None = None) ->
         if avg_speed_ms > 0:
             avg_pace_min_km = round(1000 / avg_speed_ms / 60, 2)
 
-    hr_zones = calculate_hr_zones(hr_data) if hr_data else None
+    hr_zones = calculate_hr_zones(hr_data, hr_zone_bounds) if hr_data else None
 
     # Swim Pace (min/100m) — nur reine Schwimmzeit (Bahnen ohne Pausen)
     swim_pace_per_100m = None

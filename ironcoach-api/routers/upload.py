@@ -10,6 +10,7 @@ from schemas import UploadResponse
 from services.fit_parser import parse_fit_file, parse_gpx_file
 from services.plan_generator import get_week_for_date
 from core.config import settings
+from core.deps import get_profile
 
 router = APIRouter()
 
@@ -36,13 +37,17 @@ async def upload_file(
     with open(file_path, "wb") as f:
         f.write(content)
 
-    profile = db.query(AthleteProfile).first()
+    profile = get_profile(db)
     ftp = profile.ftp_watts if profile else 238
     max_hr = profile.max_hr if profile else None
 
     try:
         if ext == ".fit":
-            parsed = parse_fit_file(file_path, ftp=ftp, max_hr=max_hr)
+            from services.fit_parser import zones_from_profile
+            parsed = parse_fit_file(
+                file_path, ftp=ftp, max_hr=max_hr,
+                hr_zone_bounds=zones_from_profile(profile),
+            )
         else:
             parsed = parse_gpx_file(file_path)
     except Exception as e:
@@ -53,6 +58,7 @@ async def upload_file(
     week_number = get_week_for_date(profile, session_date) if profile else 1
 
     session = TrainingSession(
+        user_id=profile.user_id if profile else None,
         session_date=session_date,
         week_number=week_number,
         discipline=parsed["discipline"],
