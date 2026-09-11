@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getProfile, updateProfile, getStravaStatus, getStravaAuthUrl } from '../services/api'
+import { getProfile, updateProfile, getStravaStatus, getStravaAuthUrl, getActiveGoal } from '../services/api'
 import PasswordChange from '../components/PasswordChange'
 import AccountSection from '../components/AccountSection'
 import Thresholds from '../components/Thresholds'
@@ -29,11 +29,19 @@ export default function Profile() {
   const [pulsEdit, setPulsEdit] = useState(false)
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
+  // Sportart des Saisonziels — entscheidet, welche Schwellenwerte überhaupt
+  // gebraucht werden. Ohne Ziel bleibt sie leer und es wird nichts ausgeblendet.
+  const [zielSport, setZielSport] = useState(null)
 
   const load = useCallback(async () => {
     try {
-      const [p, s] = await Promise.all([getProfile(), getStravaStatus()])
+      const [p, s, z] = await Promise.all([
+        getProfile(),
+        getStravaStatus(),
+        getActiveGoal().catch(() => ({ data: null })),
+      ])
       setProfile(p.data)
+      setZielSport(z.data?.sport || null)
       setForm({ ftp_watts: p.data.ftp_watts, max_hr: p.data.max_hr, name: p.data.name, race_goal: p.data.race_goal })
       setStrava(s.data)
     } catch (e) { console.error(e) }
@@ -162,7 +170,7 @@ export default function Profile() {
       </div>
 
       {/* ── Schwellenwerte zuerst: das ist, wofür man das Profil öffnet ── */}
-      <Thresholds profile={profile} onChanged={load} />
+      <Thresholds profile={profile} onChanged={load} sport={zielSport} />
 
       <ZoneEditor profile={profile} onSaved={load} />
 

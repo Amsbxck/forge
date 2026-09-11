@@ -44,10 +44,32 @@ function fehlerText(err, fallback) {
  *  und Pace, Puls und CSS klein in einer Nebenzeile — dabei sind es dieselbe
  *  Art von Wert, nur für eine andere Disziplin.
  */
-function SportKarte({ disziplin, titel, werte, quelle, hinweis, warnung, kinder, onReset, busy }) {
+function SportKarte({ disziplin, titel, werte, quelle, hinweis, warnung, kinder, onReset, busy, relevant = true }) {
   const [offen, setOffen] = useState(false)
   const farbe = DISCIPLINE_COLOR[disziplin]
   const gesetzt = werte.some(w => w.wert)
+
+  // Für das Saisonziel belanglos: Die Karte bleibt stehen, damit die Reihe
+  // vollständig ist — aber ohne Eingabeaufforderung. Ein Läufer soll nicht
+  // zum Eintragen einer FTP aufgefordert werden, die in keine Vorgabe eingeht.
+  if (!relevant) {
+    return (
+      <div className={`${CARD} p-5 flex flex-col`} style={{ opacity: .45 }}>
+        <div className="flex items-center gap-2 mb-3">
+          <SportIcon discipline={disziplin} size={16} color="var(--text-muted)" />
+          <span className="text-sm font-bold tracking-widest"
+                style={{ ...DISPLAY, color: 'var(--text-muted)' }}>
+            {titel}
+          </span>
+        </div>
+        <div className="font-black leading-none text-[var(--text-muted)]"
+             style={{ ...DISPLAY, fontSize: 'clamp(2rem, 4vw, 2.6rem)' }}>—</div>
+        <div className="mt-auto pt-3 text-[10px] font-mono text-[var(--text-muted)]">
+          für dein Saisonziel nicht nötig
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className={`${CARD} p-5 flex flex-col`}>
@@ -105,7 +127,15 @@ function SportKarte({ disziplin, titel, werte, quelle, hinweis, warnung, kinder,
   )
 }
 
-export default function Thresholds({ profile, onChanged }) {
+/** Welche Werte für welche Sportart zählen — dieselbe Einteilung wie im
+ *  Backend (`core/race_types.SPORT_WERTE`). */
+const WERTE_JE_SPORT = {
+  triathlon: ['ftp', 'run_threshold', 'css'],
+  running: ['run_threshold'],
+  cycling: ['ftp'],
+}
+
+export default function Thresholds({ profile, onChanged, sport }) {
   const [busy, setBusy] = useState(false)
   const [fehler, setFehler] = useState(null)
   const [rad, setRad] = useState({ ftp: '' })
@@ -113,6 +143,10 @@ export default function Thresholds({ profile, onChanged }) {
   const [schwimm, setSchwimm] = useState({ t400: '', t200: '', hr: '' })
 
   if (!profile) return null
+
+  // Ohne Saisonziel gilt Triathlon: Dann ist noch offen, worauf trainiert
+  // wird, und alles auszublenden wäre die schlechtere Annahme.
+  const zaehlt = WERTE_JE_SPORT[sport] || WERTE_JE_SPORT.triathlon
 
   const tun = async (fn) => {
     setBusy(true); setFehler(null)
@@ -127,6 +161,7 @@ export default function Thresholds({ profile, onChanged }) {
         {/* ── Rad ── */}
         <SportKarte
           disziplin="bike" titel="RAD · FTP" busy={busy}
+          relevant={zaehlt.includes('ftp')}
           werte={[{ label: 'FTP', wert: profile.ftp_watts, einheit: 'W' }]}
           quelle={profile.zones_source === 'manual' ? 'manual' : profile.zones_source === 'benchmark' ? 'auto' : null}
           hinweis="Bezugsgröße aller Wattvorgaben"
@@ -154,6 +189,7 @@ export default function Thresholds({ profile, onChanged }) {
         {/* ── Laufen ── */}
         <SportKarte
           disziplin="run" titel="LAUFEN · SCHWELLE" busy={busy}
+          relevant={zaehlt.includes('run_threshold')}
           werte={[
             { label: 'PULS', wert: profile.threshold_hr, einheit: 'bpm' },
             { label: 'PACE', wert: alsZeit(profile.threshold_pace_s_per_km), einheit: '/km' },
@@ -194,6 +230,7 @@ export default function Thresholds({ profile, onChanged }) {
         {/* ── Schwimmen ── */}
         <SportKarte
           disziplin="swim" titel="SCHWIMMEN · CSS" busy={busy}
+          relevant={zaehlt.includes('css')}
           werte={[
             { label: 'PULS', wert: profile.swim_threshold_hr, einheit: 'bpm' },
             { label: 'CSS', wert: alsZeit(profile.css_pace_s_per_100m), einheit: '/100m' },

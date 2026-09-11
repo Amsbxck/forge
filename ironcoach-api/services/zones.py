@@ -128,16 +128,24 @@ def _alter_hinweis(profile) -> str:
     )
 
 
-def prompt_block(profile) -> str:
+def prompt_block(profile, sport: str | None = None) -> str:
     """Die Bereiche als Prompt-Abschnitt.
 
     Leer, solange nichts gemessen ist: Erfundene Zonen wären schlimmer als
     keine, weil der Plan dann Vorgaben trägt, die nach Messung aussehen.
+
+    `sport` blendet aus, was für das Saisonziel keine Rolle spielt. Ein
+    Läufer, dem Wattbereiche und CSS-Pace im Prompt stehen, bekommt sonst
+    Vorgaben für Disziplinen, die in seinem Plan gar nicht vorkommen — und
+    das Modell greift sie erfahrungsgemäß auf.
     """
+    from core.race_types import relevante_werte
+
+    zaehlt = relevante_werte(sport)
     teile = []
 
     pace = getattr(profile, "threshold_pace_s_per_km", None)
-    if pace:
+    if pace and "run_threshold" in zaehlt:
         zeilen = "\n".join(f"| {z['name']} | {z['text']} |" for z in lauf_zonen(pace))
         teile.append(
             f"### Laufen — Schwellenpace {mmss(pace)}/km"
@@ -146,7 +154,7 @@ def prompt_block(profile) -> str:
         )
 
     css = getattr(profile, "css_pace_s_per_100m", None)
-    if css:
+    if css and "css" in zaehlt:
         zeilen = "\n".join(f"| {z['name']} | {z['text']} |" for z in schwimm_zonen(css))
         teile.append(
             f"### Schwimmen — CSS {mmss(css)}/100m"
@@ -154,7 +162,7 @@ def prompt_block(profile) -> str:
         )
 
     ftp = getattr(profile, "ftp_watts", None)
-    if ftp:
+    if ftp and "ftp" in zaehlt:
         zeilen = "\n".join(f"| {z['name']} | {z['text']} |" for z in rad_zonen(ftp))
         teile.append(
             f"### Rad — FTP {ftp} W\n| Bereich | Leistung |\n|---|---|\n" + zeilen

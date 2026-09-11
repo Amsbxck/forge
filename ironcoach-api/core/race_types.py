@@ -9,11 +9,12 @@ Konstanten im Code.
 
 from datetime import date, timedelta
 
-SPORTS = ["triathlon", "running"]
+SPORTS = ["triathlon", "running", "cycling"]
 
 SPORT_LABEL = {
     "triathlon": "Triathlon",
     "running": "Laufen",
+    "cycling": "Radsport",
 }
 
 # Distanzen je Sportart. `weeks` ist die empfohlene Aufbaudauer für jemanden
@@ -53,13 +54,38 @@ RACE_TYPES: dict[str, dict[str, dict]] = {
         "half_marathon": {"label": "Halbmarathon", "run_km": 21.1, "weeks": 14},
         "marathon": {"label": "Marathon", "run_km": 42.2, "weeks": 18},
     },
+    # Drei Formate, die sich in der Vorbereitung deutlich unterscheiden: ein
+    # Zeitfahren lebt von der Schwellenleistung, ein Radmarathon vom Umfang,
+    # eine Langstrecke zusätzlich von Verpflegung und Sitzzeit. Die
+    # Bezeichnungen lassen sich ändern, ohne dass sonst etwas davon abhängt.
+    "cycling": {
+        "time_trial": {"label": "Zeitfahren (~40 km)", "bike_km": 40, "weeks": 12},
+        "gran_fondo": {"label": "Radmarathon (~120 km)", "bike_km": 120, "weeks": 16},
+        "ultra": {"label": "Langstrecke (200 km+)", "bike_km": 200, "weeks": 24},
+    },
 }
 
 # Welche Disziplinen ein Plan überhaupt enthalten darf.
 SPORT_DISCIPLINES = {
     "triathlon": ["swim", "bike", "run", "brick", "gym", "rest"],
     "running": ["run", "gym", "bike", "rest"],  # Rad als Ausgleich, ohne Wettkampfbezug
+    "cycling": ["bike", "gym", "rest"],         # Laufen belastet die Beine anders
 }
+
+# Welche gemessenen Werte für eine Sportart überhaupt eine Rolle spielen.
+# Ein Läufer braucht keine FTP und keine CSS-Pace — sie im Profil als leere
+# Kacheln zu zeigen oder in der Testwoche abzufragen, verlangt Arbeit für
+# Zahlen, die nie in eine Vorgabe eingehen.
+SPORT_WERTE = {
+    "triathlon": ["ftp", "run_threshold", "css"],
+    "running": ["run_threshold"],
+    "cycling": ["ftp"],
+}
+
+
+def relevante_werte(sport: str | None) -> list[str]:
+    """Die Schwellenwerte, die für diese Sportart zählen."""
+    return SPORT_WERTE.get((sport or "").lower(), SPORT_WERTE["triathlon"])
 
 # Anteil der Gesamtdauer je Phase. Entspricht ungefähr dem bisherigen
 # 33-Wochen-Aufbau (Base 12, Build 12, Peak 6, Taper 3 Wochen).

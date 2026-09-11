@@ -102,7 +102,9 @@ def bloecke(db: Session, user=None, fakten: dict | None = None) -> dict:
 
     def _zonen():
         from services.zones import prompt_block
-        return prompt_block(profile) if profile else ""
+        return prompt_block(
+            profile, sport=getattr(goal, "sport", None)
+        ) if profile else ""
 
     def _verlauf():
         from services.season_summary import prompt_block

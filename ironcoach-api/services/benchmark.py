@@ -46,6 +46,34 @@ def benchmark_week(sport: str, start: date) -> list[dict]:
             **fields,
         }
 
+    if sport == "cycling":
+        # Nur was fürs Rad zählt. Ein Laufschwellentest oder ein CSS-Test
+        # lieferte Zahlen, die in keine einzige Vorgabe eingehen — und käme
+        # den Athleten trotzdem einen harten Tag zu stehen.
+        return [
+            day(0, session_type="rest", training_type="rest", duration_min=0,
+                notes="Ruhetag vor dem Test."),
+            day(1, session_type="bike", training_type="threshold", duration_min=60,
+                notes="BENCHMARK FTP-Test: 20 min einfahren, 5 min hart öffnen, "
+                      "5 min locker, dann 20 min maximal gleichmäßig. Danach "
+                      "10 min ausfahren. Nicht zu schnell starten — die letzten "
+                      "fünf Minuten entscheiden.",
+                details={"workout": "Benchmark 20-Minuten-FTP-Test",
+                         "warmup": {"dauer": "20 min", "watt": "locker bis zügig"},
+                         "blocks": [{"block": "Test", "dauer": "20 min",
+                                     "watt": "so hoch wie gleichmäßig durchhaltbar"}],
+                         "cooldown": {"dauer": "10 min", "watt": "locker"}}),
+            day(2, session_type="rest", training_type="rest", duration_min=0),
+            day(3, session_type="bike", training_type="z2_endurance", duration_min=75,
+                notes="Locker nach Gefühl. Dient als Vergleichswert für die Zonen."),
+            day(4, session_type="rest", training_type="rest", duration_min=0),
+            day(5, session_type="bike", training_type="long_ride", duration_min=150,
+                notes="Ruhige lange Ausfahrt, Gesprächstempo. Nebenbei ein Test "
+                      "der Verpflegung — was auf 2,5 Stunden funktioniert, "
+                      "funktioniert später auch länger."),
+            day(6, session_type="rest", training_type="rest", duration_min=0),
+        ]
+
     if sport == "running":
         return [
             day(0, session_type="rest", training_type="rest", duration_min=0,

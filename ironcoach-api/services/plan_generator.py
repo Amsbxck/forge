@@ -154,7 +154,7 @@ async def generate_and_save_plan(
     history_block = season_history_block(db)
 
     from services.zones import prompt_block as zones_block_for
-    zones_block = zones_block_for(profile)
+    zones_block = zones_block_for(profile, sport=getattr(goal, "sport", None))
 
     # Spitzen- und Ermüdungssignale aus dem Soll/Ist-Vergleich, jeweils mit
     # der Reflexion des Athleten daneben.
