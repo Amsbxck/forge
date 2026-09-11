@@ -10,12 +10,50 @@ Total cost: ~$5/month (Railway). Vercel is free for personal projects.
 
 ---
 
+## 0. Mirror GitLab → GitHub
+
+Railway cannot read a GitLab repository. GitLab pushes a copy to GitHub on
+every push, and Railway deploys from that copy. You keep working against
+GitLab — nothing about the daily workflow changes.
+
+1. On GitHub: create a **private** repository `ironcoach-ai`. Do not
+   initialise it with a README — the mirror needs an empty target.
+2. GitHub → **Settings → Developer settings → Personal access tokens**:
+   create a token with `repo` scope.
+3. GitLab → **Settings → Repository → Mirroring repositories**:
+
+```
+Git repository URL:  https://<github-user>@github.com/<github-user>/ironcoach-ai.git
+Mirror direction:    Push
+Password:            <the GitHub token>
+```
+
+4. **Mirror now**, then check that `main` and the tags arrived on GitHub.
+
+The mirror is one-way. Anything committed directly on GitHub is overwritten
+on the next run — GitLab stays the source.
+
+Nothing is lost in the copy: commits, branches and tags all transfer. Issues,
+merge requests, wikis and CI variables live in the platform, not the
+repository, and do not come along. This project uses none of them.
+
+**Alternative without a mirror:** deploy with the Railway CLI from GitLab CI
+(`railway up`) or push a prebuilt image. More moving parts, but GitLab stays
+the only remote.
+
+---
+
 ## 1. Backend on Railway
 
 ### 1.1 Sign up
 
-1. Go to https://railway.app and sign up with GitLab (so it can read your repo)
-2. Create a new project → **Deploy from GitLab repo** → pick `laxerju/ironcoach-ai`
+**Railway deploys from GitHub, not GitLab.** The source of truth stays on
+GitLab; a push mirror keeps a GitHub copy in sync, and Railway watches that.
+Set this up first — see §0 below.
+
+1. Go to https://railway.app and sign up with **GitHub**
+2. Create a new project → **Deploy from GitHub repo** → pick the mirrored
+   `ironcoach-ai`
 3. When asked about root directory, set it to **`ironcoach-api`** (Railway will detect the `Dockerfile`)
 
 ### 1.2 Add Postgres

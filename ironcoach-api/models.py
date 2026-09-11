@@ -144,7 +144,6 @@ class AthleteProfile(Base):
     threshold_hr: Mapped[int | None] = mapped_column(Integer)
     # "manual" schützt vor dem Überschreiben durch die Ableitung.
     threshold_source: Mapped[str | None] = mapped_column(String)
-    css_pace_s_per_100m: Mapped[int | None] = mapped_column(Integer)
 
     # --- Körperdaten ---
     # Merker für das Willkommensfenster. Als einziger Onboarding-Zustand
