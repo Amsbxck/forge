@@ -1,6 +1,6 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
-const COLORS = ['#3b82f6', '#22c55e', '#eab308', '#f97316', '#ef4444']
+import { HR_ZONE_COLOR as COLORS } from '../utils/colors'
 const LABELS = { z1: 'Z1', z2: 'Z2', z3: 'Z3', z4: 'Z4', z5: 'Z5' }
 
 export default function HRZoneChart({ zones }) {

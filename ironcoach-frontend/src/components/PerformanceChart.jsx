@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { getPmc } from '../services/api'
 import {
   ComposedChart, Area, Bar, Cell, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, ReferenceLine
@@ -7,7 +8,15 @@ import {
 const K_ATL = 1 - Math.exp(-1 / 7)
 const K_CTL = 1 - Math.exp(-1 / 42)
 
-function calculatePMC(sessions) {
+/** Fitness (CTL), Ermüdung (ATL) und Form (TSB) je Tag.
+ *
+ *  **Rückfallebene.** Maßgeblich ist `GET /api/metrics/pmc` — dort rechnet
+ *  dieselbe Formel, mit der auch der Coach plant. Diese Fassung springt nur
+ *  ein, wenn der Aufruf scheitert: Ein Diagramm, das bei einem Netzfehler
+ *  leer bleibt, wäre schlechter als eines mit lokal gerechneten Werten.
+ *
+ *  Weichen beide je voneinander ab, gilt die Antwort des Servers. */
+export function calculatePMC(sessions) {
   if (!sessions?.length) return []
   const dailyTSS = {}
   sessions.forEach(s => {
@@ -45,6 +54,18 @@ function calculatePMC(sessions) {
   })
 }
 
+/** Wie die Form zu lesen ist. Positiv heißt frisch, stark negativ heißt, dass
+ *  die Ermüdung die Fitness überholt hat. */
+export function formLabel(tsb) {
+  if (tsb == null) return '—'
+  return tsb >= 5 ? 'Fresh' : tsb >= -10 ? 'Optimal' : tsb >= -20 ? 'Fatigued' : 'Overloaded'
+}
+
+export function formColor(tsb) {
+  if (tsb == null) return '#8a909e'
+  return tsb >= -10 ? '#22c55e' : tsb >= -20 ? '#eab308' : '#ef4444'
+}
+
 function filterByDays(data, days) {
   const today = new Date().toISOString().slice(0, 10)
   const cutoff = new Date(today + 'T00:00:00Z')
@@ -60,7 +81,7 @@ const CustomTooltip = ({ active, payload }) => {
   const tsbColor = d.tsb >= 0 ? '#22c55e' : '#ef4444'
   return (
     <div className="border rounded-lg px-3 py-2.5 text-xs space-y-1.5 min-w-[160px]" style={{ background: '#111318', borderColor: '#1e2228' }}>
-      <div className="font-mono" style={{ color: '#8a909e' }}>{d.date}</div>
+      <div className="font-mono" style={{ color: 'var(--text-secondary)' }}>{d.date}</div>
       {d.tss != null && <div style={{ color: '#e8eaf0' }}>TSS: <span className="font-mono font-bold" style={{ color: '#00d4ff' }}>{d.tss}</span></div>}
       <div style={{ color: '#e8eaf0' }}>CTL (Fitness): <span className="font-mono font-bold" style={{ color: '#00d4ff' }}>{d.ctl}</span></div>
       <div style={{ color: '#e8eaf0' }}>ATL (Fatigue): <span className="font-mono font-bold" style={{ color: '#f97316' }}>{d.atl}</span></div>
@@ -81,20 +102,32 @@ const RANGE_OPTIONS = [
 export default function PerformanceChart({ sessions }) {
   const [range, setRange] = useState(60)
 
-  const allPMC = useMemo(() => calculatePMC(sessions), [sessions])
+  // Reihe vom Server, sonst lokal gerechnet. Der Server ist maßgeblich —
+  // seine Werte sind dieselben, die in den Coach-Prompt gehen.
+  const [serverPMC, setServerPMC] = useState(null)
+  useEffect(() => {
+    let abgebrochen = false
+    getPmc()
+      .then(({ data }) => { if (!abgebrochen && Array.isArray(data)) setServerPMC(data) })
+      .catch(() => {})
+    return () => { abgebrochen = true }
+  }, [sessions?.length])
+
+  const lokalPMC = useMemo(() => calculatePMC(sessions), [sessions])
+  const allPMC = serverPMC?.length ? serverPMC : lokalPMC
   const pmcData = useMemo(() => filterByDays(allPMC, range), [allPMC, range])
 
   if (!sessions?.length || !pmcData.length) {
     return (
-      <div className="text-center py-8 text-sm font-mono" style={{ color: '#8a909e' }}>
+      <div className="text-center py-8 text-sm font-mono" style={{ color: 'var(--text-secondary)' }}>
         No training data available for PMC yet.
       </div>
     )
   }
 
   const latest = pmcData[pmcData.length - 1]
-  const tsbColor = latest?.tsb >= 0 ? '#22c55e' : '#ef4444'
-  const tsbLabel = latest?.tsb >= 5 ? 'Fresh' : latest?.tsb >= -10 ? 'Optimal' : latest?.tsb >= -20 ? 'Fatigued' : 'Overloaded'
+  const tsbColor = formColor(latest?.tsb)
+  const tsbLabel = formLabel(latest?.tsb)
 
   return (
     <div className="space-y-4">
@@ -121,12 +154,12 @@ export default function PerformanceChart({ sessions }) {
           <CartesianGrid strokeDasharray="3 3" stroke="#1e2228" vertical={false} />
           <XAxis
             dataKey="label"
-            tick={{ fill: '#8a909e', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }}
+            tick={{ fill: '#a7aebd', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }}
             axisLine={false} tickLine={false}
             interval={Math.floor(pmcData.length / 6)}
           />
-          <YAxis yAxisId="fitness" tick={{ fill: '#8a909e', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} />
-          <YAxis yAxisId="form" orientation="right" tick={{ fill: '#8a909e', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} />
+          <YAxis yAxisId="fitness" tick={{ fill: '#a7aebd', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} />
+          <YAxis yAxisId="form" orientation="right" tick={{ fill: '#a7aebd', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} />
           <Tooltip content={<CustomTooltip />} />
           <ReferenceLine yAxisId="form" y={0} stroke="#3a3f4a" strokeWidth={1} />
 
@@ -140,7 +173,7 @@ export default function PerformanceChart({ sessions }) {
         </ComposedChart>
       </ResponsiveContainer>
 
-      <div className="flex gap-5 text-xs px-1" style={{ color: '#8a909e' }}>
+      <div className="flex gap-5 text-xs px-1" style={{ color: 'var(--text-secondary)' }}>
         <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block" style={{ background: '#00d4ff' }} /> CTL Fitness</span>
         <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block" style={{ background: '#f97316' }} /> ATL Fatigue</span>
         <span className="flex items-center gap-2">
@@ -160,7 +193,7 @@ export default function PerformanceChart({ sessions }) {
           { label: `TSB Form · ${tsbLabel}`, value: `${latest?.tsb > 0 ? '+' : ''}${latest?.tsb}`, color: tsbColor },
         ].map(({ label, value, color }) => (
           <div key={label} className="border rounded-lg px-3 py-2 flex-1 min-w-[100px]" style={{ background: '#0d0f17', borderColor: '#1e2228' }}>
-            <div className="text-xs mb-0.5" style={{ color: '#8a909e' }}>{label}</div>
+            <div className="text-xs mb-0.5" style={{ color: 'var(--text-secondary)' }}>{label}</div>
             <div className="font-mono font-bold text-lg" style={{ color }}>{value}</div>
           </div>
         ))}

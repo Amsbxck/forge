@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import Modal from './Modal'
 import { postHrv } from '../services/api'
 
 export default function HRVInput({ onSaved }) {
@@ -29,20 +30,26 @@ export default function HRVInput({ onSaved }) {
     }
   }
 
+  // Früher klappte das Formular in der HRV-Karte auf und schob deren Inhalt
+  // zusammen. Als Dialog bleibt die Karte stehen.
   return (
-    <div>
-      {!open ? (
-        <button
-          onClick={() => setOpen(true)}
-          className="text-sm px-3 py-1.5 rounded-lg font-mono transition-colors border border-[#1e2228] text-[#8a909e] hover:text-[#e8eaf0] hover:border-[#3a3f4a]"
-          style={{ background: '#111318' }}
-        >
-          Log HRV
-        </button>
-      ) : (
-        <div className="rounded-xl p-4 space-y-3 min-w-[240px] border border-[#1e2228]" style={{ background: '#111318' }}>
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="text-sm px-3 py-1.5 rounded-lg font-mono transition-colors border border-[#1e2228] text-[var(--text-secondary)] hover:text-[#e8eaf0] hover:border-[#3a3f4a]"
+        style={{ background: '#111318' }}
+      >
+        Log HRV
+      </button>
+
+      <Modal
+        open={open} onClose={() => setOpen(false)}
+        title="LOG HRV" subtitle="Measured in the morning, lying down"
+        width="max-w-sm"
+      >
+        <div className="space-y-3">
           <div>
-            <label className="text-xs text-[#8a909e] block mb-1 font-mono">Date</label>
+            <label className="text-xs text-[var(--text-secondary)] block mb-1 font-mono">Date</label>
             <input
               type="date"
               value={date}
@@ -53,7 +60,7 @@ export default function HRVInput({ onSaved }) {
             />
           </div>
           <div>
-            <label className="text-xs text-[#8a909e] block mb-1 font-mono">rMSSD (ms)</label>
+            <label className="text-xs text-[var(--text-secondary)] block mb-1 font-mono">rMSSD (ms)</label>
             <input
               type="number"
               value={rmssd}
@@ -65,7 +72,7 @@ export default function HRVInput({ onSaved }) {
             />
           </div>
           <div>
-            <label className="text-xs text-[#8a909e] block mb-1 font-mono">Body Battery (optional)</label>
+            <label className="text-xs text-[var(--text-secondary)] block mb-1 font-mono">Body Battery (optional)</label>
             <input
               type="number"
               value={readiness}
@@ -84,10 +91,13 @@ export default function HRVInput({ onSaved }) {
             >
               {saving ? '...' : 'Save'}
             </button>
-            <button onClick={() => setOpen(false)} className="text-[#8a909e] hover:text-[#e8eaf0] text-sm px-2 font-mono">✕</button>
+            <button onClick={() => setOpen(false)}
+                    className="px-4 text-sm font-mono text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
+              CANCEL
+            </button>
           </div>
         </div>
-      )}
-    </div>
+      </Modal>
+    </>
   )
 }

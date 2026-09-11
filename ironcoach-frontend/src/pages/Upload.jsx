@@ -3,7 +3,7 @@ import { useDropzone } from 'react-dropzone'
 import { useNavigate } from 'react-router-dom'
 import { uploadFile } from '../services/api'
 
-const LABEL = 'text-xs font-mono tracking-widest text-[#8a909e]'
+const LABEL = 'text-xs font-mono tracking-widest text-[var(--text-secondary)]'
 
 function Particles() {
   const particles = Array.from({ length: 18 }, (_, i) => {
@@ -78,7 +78,7 @@ export default function Upload() {
         >
           UPLOAD
         </h1>
-        <span className="text-xs font-mono text-[#3a3f4a] tracking-widest">.FIT / .GPX</span>
+        <span className="text-xs font-mono text-[var(--text-muted)] tracking-widest">.FIT / .GPX</span>
       </div>
 
       {/* Dropzone — diagonal cut corners */}
@@ -95,10 +95,10 @@ export default function Upload() {
         <input {...getInputProps()} />
 
         {/* Accent lines on cut corners */}
-        <div className="absolute top-0 right-0 w-8 h-px" style={{ background: isDragActive ? '#00d4ff' : '#3a3f4a', transformOrigin: 'right', transform: 'rotate(0deg)', top: '27px', right: 0 }} />
-        <div className="absolute top-0 right-0 w-px h-8" style={{ background: isDragActive ? '#00d4ff' : '#3a3f4a', top: 0, right: '27px' }} />
-        <div className="absolute bottom-0 left-0 w-8 h-px" style={{ background: isDragActive ? '#00d4ff' : '#3a3f4a', bottom: '27px', left: 0 }} />
-        <div className="absolute bottom-0 left-0 w-px h-8" style={{ background: isDragActive ? '#00d4ff' : '#3a3f4a', bottom: 0, left: '27px' }} />
+        <div className="absolute top-0 right-0 w-8 h-px" style={{ background: isDragActive ? '#00d4ff' : 'var(--text-muted)', transformOrigin: 'right', transform: 'rotate(0deg)', top: '27px', right: 0 }} />
+        <div className="absolute top-0 right-0 w-px h-8" style={{ background: isDragActive ? '#00d4ff' : 'var(--text-muted)', top: 0, right: '27px' }} />
+        <div className="absolute bottom-0 left-0 w-8 h-px" style={{ background: isDragActive ? '#00d4ff' : 'var(--text-muted)', bottom: '27px', left: 0 }} />
+        <div className="absolute bottom-0 left-0 w-px h-8" style={{ background: isDragActive ? '#00d4ff' : 'var(--text-muted)', bottom: 0, left: '27px' }} />
 
         {/* Particles on success */}
         {status?.ok && <Particles />}
@@ -138,7 +138,7 @@ export default function Upload() {
             >
               DROP FILE
             </div>
-            <p className="text-xs font-mono text-[#3a3f4a] tracking-wide">
+            <p className="text-xs font-mono text-[var(--text-muted)] tracking-wide">
               or click to select · .fit (Garmin/Wahoo) · .gpx
             </p>
           </div>

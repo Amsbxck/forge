@@ -10,6 +10,23 @@
   --bg-card:    #111318;
   --border:     #1e2228;
   --accent:     #00d4ff;
+
+  /* Textstufen.
+   *
+   * Der frühere gedämpfte Ton #3a3f4a lag bei 1.76:1 gegen die Kachelfläche —
+   * weit unter den 4.5:1, ab denen kleiner Text als lesbar gilt. Er war als
+   * Textfarbe im Einsatz, funktionierte aber wie Dekoration.
+   *
+   * Beim Aufhellen allein wäre er der sekundären Stufe zu nahe gekommen
+   * (5.81:1 gegen 4.82:1, praktisch ununterscheidbar). Deshalb ist die
+   * Sekundärstufe mit angehoben: Jetzt trennen 8.35:1 und 4.69:1 die beiden
+   * hörbar, und beide sind für sich lesbar.
+   *
+   * Als Variablen und nicht als Hexwert im Bauteil: Der alte Ton stand an
+   * 176 Stellen. Die nächste Anpassung ist eine Zeile statt einer Suche. */
+  --text-primary:   #e8eaf0;   /* 15.45:1 */
+  --text-secondary: #a7aebd;   /*  8.35:1 */
+  --text-muted:     #79808f;   /*  4.69:1 */
 }
 
 body {
@@ -59,4 +76,24 @@ body::after {
 input[type="date"]::-webkit-calendar-picker-indicator {
   filter: invert(0.6);
   cursor: pointer;
+}
+
+/* Herzschlag für die Zustandsanzeige. Global, weil das Symbol auf mehreren
+   Seiten steht — als seitenlokale Regel bliebe es auf einer davon stehen. */
+@keyframes herzschlag {
+  0%, 100%   { transform: scale(1); }
+  14%        { transform: scale(1.18); }
+  28%        { transform: scale(1); }
+  42%        { transform: scale(1.11); }
+  56%        { transform: scale(1); }
+}
+
+/* Dialog-Overlay */
+@keyframes dialogEin {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes dialogAuf {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }

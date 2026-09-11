@@ -115,12 +115,12 @@ export default function Chat() {
           >
             COACH
           </h1>
-          <span className="text-xs font-mono text-[#3a3f4a] tracking-widest">AI ASSISTANT</span>
+          <span className="text-xs font-mono text-[var(--text-muted)] tracking-widest">AI ASSISTANT</span>
         </div>
         {messages.length > 0 && (
           <button
             onClick={handleClear}
-            className="text-xs font-mono text-[#3a3f4a] hover:text-[#ef4444] transition-colors px-3 py-1.5 rounded-lg"
+            className="text-xs font-mono text-[var(--text-muted)] hover:text-[#ef4444] transition-colors px-3 py-1.5 rounded-lg"
             style={{ border: '1px solid #1e2228' }}
           >
             CLEAR CHAT
@@ -155,7 +155,7 @@ export default function Chat() {
             >
               FORGE COACH
             </div>
-            <p className="text-xs font-mono text-[#3a3f4a] tracking-wide">
+            <p className="text-xs font-mono text-[var(--text-muted)] tracking-wide">
               Ask anything about your training, recovery, or race strategy.
             </p>
           </div>
@@ -176,7 +176,7 @@ export default function Chat() {
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
           placeholder="Ask your coach..."
-          className="flex-1 rounded-xl px-4 py-3 text-sm font-mono text-[#e8eaf0] placeholder-[#3a3f4a] outline-none transition-colors"
+          className="flex-1 rounded-xl px-4 py-3 text-sm font-mono text-[#e8eaf0] placeholder-[var(--text-muted)] outline-none transition-colors"
           style={{ background: '#111318', border: '1px solid #1e2228' }}
           onFocus={e => { e.target.style.borderColor = '#00d4ff44' }}
           onBlur={e => { e.target.style.borderColor = '#1e2228' }}

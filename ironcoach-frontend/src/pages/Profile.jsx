@@ -1,43 +1,45 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { getProfile, updateProfile, getStravaStatus, getStravaAuthUrl } from '../services/api'
+import PasswordChange from '../components/PasswordChange'
+import AccountSection from '../components/AccountSection'
+import Thresholds from '../components/Thresholds'
+import { daysUntil } from '../utils/dates'
+import { HR_ZONE_COLOR } from '../utils/colors'
+import HrvRange from '../components/HrvRange'
+import ZoneEditor from '../components/ZoneEditor'
+import ApiBudget from '../components/ApiBudget'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
-const LABEL = 'text-xs font-mono tracking-widest text-[#8a909e]'
+const LABEL = 'text-xs font-mono tracking-widest text-[var(--text-secondary)]'
 
+// Dieselben Farben wie die Zonenbalken im Dashboard. Vorher hatte das Profil
+// eine eigene Skala, obwohl dieselben Zonen gemeint sind.
 const HR_ZONES = [
-  { key: 'z1', label: 'Z1', color: '#2d6a4f', range: (p) => `≤ ${p.z1_hr_max} bpm` },
-  { key: 'z2', label: 'Z2', color: '#40916c', range: (p) => `${p.z2_hr_min}–${p.z2_hr_max} bpm` },
-  { key: 'z3', label: 'Z3', color: '#f4a261', range: (p) => `${p.z3_hr_min}–${p.z3_hr_max} bpm` },
-  { key: 'z4', label: 'Z4', color: '#e76f51', range: (p) => `${p.z4_hr_min}–${p.z4_hr_max} bpm` },
-  { key: 'z5', label: 'Z5', color: '#e63946', range: (p) => `> ${p.z4_hr_max} bpm` },
+  { key: 'z1', label: 'Z1', color: HR_ZONE_COLOR[0], range: (p) => `≤ ${p.z1_hr_max} bpm` },
+  { key: 'z2', label: 'Z2', color: HR_ZONE_COLOR[1], range: (p) => `${p.z2_hr_min}–${p.z2_hr_max} bpm` },
+  { key: 'z3', label: 'Z3', color: HR_ZONE_COLOR[2], range: (p) => `${p.z3_hr_min}–${p.z3_hr_max} bpm` },
+  { key: 'z4', label: 'Z4', color: HR_ZONE_COLOR[3], range: (p) => `${p.z4_hr_min}–${p.z4_hr_max} bpm` },
+  { key: 'z5', label: 'Z5', color: HR_ZONE_COLOR[4], range: (p) => `> ${p.z4_hr_max} bpm` },
 ]
-
-function daysUntil(dateStr) {
-  if (!dateStr) return null
-  const d = new Date(dateStr)
-  const now = new Date()
-  now.setHours(0, 0, 0, 0)
-  return Math.max(0, Math.round((d - now) / 86400000))
-}
 
 export default function Profile() {
   const [profile, setProfile] = useState(null)
   const [strava, setStrava] = useState(null)
   const [editing, setEditing] = useState(false)
+  const [pulsEdit, setPulsEdit] = useState(false)
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [p, s] = await Promise.all([getProfile(), getStravaStatus()])
-        setProfile(p.data)
-        setForm({ ftp_watts: p.data.ftp_watts, max_hr: p.data.max_hr, name: p.data.name, race_goal: p.data.race_goal })
-        setStrava(s.data)
-      } catch (e) { console.error(e) }
-    }
-    load()
+  const load = useCallback(async () => {
+    try {
+      const [p, s] = await Promise.all([getProfile(), getStravaStatus()])
+      setProfile(p.data)
+      setForm({ ftp_watts: p.data.ftp_watts, max_hr: p.data.max_hr, name: p.data.name, race_goal: p.data.race_goal })
+      setStrava(s.data)
+    } catch (e) { console.error(e) }
   }, [])
+
+  useEffect(() => { load() }, [load])
 
   const save = async () => {
     setSaving(true)
@@ -55,7 +57,7 @@ export default function Profile() {
   }
 
   if (!profile) return (
-    <div className="flex items-center justify-center py-20 text-[#8a909e]">
+    <div className="flex items-center justify-center py-20 text-[var(--text-secondary)]">
       <div className="text-sm font-mono tracking-widest">LOADING...</div>
     </div>
   )
@@ -65,193 +67,190 @@ export default function Profile() {
   return (
     <div className="space-y-5 page-enter">
 
-      {/* Header */}
-      <div className="flex items-baseline gap-3">
+      {/* Header — der Saisonstand gehört hierher, nicht in eine eigene
+          Kachel zwischen die Messwerte. */}
+      <div className="flex items-end justify-between gap-4 flex-wrap">
+      <div className="flex items-baseline gap-3 flex-wrap">
         <h1 className="text-3xl font-black tracking-tight text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
           ATHLETE
         </h1>
-        {profile.name && <span className="text-lg font-mono text-[#3a3f4a]">{profile.name}</span>}
-      </div>
+        <span className="text-3xl font-black text-[var(--text-muted)]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>·</span>
 
-      {/* ── Hero FTP card (dominant) + secondary stats ── */}
-      <div className="grid grid-cols-3 gap-4 items-start">
-
-        {/* FTP — oversize, col-span-2, visual anchor */}
-        <div
-          className="col-span-2 rounded-xl p-7 relative overflow-hidden"
-          style={{ background: '#111318', border: '1px solid #1e2228' }}
-        >
-          {/* Diagonal light beam */}
-          <div
-            className="absolute pointer-events-none"
-            style={{
-              top: '-40px', right: '-40px',
-              width: '200px', height: '200px',
-              background: 'conic-gradient(from 200deg, transparent 0deg, #00d4ff08 30deg, transparent 60deg)',
-              animation: 'ftpShimmer 4s ease-in-out infinite',
-            }}
-          />
-          {/* Shimmer line at bottom */}
-          <div
-            className="absolute bottom-0 left-0 right-0 h-px"
-            style={{ background: 'linear-gradient(90deg, transparent 0%, #00d4ff55 40%, #00d4ff88 50%, #00d4ff55 60%, transparent 100%)', animation: 'shimmerSweep 3s ease-in-out infinite' }}
-          />
-
-          <div className={`${LABEL} mb-3`}>FUNCTIONAL THRESHOLD POWER</div>
-          <div
-            className="font-black leading-none text-[#e8eaf0]"
-            style={{ fontFamily: 'Barlow Condensed, sans-serif', fontSize: 'clamp(5rem, 12vw, 8rem)', lineHeight: 1 }}
+        {/* Der Name wird dort geändert, wo er steht. Eine eigene Karte nur
+            für dieses eine Feld war ein Umweg. */}
+        {editing ? (
+          <form
+            onSubmit={e => { e.preventDefault(); save() }}
+            className="flex items-center gap-2"
           >
-            {profile.ftp_watts}
-            <span className="text-3xl font-normal text-[#3a3f4a] ml-3">W</span>
-          </div>
-
-          {profile.current_week && (
-            <div className="mt-4 text-xs font-mono text-[#3a3f4a] tracking-widest">
-              WEEK {profile.current_week} / 33
-            </div>
-          )}
+            <input
+              autoFocus
+              value={form.name || ''}
+              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+              onKeyDown={e => { if (e.key === 'Escape') setEditing(false) }}
+              className="text-3xl font-black tracking-tight text-[#e8eaf0] bg-transparent outline-none border-b"
+              style={{ fontFamily: 'Barlow Condensed, sans-serif', borderColor: '#00d4ff66', width: '10ch' }}
+            />
+            <button type="submit" disabled={saving}
+                    className="text-[10px] font-mono px-2 py-1 rounded disabled:opacity-40"
+                    style={{ background: '#00d4ff20', border: '1px solid #00d4ff44', color: '#00d4ff' }}>
+              {saving ? '…' : 'OK'}
+            </button>
+            <button type="button" onClick={() => setEditing(false)}
+                    className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
+              ABBRECHEN
+            </button>
+          </form>
+        ) : (
+          <button
+            onClick={() => setEditing(true)}
+            className="group flex items-baseline gap-2"
+            title="Namen ändern"
+          >
+            <h1 className="text-3xl font-black tracking-tight text-[#e8eaf0] group-hover:text-[#00d4ff] transition-colors"
+                style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
+              {(profile.name || 'NAME SETZEN').toUpperCase()}
+            </h1>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+                 className="opacity-0 group-hover:opacity-100 transition-opacity self-center"
+                 stroke="#00d4ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+            </svg>
+          </button>
+        )}
         </div>
 
-        {/* Secondary column: Max HR + Race countdown stacked */}
-        <div className="flex flex-col gap-4">
-          <div className={`${CARD} p-5`}>
-            <div className={`${LABEL} mb-2`}>MAX HEART RATE</div>
-            <div className="text-4xl font-black leading-none text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
-              {profile.max_hr}
-              <span className="text-base font-normal text-[#8a909e] ml-1">bpm</span>
-            </div>
-          </div>
+        {/* Saisonstand rechts in der Kopfzeile — er gehört nicht zwischen
+            die Messwerte, und als eigene Kachel ließ er eine Lücke. */}
+        <div className="text-right">
+          {daysLeft === null ? (
+            <>
+              <div className="text-[10px] font-mono tracking-widest text-[var(--text-secondary)]">NÄCHSTES RENNEN</div>
+              <div className="text-lg font-mono text-[var(--text-muted)]">kein Ziel gesetzt</div>
+            </>
+          ) : daysLeft > 0 ? (
+            <>
+              <div className="text-[10px] font-mono tracking-widest text-[var(--text-secondary)]">BIS ZUM RENNEN</div>
+              <div className="text-2xl font-black leading-none mt-0.5"
+                   style={{ fontFamily: 'Barlow Condensed, sans-serif',
+                            color: daysLeft < 30 ? '#ef4444' : daysLeft < 90 ? '#f59e0b' : '#00d4ff' }}>
+                {daysLeft}<span className="text-sm font-normal text-[var(--text-secondary)] ml-1">
+                  {daysLeft === 1 ? 'Tag' : 'Tage'}</span>
+              </div>
+              <div className="text-[10px] font-mono text-[var(--text-muted)]">{profile.race_date}</div>
+            </>
+          ) : daysLeft === 0 ? (
+            <>
+              <div className="text-[10px] font-mono tracking-widest text-[var(--text-secondary)]">RENNTAG</div>
+              <div className="text-2xl font-black leading-none mt-0.5"
+                   style={{ fontFamily: 'Barlow Condensed, sans-serif', color: '#00d4ff' }}>HEUTE</div>
+              <div className="text-[10px] font-mono text-[var(--text-muted)]">{profile.race_date}</div>
+            </>
+          ) : (
+            <>
+              <div className="text-[10px] font-mono tracking-widest text-[var(--text-secondary)]">SEIT DEM LETZTEN RENNEN</div>
+              <div className="text-2xl font-black leading-none mt-0.5"
+                   style={{ fontFamily: 'Barlow Condensed, sans-serif', color: 'var(--text-secondary)' }}>
+                {Math.abs(daysLeft)}<span className="text-sm font-normal text-[var(--text-secondary)] ml-1">
+                  {Math.abs(daysLeft) === 1 ? 'Tag' : 'Tage'}</span>
+              </div>
+              <div className="text-[10px] font-mono text-[var(--text-muted)]">{profile.race_date} · Off Season</div>
+            </>
+          )}
+        </div>
+      </div>
 
-          <div className={`${CARD} p-5`}>
-            <div className={`${LABEL} mb-2`}>RACE COUNTDOWN</div>
-            {daysLeft !== null ? (
-              <>
-                <div
-                  className="text-4xl font-black leading-none"
-                  style={{
-                    fontFamily: 'Barlow Condensed, sans-serif',
-                    color: daysLeft < 30 ? '#e63946' : daysLeft < 90 ? '#f4a261' : '#00d4ff',
-                  }}
-                >
-                  {daysLeft}
-                  <span className="text-base font-normal text-[#8a909e] ml-1">days</span>
-                </div>
-                <div className="text-xs font-mono text-[#3a3f4a] mt-1">{profile.race_date}</div>
-              </>
+      {/* ── Schwellenwerte zuerst: das ist, wofür man das Profil öffnet ── */}
+      <Thresholds profile={profile} onChanged={load} />
+
+      <ZoneEditor profile={profile} onSaved={load} />
+
+      {/* ── Maximalpuls und HRV-Spanne nebeneinander ──
+           Beide sind Bezugsgrößen für die Bewertung, keine Vorgaben. Die
+           Maximalpuls-Kachel stand vorher allein über die volle Breite und
+           ließ zwei Drittel der Fläche leer. */}
+      {/* Ohne items-start: Rasterzellen dehnen sich standardmäßig auf gleiche
+          Höhe. Mit items-start endete jede Kachel dort, wo ihr Inhalt aufhört —
+          und die beiden Unterkanten standen sichtbar versetzt. */}
+      <div className="grid lg:grid-cols-2 gap-4">
+          <div
+            className="rounded-xl p-7 relative overflow-hidden"
+            style={{ background: '#111318', border: '1px solid #1e2228' }}
+          >
+            {/* Diagonal light beam */}
+            <div
+              className="absolute pointer-events-none"
+              style={{
+                top: '-40px', right: '-40px',
+                width: '200px', height: '200px',
+                background: 'conic-gradient(from 200deg, transparent 0deg, #00d4ff08 30deg, transparent 60deg)',
+                animation: 'ftpShimmer 4s ease-in-out infinite',
+              }}
+            />
+            {/* Shimmer line at bottom */}
+            <div
+              className="absolute bottom-0 left-0 right-0 h-px"
+              style={{ background: 'linear-gradient(90deg, transparent 0%, #00d4ff55 40%, #00d4ff88 50%, #00d4ff55 60%, transparent 100%)', animation: 'shimmerSweep 3s ease-in-out infinite' }}
+            />
+
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className={LABEL}>MAXIMALPULS</div>
+              <button onClick={() => setPulsEdit(v => !v)}
+                      className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[#00d4ff] transition-colors">
+                {pulsEdit ? 'SCHLIESSEN' : 'ÄNDERN'}
+              </button>
+            </div>
+            {pulsEdit ? (
+              <form onSubmit={e => { e.preventDefault(); save(); setPulsEdit(false) }}
+                    className="flex items-center gap-2">
+                <input
+                  autoFocus type="number" value={form.max_hr || ''}
+                  onChange={e => setForm(f => ({ ...f, max_hr: Number(e.target.value) }))}
+                  className="font-black leading-none text-[#e8eaf0] bg-transparent outline-none border-b w-32"
+                  style={{ fontFamily: 'Barlow Condensed, sans-serif', fontSize: 'clamp(2.8rem, 6vw, 4rem)', borderColor: '#00d4ff66' }}
+                />
+                <button type="submit" disabled={saving}
+                        className="text-[10px] font-mono px-2 py-1 rounded disabled:opacity-40"
+                        style={{ background: '#00d4ff20', border: '1px solid #00d4ff44', color: '#00d4ff' }}>
+                  {saving ? '…' : 'OK'}
+                </button>
+              </form>
             ) : (
-              <div className="text-xl font-mono text-[#3a3f4a]">—</div>
+              <div
+                className="font-black leading-none text-[#e8eaf0]"
+                style={{ fontFamily: 'Barlow Condensed, sans-serif', fontSize: 'clamp(2.8rem, 6vw, 4rem)', lineHeight: 1 }}
+              >
+                {profile.max_hr}
+                <span className="text-xl font-normal text-[var(--text-muted)] ml-2">bpm</span>
+              </div>
+            )}
+            <div className="mt-3 text-[10px] font-mono text-[var(--text-muted)] leading-relaxed">
+              Grundlage aller Zonengrenzen. Der höchste tatsächlich gemessene Wert —
+              aus dem Alter geschätzt wäre er für die meisten Menschen falsch.
+            </div>
+
+            {profile.current_week && (
+              <div className="mt-4 text-xs font-mono text-[var(--text-muted)] tracking-widest">
+                {daysLeft !== null && daysLeft < 0
+                  ? 'OFF SEASON'
+                  /* Vor dem Aufbaustart zählt keine Vorbereitungswoche. */
+                  : profile.plan_start_date && new Date(profile.plan_start_date) > new Date()
+                  ? 'GRUNDLAGE'
+                  : `WEEK ${profile.current_week}${profile.total_weeks ? ` / ${profile.total_weeks}` : ''}`}
+              </div>
             )}
           </div>
-        </div>
+
+        <HrvRange />
       </div>
 
-      {/* Performance data card */}
-      <div className={CARD}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[#1e2228]">
-          <span className="text-sm font-bold tracking-widest text-[#8a909e]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
-            PERFORMANCE DATA
-          </span>
-          {!editing && (
-            <button
-              onClick={() => setEditing(true)}
-              className="text-xs font-mono text-[#00d4ff] transition-colors px-3 py-1 rounded-lg"
-              style={{ border: '1px solid #00d4ff33', background: '#00d4ff10' }}
-            >
-              EDIT
-            </button>
-          )}
-        </div>
-
-        <div className="p-5">
-          {editing ? (
-            <div className="space-y-3">
-              {[
-                { key: 'name', label: 'NAME', type: 'text' },
-                { key: 'ftp_watts', label: 'FTP (WATT)', type: 'number' },
-                { key: 'max_hr', label: 'MAX HR (bpm)', type: 'number' },
-                { key: 'race_goal', label: 'RACE GOAL', type: 'text' },
-              ].map(({ key, label, type }) => (
-                <div key={key} className="flex items-center gap-4">
-                  <label className="text-xs font-mono text-[#8a909e] tracking-widest w-36 flex-shrink-0">{label}</label>
-                  <input
-                    type={type}
-                    value={form[key] || ''}
-                    onChange={e => setForm(f => ({ ...f, [key]: type === 'number' ? Number(e.target.value) : e.target.value }))}
-                    className="flex-1 rounded-lg px-3 py-1.5 text-sm font-mono text-[#e8eaf0] outline-none transition-colors"
-                    style={{ background: '#0d0f17', border: '1px solid #1e2228' }}
-                    onFocus={e => { e.target.style.borderColor = '#00d4ff44' }}
-                    onBlur={e => { e.target.style.borderColor = '#1e2228' }}
-                  />
-                </div>
-              ))}
-              <div className="flex gap-2 pt-3">
-                <button
-                  onClick={save} disabled={saving}
-                  className="px-4 py-1.5 rounded-lg text-sm font-mono font-bold transition-all disabled:opacity-40"
-                  style={{ background: '#00d4ff20', border: '1px solid #00d4ff44', color: '#00d4ff' }}
-                >
-                  {saving ? 'SAVING...' : 'SAVE'}
-                </button>
-                <button
-                  onClick={() => setEditing(false)}
-                  className="px-4 py-1.5 rounded-lg text-sm font-mono text-[#8a909e] hover:text-[#e8eaf0] transition-colors"
-                  style={{ border: '1px solid #1e2228' }}
-                >
-                  CANCEL
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                ['GOAL', profile.race_goal],
-                ['NAME', profile.name],
-                ['RACE DATE', profile.race_date],
-                ['CURRENT WEEK', profile.current_week ? `${profile.current_week} / 33` : '—'],
-              ].map(([label, val]) => (
-                <div key={label} className="rounded-lg px-3 py-2.5" style={{ background: '#0d0f17', border: '1px solid #1e2228' }}>
-                  <div className="text-xs font-mono text-[#3a3f4a] tracking-widest mb-1">{label}</div>
-                  <div className="text-sm text-[#e8eaf0]">{val || '—'}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* HR Zones */}
-      <div className={CARD}>
-        <div className="px-5 py-4 border-b border-[#1e2228]">
-          <span className="text-sm font-bold tracking-widest text-[#8a909e]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
-            HEART RATE ZONES
-          </span>
-        </div>
-        <div className="p-5 space-y-2">
-          {HR_ZONES.map(({ key, label, color, range }, idx) => (
-            <div key={key} className="flex items-center gap-4">
-              <div
-                className="w-8 text-center text-xs font-mono font-bold rounded flex-shrink-0"
-                style={{ color, background: `${color}20`, padding: '2px 0', border: `1px solid ${color}40` }}
-              >
-                {label}
-              </div>
-              <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: '#1e2228' }}>
-                <div
-                  className="h-full rounded-full"
-                  style={{ width: `${20 * (idx + 1)}%`, background: color, opacity: 0.7 }}
-                />
-              </div>
-              <div className="text-xs font-mono text-[#8a909e] w-36 text-right flex-shrink-0">{range(profile)}</div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <ApiBudget />
 
       {/* Strava */}
       <div className={CARD}>
         <div className="px-5 py-4 border-b border-[#1e2228]">
-          <span className="text-sm font-bold tracking-widest text-[#8a909e]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
+          <span className="text-sm font-bold tracking-widest text-[var(--text-secondary)]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
             STRAVA
           </span>
         </div>
@@ -260,11 +259,11 @@ export default function Profile() {
             <div className="flex items-center gap-3">
               <div className="w-2.5 h-2.5 rounded-full" style={{ background: '#22c55e', boxShadow: '0 0 8px #22c55e88' }} />
               <span className="text-sm font-mono text-[#e8eaf0]">Connected</span>
-              <span className="text-xs font-mono text-[#3a3f4a]">· Athlete ID: {strava.athlete_id}</span>
+              <span className="text-xs font-mono text-[var(--text-muted)]">· Athlete ID: {strava.athlete_id}</span>
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-sm font-mono text-[#8a909e]">Connect Strava for automatic activity import via webhook.</p>
+              <p className="text-sm font-mono text-[var(--text-secondary)]">Connect Strava for automatic activity import via webhook.</p>
               <button
                 onClick={connectStrava}
                 className="px-4 py-2 rounded-lg text-sm font-mono font-bold tracking-wide transition-all"
@@ -278,6 +277,13 @@ export default function Profile() {
           )}
         </div>
       </div>
+
+      <PasswordChange />
+
+      {/* Nach dem Löschen oder Überall-Abmelden ist die Sitzung weg — ein
+          harter Neuaufbau ist hier ehrlicher als ein Zustand, in dem die
+          Oberfläche noch Daten eines Kontos zeigt, das es nicht mehr gibt. */}
+      <AccountSection onLoggedOut={() => window.location.replace('/')} />
 
       <style>{`
         @keyframes ftpShimmer {

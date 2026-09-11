@@ -1,30 +1,111 @@
-import { useEffect, useState } from 'react'
-import { getCurrentPlan, generatePlan } from '../services/api'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  getCurrentPlan, generatePlan, getPlannedCurrent,
+  getPlanByWeek, getPlannedWeek,
+  getWeekMetrics,
+} from '../services/api'
 import WeekCalendar from '../components/WeekCalendar'
 import PlanExport from '../components/PlanExport'
+import HealthStatus from '../components/HealthStatus'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
-const LABEL = 'text-xs font-mono tracking-widest text-[#8a909e]'
+const LABEL = 'text-xs font-mono tracking-widest text-[var(--text-secondary)]'
+
+/** planned_sessions → Kalenderformat. Trägt die id, damit Drag & Drop speichern kann. */
+function fromPlannedSessions(rows) {
+  return rows.map(r => ({
+    id: r.id,
+    day: r.day_name,
+    date: r.planned_date,
+    session_type: r.discipline,
+    training_type: r.training_type,
+    intensity: r.intensity,
+    duration_min: r.duration_min,
+    notes: r.notes,
+    details: r.details,
+    status: r.status,
+    replacement: r.replacement,
+    replacement_min: r.replacement_min,
+    moved_from_date: r.moved_from_date,
+    targets: {
+      tss: r.target_tss,
+      watts_low: r.target_watts_low,
+      watts_high: r.target_watts_high,
+      pace_low_s_per_km: r.target_pace_low_s_per_km,
+      pace_high_s_per_km: r.target_pace_high_s_per_km,
+      hr_zone: r.target_hr_zone,
+      distance_km: r.target_distance_km,
+    },
+  }))
+}
+
+/** Fallback auf den Claude-Rohoutput — für Pläne ohne Projektion. Ohne id, also nicht speicherbar. */
+function fromPlanContent(days) {
+  return (days || []).map(d => ({
+    id: null,
+    day: d.day,
+    date: d.date,
+    session_type: d.session_type,
+    training_type: d.training_type,
+    duration_min: d.duration_min,
+    notes: d.notes,
+    details: d.details,
+    targets: d.targets,
+  }))
+}
 
 export default function WeeklyPlan() {
   const [plan, setPlan] = useState(null)
+  const [planned, setPlanned] = useState(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [requests, setRequests] = useState('')
   const [error, setError] = useState(null)
+  // null = "aktuelle Woche". Sobald geblättert wird, steht hier die Nummer.
+  const [week, setWeek] = useState(null)
+  const [currentWeek, setCurrentWeek] = useState(null)
+  // Zieldauer statt fester 33: Eine 14-Wochen-Vorbereitung ließ sich bis
+  // Woche 33 durchblättern (alles leer), eine 40-Wochen-Saison brach bei 33 ab.
+  const [totalWeeks, setTotalWeeks] = useState(null)
+  const [notFound, setNotFound] = useState(false)
 
-  const load = async () => {
+  const loadPlanned = useCallback(async (targetWeek) => {
+    try {
+      const resp = targetWeek == null
+        ? await getPlannedCurrent()
+        : await getPlannedWeek(targetWeek)
+      setPlanned(resp.data?.length ? resp.data : null)
+    } catch (e) {
+      // 503 = Projektion noch nicht migriert. Kein Fehler für den Nutzer,
+      // der Kalender fällt dann auf plan_content zurück.
+      setPlanned(null)
+    }
+  }, [])
+
+  const load = useCallback(async (targetWeek = null) => {
     setLoading(true)
     setError(null)
+    setNotFound(false)
     try {
-      const resp = await getCurrentPlan()
+      const resp = targetWeek == null
+        ? await getCurrentPlan()
+        : await getPlanByWeek(targetWeek)
       setPlan(resp.data)
+      // Die erste Antwort definiert, welche Woche "aktuell" ist.
+      setCurrentWeek(prev => (prev == null && targetWeek == null ? resp.data.week_number : prev))
+      await loadPlanned(targetWeek)
     } catch (e) {
-      if (e.response?.status !== 404) setError('Failed to load plan')
+      if (e.response?.status === 404) {
+        setPlan(null)
+        setPlanned(null)
+        setNotFound(true)
+      } else {
+        setError('Failed to load plan')
+      }
     } finally {
       setLoading(false)
     }
-  }
+  }, [loadPlanned])
 
   const generate = async () => {
     setGenerating(true)
@@ -32,6 +113,8 @@ export default function WeeklyPlan() {
     try {
       const resp = await generatePlan(requests)
       setPlan(resp.data)
+      setWeek(null)
+      await loadPlanned(null)
     } catch (e) {
       setError(e.response?.data?.detail || 'Generation failed')
     } finally {
@@ -39,7 +122,16 @@ export default function WeeklyPlan() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(week) }, [week, load])
+
+  const shownWeek = plan?.week_number ?? week ?? currentWeek
+  const isCurrent = currentWeek != null && shownWeek === currentWeek
+
+  // Bevorzugt die normalisierten Einheiten — nur die tragen ids und Zielwerte.
+  const calendarDays = useMemo(
+    () => (planned ? fromPlannedSessions(planned) : fromPlanContent(plan?.plan_content?.days)),
+    [planned, plan]
+  )
 
   return (
     <div className="space-y-6 page-enter">
@@ -53,8 +145,44 @@ export default function WeeklyPlan() {
           >
             WEEKLY PLAN
           </h1>
-          {plan && (
-            <span className="text-lg font-mono text-[#3a3f4a]">WK {plan.week_number}</span>
+
+          {/* Wochennavigation — ein im Voraus erstellter Plan war sonst bis
+              zum Wochenwechsel unsichtbar. */}
+          {shownWeek != null && (
+            <div className="flex items-center gap-1">
+              {[
+                { dir: -1, label: '‹', title: 'Woche zurück' },
+                { dir: 1, label: '›', title: 'Woche vor' },
+              ].map(({ dir, label, title }, i) => (
+                <button
+                  key={dir}
+                  title={title}
+                  onClick={() => setWeek(Math.max(
+                    1,
+                    // Eine Woche über das Ziel hinaus bleibt erreichbar: Dort
+                    // liegen die Off-Season-Pläne.
+                    Math.min(totalWeeks ? totalWeeks + 1 : 99, shownWeek + dir),
+                  ))}
+                  className={`px-2 py-0.5 rounded font-mono text-[var(--text-secondary)] hover:text-[#00d4ff] transition-colors ${i === 1 ? 'order-3' : ''}`}
+                  style={{ border: '1px solid #1e2228' }}
+                >
+                  {label}
+                </button>
+              ))}
+              <span className="text-lg font-mono text-[var(--text-muted)] order-2 px-1">
+                WK {shownWeek}
+              </span>
+            </div>
+          )}
+
+          {!isCurrent && shownWeek != null && (
+            <button
+              onClick={() => setWeek(null)}
+              className="text-[10px] font-mono px-2 py-1 rounded tracking-wide"
+              style={{ background: '#00d4ff15', border: '1px solid #00d4ff33', color: '#00d4ff' }}
+            >
+              ZURÜCK ZU WK {currentWeek}
+            </button>
           )}
         </div>
 
@@ -64,7 +192,7 @@ export default function WeeklyPlan() {
             onChange={e => setRequests(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !generating && generate()}
             placeholder="Special requests (optional)"
-            className="rounded-lg px-3 py-2 text-sm font-mono text-[#e8eaf0] placeholder-[#3a3f4a] outline-none transition-colors w-64"
+            className="rounded-lg px-3 py-2 text-sm font-mono text-[#e8eaf0] placeholder-[var(--text-muted)] outline-none transition-colors w-64"
             style={{
               background: '#111318',
               border: '1px solid #1e2228',
@@ -74,8 +202,11 @@ export default function WeeklyPlan() {
           />
           <button
             onClick={generate}
-            disabled={generating}
-            className="relative px-4 py-2 rounded-lg text-sm font-mono font-bold tracking-wide transition-all disabled:opacity-40"
+            disabled={generating || !isCurrent}
+            title={isCurrent
+              ? 'Plan für die aktuelle Woche generieren'
+              : `Generieren erstellt immer für die laufende Woche (WK ${currentWeek})`}
+            className="relative px-4 py-2 rounded-lg text-sm font-mono font-bold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
               background: generating ? '#00d4ff15' : '#00d4ff20',
               border: '1px solid #00d4ff44',
@@ -103,6 +234,16 @@ export default function WeeklyPlan() {
         </div>
       </div>
 
+      {/* Gesundheit steht über dem Plan: wer krank ist, muss zuerst wissen,
+          ob der Plan darunter überhaupt noch gilt. */}
+      <HealthStatus variant="bar" onChanged={() => {
+        load(week)
+        // Die Neuplanung läuft im Hintergrund und braucht etwa eine halbe
+        // Minute — deshalb ein zweiter Blick, sonst steht hier noch der
+        // alte Plan und man hält die Anpassung für ausgefallen.
+        setTimeout(() => load(week), 30000)
+      }} />
+
       {/* Error */}
       {error && (
         <div className="rounded-xl p-4 font-mono text-sm" style={{ background: '#ef444415', border: '1px solid #ef444430', color: '#ef4444' }}>
@@ -112,7 +253,7 @@ export default function WeeklyPlan() {
 
       {/* Loading */}
       {loading && (
-        <div className="text-[#8a909e] font-mono text-sm py-8 text-center tracking-widest">
+        <div className="text-[var(--text-secondary)] font-mono text-sm py-8 text-center tracking-widest">
           LOADING...
         </div>
       )}
@@ -121,13 +262,15 @@ export default function WeeklyPlan() {
       {!loading && !plan && !error && (
         <div className={`${CARD} p-10 text-center`}>
           <div
-            className="text-2xl font-black text-[#3a3f4a] mb-2"
+            className="text-2xl font-black text-[var(--text-muted)] mb-2"
             style={{ fontFamily: 'Barlow Condensed, sans-serif' }}
           >
-            NO PLAN YET
+            {notFound && !isCurrent ? `KEIN PLAN FÜR WK ${shownWeek}` : 'NO PLAN YET'}
           </div>
-          <p className="text-sm font-mono text-[#3a3f4a]">
-            Click Generate Plan to create your weekly training schedule.
+          <p className="text-sm font-mono text-[var(--text-muted)]">
+            {notFound && !isCurrent
+              ? 'Für diese Woche wurde noch kein Plan erstellt.'
+              : 'Click Generate Plan to create your weekly training schedule.'}
           </p>
         </div>
       )}
@@ -164,7 +307,7 @@ export default function WeeklyPlan() {
                 </div>
                 <div>
                   <div className={`${LABEL} mb-0.5`}>PERIOD</div>
-                  <div className="text-sm font-mono text-[#8a909e]">
+                  <div className="text-sm font-mono text-[var(--text-secondary)]">
                     {plan.week_start} – {plan.week_end}
                   </div>
                 </div>
@@ -193,7 +336,7 @@ export default function WeeklyPlan() {
           </div>
 
           {/* Calendar */}
-          <WeekCalendar days={plan.plan_content?.days || []} />
+          <WeekCalendar days={calendarDays} onPersisted={loadPlanned} />
         </div>
       )}
 

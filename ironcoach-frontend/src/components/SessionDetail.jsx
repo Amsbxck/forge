@@ -1,8 +1,11 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import Modal from './Modal'
+import { DISCIPLINE_COLOR, DISCIPLINE_LABEL } from '../utils/colors'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import HRZoneChart from './HRZoneChart'
+import ReflectionEditor from './ReflectionEditor'
 
-const LABEL = 'text-xs font-mono tracking-widest text-[#8a909e]'
+const LABEL = 'text-xs font-mono tracking-widest text-[var(--text-secondary)]'
 
 function Stat({ label, value, color }) {
   return (
@@ -15,13 +18,13 @@ function Stat({ label, value, color }) {
 
 const CHART_STYLE = {
   contentStyle: { background: '#111318', border: '1px solid #1e2228', borderRadius: 8, fontSize: 11, fontFamily: 'JetBrains Mono, monospace' },
-  tickStyle: { fill: '#3a3f4a', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' },
+  tickStyle: { fill: '#79808f', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' },
   gridStroke: '#1e2228',
 }
 
 function SectionTitle({ children }) {
   return (
-    <div className="text-xs font-mono tracking-widest text-[#8a909e] mb-3 flex items-center gap-2">
+    <div className="text-xs font-mono tracking-widest text-[var(--text-secondary)] mb-3 flex items-center gap-2">
       <div className="w-3 h-px bg-[#3a3f4a]" />
       {children}
     </div>
@@ -52,26 +55,18 @@ export default function SessionDetail({ session: s, onClose }) {
     return `${m}:${String(s2).padStart(2, '0')}`
   }
 
-  const DISC = {
-    bike: { label: 'CYCLING', color: '#a855f7' },
-    run:  { label: 'RUNNING', color: '#ef4444' },
-    swim: { label: 'SWIMMING', color: '#eab308' },
-    gym:  { label: 'GYM', color: '#22c55e' },
-  }
-  const disc = DISC[s.discipline?.toLowerCase()] || { label: s.discipline?.toUpperCase(), color: '#8a909e' }
+  const DISC = Object.fromEntries(
+    Object.entries(DISCIPLINE_LABEL).map(([k, label]) => [
+      k, { label: label.toUpperCase(), color: DISCIPLINE_COLOR[k] },
+    ])
+  )
+  const disc = DISC[s.discipline?.toLowerCase()] || { label: s.discipline?.toUpperCase(), color: 'var(--text-secondary)' }
 
+  // Eigener Rahmen ersetzt durch den gemeinsamen Dialog: das alte Overlag lag
+  // ohne Portal unter der Seiteneinblendung und deckte nicht die ganze Seite.
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center p-2 overflow-y-auto"
-      style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}
-      onClick={onClose}
-    >
-      <div
-        ref={scrollRef}
-        className="w-full my-4 rounded-2xl space-y-5 p-8"
-        style={{ background: '#0d0f17', border: '1px solid #1e2228', boxShadow: '0 24px 80px rgba(0,0,0,0.6)', maxWidth: '92vw' }}
-        onClick={e => e.stopPropagation()}
-      >
+    <Modal open onClose={onClose} width="max-w-5xl" align="top">
+      <div ref={scrollRef} className="space-y-5">
         {/* Header */}
         <div className="flex justify-between items-start">
           <div>
@@ -82,9 +77,9 @@ export default function SessionDetail({ session: s, onClose }) {
               >
                 {disc.label}
               </span>
-              <span className="text-xs font-mono text-[#3a3f4a]">{s.session_date}</span>
+              <span className="text-xs font-mono text-[var(--text-muted)]">{s.session_date}</span>
             </div>
-            <div className="flex gap-3 text-xs font-mono text-[#8a909e]">
+            <div className="flex gap-3 text-xs font-mono text-[var(--text-secondary)]">
               {s.duration_min && <span>{s.duration_min} min</span>}
               {s.distance_km && <span>{s.distance_km} km</span>}
               {s.tss && <span style={{ color: disc.color }}>{s.tss.toFixed ? s.tss.toFixed(0) : s.tss} TSS</span>}
@@ -92,7 +87,7 @@ export default function SessionDetail({ session: s, onClose }) {
           </div>
           <button
             onClick={onClose}
-            className="text-[#3a3f4a] hover:text-[#e8eaf0] transition-colors font-mono text-xl leading-none w-8 h-8 flex items-center justify-center rounded-lg"
+            className="text-[var(--text-muted)] hover:text-[#e8eaf0] transition-colors font-mono text-xl leading-none w-8 h-8 flex items-center justify-center rounded-lg"
             style={{ border: '1px solid #1e2228' }}
           >
             ×
@@ -187,6 +182,11 @@ export default function SessionDetail({ session: s, onClose }) {
           </div>
         )}
 
+        <div>
+          <SectionTitle>REFLEXION</SectionTitle>
+          <ReflectionEditor session={s} />
+        </div>
+
         {/* HR zones */}
         {s.hr_zones && (
           <div>
@@ -196,11 +196,11 @@ export default function SessionDetail({ session: s, onClose }) {
         )}
 
         {!hrData.length && !wattsData.length && !paceData.length && !speedData.length && !s.hr_zones && (
-          <p className="text-[#3a3f4a] text-xs font-mono text-center py-4">
+          <p className="text-[var(--text-muted)] text-xs font-mono text-center py-4">
             No time-series data available (FIT uploads only).
           </p>
         )}
       </div>
-    </div>
+    </Modal>
   )
 }

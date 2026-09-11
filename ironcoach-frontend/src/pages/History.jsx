@@ -8,14 +8,29 @@ import {
 } from '../services/api'
 import SessionDetail from '../components/SessionDetail'
 
+import { ACCENT, DISCIPLINE_COLOR, DISCIPLINE_LABEL } from '../utils/colors'
+import SportIcon from '../components/SportIcon'
+import { disciplineLabel } from '../utils/colors'
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DISC_CONFIG = {
-  bike:  { label: 'Cycling',   icon: '🚴', color: '#a855f7', borderColor: '#a855f7' },
-  run:   { label: 'Running',   icon: '🏃', color: '#ef4444', borderColor: '#ef4444' },
-  swim:  { label: 'Swimming',  icon: '🏊', color: '#eab308', borderColor: '#eab308' },
-  gym:   { label: 'Gym',       icon: '💪', color: '#22c55e', borderColor: '#22c55e' },
-  brick: { label: 'Brick',     icon: '🔥', color: '#f97316', borderColor: '#f97316' },
+const DISC_CONFIG = Object.fromEntries(
+  ['bike', 'run', 'swim', 'gym', 'brick', 'hike', 'other'].map(k => [
+    k,
+    {
+      key: k, label: DISCIPLINE_LABEL[k],
+      color: DISCIPLINE_COLOR[k], borderColor: DISCIPLINE_COLOR[k],
+    },
+  ])
+)
+
+// Gleiche Stufen und Farben wie im Wochenplan — dieselbe Information darf
+// nicht an zwei Stellen unterschiedlich aussehen.
+const INTENSITY_META = {
+  base:       { short: 'BASE',      zone: 'Z1–Z2', color: '#40916c' },
+  sweet_spot: { short: 'SWEETSPOT', zone: 'Z3',    color: '#f4a261' },
+  threshold:  { short: 'THRESHOLD', zone: 'Z4',    color: '#e76f51' },
+  vo2max:     { short: 'VO₂MAX',    zone: 'Z5',    color: '#e63946' },
 }
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -40,11 +55,10 @@ function formatPace(val, disc) {
 // ─── Progress Tab ─────────────────────────────────────────────────────────────
 
 const STEP_DISCS = [
-  { key: 'all',  label: 'Total',    color: '#00d4ff' },
-  { key: 'bike', label: 'Cycling',  color: '#a855f7' },
-  { key: 'run',  label: 'Running',  color: '#ef4444' },
-  { key: 'swim', label: 'Swimming', color: '#eab308' },
-  { key: 'gym',  label: 'Gym',      color: '#22c55e' },
+  { key: 'all', label: 'Total', color: ACCENT },
+  ...['bike', 'run', 'swim', 'gym'].map(k => ({
+    key: k, label: DISCIPLINE_LABEL[k], color: DISCIPLINE_COLOR[k],
+  })),
 ]
 
 function buildMonthStepData(sessions, ym) {
@@ -70,7 +84,7 @@ const StepTooltip = ({ active, payload }) => {
   const d = payload[0]?.payload
   return (
     <div className="bg-[#111318] border border-[#1e2228] rounded-lg px-3 py-2 text-xs space-y-1">
-      <div className="text-[#8a909e] font-mono">Day {d?.date}</div>
+      <div className="text-[var(--text-secondary)] font-mono">Day {d?.date}</div>
       {payload.map(p => (
         <div key={p.dataKey} style={{ color: p.stroke }} className="font-mono">
           {p.name}: {p.value}
@@ -131,7 +145,7 @@ function ProgressTab({ sessions }) {
   }, [active])
 
   if (!active.length) {
-    return <div className="text-center py-8 text-[#8a909e] text-sm">No sessions yet.</div>
+    return <div className="text-center py-8 text-[var(--text-secondary)] text-sm">No sessions yet.</div>
   }
 
   const disciplines = Object.entries(DISC_CONFIG).filter(([disc]) => stats.byDisc[disc].count > 0)
@@ -149,7 +163,7 @@ function ProgressTab({ sessions }) {
                 className="px-2.5 py-1 rounded-lg text-xs font-mono transition-all border"
                 style={{
                   borderColor: activeDiscs.has(key) ? color : '#1e2228',
-                  color: activeDiscs.has(key) ? color : '#3a3f4a',
+                  color: activeDiscs.has(key) ? color : 'var(--text-muted)',
                   background: activeDiscs.has(key) ? `${color}15` : '#0d0f17',
                 }}
               >{label}</button>
@@ -159,7 +173,7 @@ function ProgressTab({ sessions }) {
             <select
               value={currentMonth}
               onChange={e => setSelectedMonth(e.target.value)}
-              className="text-xs font-mono px-2 py-1 rounded-lg border bg-[#0d0f17] text-[#8a909e]"
+              className="text-xs font-mono px-2 py-1 rounded-lg border bg-[#0d0f17] text-[var(--text-secondary)]"
               style={{ borderColor: '#1e2228' }}
             >
               {months.map(m => <option key={m} value={m}>{formatMonth(m)}</option>)}
@@ -170,7 +184,7 @@ function ProgressTab({ sessions }) {
                   className="px-2.5 py-1 rounded-md text-xs font-mono transition-all"
                   style={{
                     background: yMode === opt.v ? '#00d4ff20' : 'transparent',
-                    color: yMode === opt.v ? '#00d4ff' : '#3a3f4a',
+                    color: yMode === opt.v ? '#00d4ff' : 'var(--text-muted)',
                     border: yMode === opt.v ? '1px solid #00d4ff33' : '1px solid transparent',
                   }}
                 >{opt.label}</button>
@@ -179,13 +193,13 @@ function ProgressTab({ sessions }) {
           </div>
         </div>
         {stepData.length === 0 ? (
-          <div className="text-center py-6 text-[#3a3f4a] text-xs font-mono">No sessions this month</div>
+          <div className="text-center py-6 text-[var(--text-muted)] text-xs font-mono">No sessions this month</div>
         ) : (
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={stepData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#1e2228" vertical={false} />
-              <XAxis dataKey="date" tick={{ fill: '#8a909e', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} interval={Math.max(0, Math.floor(stepData.length / 6) - 1)} />
-              <YAxis tick={{ fill: '#8a909e', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} allowDecimals={yMode === 'hours'} />
+              <XAxis dataKey="date" tick={{ fill: '#a7aebd', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} interval={Math.max(0, Math.floor(stepData.length / 6) - 1)} />
+              <YAxis tick={{ fill: '#a7aebd', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} allowDecimals={yMode === 'hours'} />
               <Tooltip content={<StepTooltip />} />
               {STEP_DISCS.map(({ key, label, color }) => activeDiscs.has(key) && (
                 <Line key={key} type="stepAfter" dataKey={`${key}${suffix}`} name={label}
@@ -205,9 +219,9 @@ function ProgressTab({ sessions }) {
           { label: 'TOTAL TIME', value: fmtHours(stats.totals.min), unit: null },
         ].map(({ label, value, unit }) => (
           <div key={label} className="text-center">
-            <div className="text-xs text-[#8a909e] font-mono tracking-widest mb-1">{label}</div>
+            <div className="text-xs text-[var(--text-secondary)] font-mono tracking-widest mb-1">{label}</div>
             <div className="text-3xl font-black font-mono text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
-              {value}{unit && <span className="text-base text-[#8a909e] font-normal ml-1">{unit}</span>}
+              {value}{unit && <span className="text-base text-[var(--text-secondary)] font-normal ml-1">{unit}</span>}
             </div>
           </div>
         ))}
@@ -226,31 +240,31 @@ function ProgressTab({ sessions }) {
             >
               {/* Header */}
               <div className="flex items-center gap-2 px-4 pt-4 pb-2">
-                <span className="text-xl">{cfg.icon}</span>
+                <SportIcon discipline={cfg.key} size={20} color={cfg.color} />
                 <span
                   className="text-base font-bold tracking-wide"
                   style={{ color: cfg.color, fontFamily: 'Barlow Condensed, sans-serif' }}
                 >
                   {cfg.label.toUpperCase()}
                 </span>
-                <span className="ml-auto text-xs font-mono text-[#3a3f4a]">{pct}% of total</span>
+                <span className="ml-auto text-xs font-mono text-[var(--text-muted)]">{pct}% of total</span>
               </div>
 
               {/* Stats row */}
               <div className="grid grid-cols-3 divide-x divide-[#1e2228] border-t border-[#1e2228]">
                 <div className="px-4 py-3 text-center">
                   <div className="text-2xl font-black font-mono" style={{ color: cfg.color, fontFamily: 'Barlow Condensed, sans-serif' }}>{s.count}</div>
-                  <div className="text-xs text-[#8a909e] font-mono mt-0.5">sessions</div>
+                  <div className="text-xs text-[var(--text-secondary)] font-mono mt-0.5">sessions</div>
                 </div>
                 <div className="px-4 py-3 text-center">
                   <div className="text-2xl font-black font-mono text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
                     {s.km > 0 ? s.km.toFixed(1) : '—'}
                   </div>
-                  <div className="text-xs text-[#8a909e] font-mono mt-0.5">km</div>
+                  <div className="text-xs text-[var(--text-secondary)] font-mono mt-0.5">km</div>
                 </div>
                 <div className="px-4 py-3 text-center">
                   <div className="text-2xl font-black font-mono text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>{fmtHours(s.min)}</div>
-                  <div className="text-xs text-[#8a909e] font-mono mt-0.5">time</div>
+                  <div className="text-xs text-[var(--text-secondary)] font-mono mt-0.5">time</div>
                 </div>
               </div>
 
@@ -270,7 +284,14 @@ function ProgressTab({ sessions }) {
 
 function SessionRow({ session: s, onDelete, onHardDelete, onRestore, onClick }) {
   const disc = s.discipline?.toLowerCase()
-  const cfg = DISC_CONFIG[disc] || { icon: '●', color: '#8a909e' }
+  const cfg = DISC_CONFIG[disc] || { key: disc, color: 'var(--text-secondary)' }
+  const intensity = INTENSITY_META[s.intensity]
+  // "Ungeplantes Training" ist keine Abweichung im engeren Sinn — das wäre
+  // bei ungeplanten Wochen sonst ein Warndreieck in jeder zweiten Zeile.
+  const deviation = s.deviation_note && !s.deviation_note.startsWith('Keine geplante')
+    ? s.deviation_note
+    : null
+  const unplanned = Boolean(s.deviation_note?.startsWith('Keine geplante'))
 
   return (
     <div
@@ -278,18 +299,49 @@ function SessionRow({ session: s, onDelete, onHardDelete, onRestore, onClick }) 
       style={{ borderLeftColor: cfg.color }}
       onClick={onClick}
     >
-      <div className="flex-shrink-0 w-6 text-center text-base leading-none">{cfg.icon}</div>
-      <div className="w-14 flex-shrink-0 font-mono text-xs text-[#8a909e]">{s.session_date?.slice(5)}</div>
+      <div className="flex-shrink-0 w-6 flex justify-center">
+        <SportIcon discipline={cfg.key} size={16} color={cfg.color} />
+      </div>
+      <div className="w-14 flex-shrink-0 font-mono text-xs text-[var(--text-secondary)]">{s.session_date?.slice(5)}</div>
       <div className="w-18 flex-shrink-0 text-xs text-[#e8eaf0] hidden sm:block">{cfg.label}</div>
 
-      <div className="flex gap-3 flex-1 min-w-0 flex-wrap">
-        {s.duration_min && <span className="text-xs font-mono text-[#8a909e]">{formatDuration(s.duration_min)}</span>}
-        {s.distance_km && <span className="text-xs font-mono text-[#8a909e]">{s.distance_km} km</span>}
-        {s.avg_watts && <span className="text-xs font-mono text-[#8a909e]">{s.avg_watts}W</span>}
-        {s.avg_pace_min_km && <span className="text-xs font-mono text-[#8a909e]">{formatPace(s.avg_pace_min_km, disc)}</span>}
-        {s.tss && <span className="text-xs font-mono font-semibold" style={{ color: cfg.color }}>{s.tss.toFixed(0)} TSS</span>}
-        {s.avg_hr && <span className="text-xs font-mono text-[#8a909e]">{s.avg_hr} bpm</span>}
+      {/* Klassifizierung: Intensitätsstufe und erkannter Trainingstyp */}
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        {intensity && (
+          <span
+            className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded leading-none whitespace-nowrap"
+            style={{ color: intensity.color, background: `${intensity.color}1e`, border: `1px solid ${intensity.color}44` }}
+            title={`Intensität ${intensity.short} (${intensity.zone})`}
+          >
+            {intensity.short}
+          </span>
+        )}
+        {s.actual_type && (
+          <span className="text-[10px] font-mono text-[var(--text-secondary)] hidden lg:inline whitespace-nowrap">
+            {s.actual_type.replace(/_/g, ' ')}
+          </span>
+        )}
       </div>
+
+      <div className="flex gap-3 flex-1 min-w-0 flex-wrap">
+        {s.duration_min && <span className="text-xs font-mono text-[var(--text-secondary)]">{formatDuration(s.duration_min)}</span>}
+        {s.distance_km && <span className="text-xs font-mono text-[var(--text-secondary)]">{s.distance_km} km</span>}
+        {s.avg_watts && <span className="text-xs font-mono text-[var(--text-secondary)]">{s.avg_watts}W</span>}
+        {s.avg_pace_min_km && <span className="text-xs font-mono text-[var(--text-secondary)]">{formatPace(s.avg_pace_min_km, disc)}</span>}
+        {s.tss && <span className="text-xs font-mono font-semibold" style={{ color: cfg.color }}>{s.tss.toFixed(0)} TSS</span>}
+        {s.avg_hr && <span className="text-xs font-mono text-[var(--text-secondary)]">{s.avg_hr} bpm</span>}
+      </div>
+
+      {/* Soll/Ist — nur wenn es wirklich abwich. Volltext im Tooltip. */}
+      {(deviation || unplanned) && (
+        <span
+          className="text-[10px] font-mono flex-shrink-0 cursor-help leading-none"
+          style={{ color: deviation ? '#f4a261' : 'var(--text-muted)' }}
+          title={deviation || 'Ungeplantes Training — keine Einheit im Plan zugeordnet'}
+        >
+          {deviation ? '⚠' : '○'}
+        </span>
+      )}
 
       {s.hr_zones && (
         <div className="flex gap-0.5 items-end h-5 flex-shrink-0 hidden md:flex">
@@ -311,7 +363,7 @@ function SessionRow({ session: s, onDelete, onHardDelete, onRestore, onClick }) 
             <button onClick={onHardDelete} className="text-xs text-red-500 hover:text-red-400 font-mono">✕</button>
           </>
         ) : (
-          <button onClick={onDelete} className="text-xs text-[#3a3f4a] hover:text-red-500 font-mono transition-colors">✕</button>
+          <button onClick={onDelete} className="text-xs text-[var(--text-muted)] hover:text-red-500 font-mono transition-colors">✕</button>
         )}
       </div>
     </div>
@@ -368,7 +420,7 @@ function SessionsTab({ sessions, showDeleted, onToggleDeleted, onRefresh }) {
       {/* Filter bar */}
       <div className="flex gap-2 flex-wrap items-center justify-between">
         <div className="flex gap-2 flex-wrap">
-          {['all', 'bike', 'run', 'swim', 'gym'].map(d => {
+          {['all', 'bike', 'run', 'swim', 'gym', 'hike'].map(d => {
             const cfg = DISC_CONFIG[d]
             const isActive = filter === d
             return (
@@ -389,13 +441,13 @@ function SessionsTab({ sessions, showDeleted, onToggleDeleted, onRefresh }) {
         </div>
         <button
           onClick={onToggleDeleted}
-          className={`text-xs px-3 py-1.5 rounded-lg border font-mono transition-colors ${showDeleted ? 'border-red-500/40 text-red-400 bg-red-500/10' : 'border-[#1e2228] text-[#3a3f4a] hover:text-[#8a909e]'}`}
+          className={`text-xs px-3 py-1.5 rounded-lg border font-mono transition-colors ${showDeleted ? 'border-red-500/40 text-red-400 bg-red-500/10' : 'border-[#1e2228] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
         >
           {showDeleted ? 'Hide deleted' : 'Show deleted'}
         </button>
       </div>
 
-      {grouped.length === 0 && <div className="text-center py-8 text-[#8a909e] text-sm">No sessions found.</div>}
+      {grouped.length === 0 && <div className="text-center py-8 text-[var(--text-secondary)] text-sm">No sessions found.</div>}
 
       {grouped.map(([ym, monthSessions]) => {
         const isOpen = effectiveOpenMonths.has(ym)
@@ -418,24 +470,27 @@ function SessionsTab({ sessions, showDeleted, onToggleDeleted, onRefresh }) {
                 >
                   {formatMonth(ym).toUpperCase()}
                 </span>
-                <span className="text-xs font-mono text-[#8a909e] bg-[#1e2228] px-2 py-0.5 rounded-full">
+                <span className="text-xs font-mono text-[var(--text-secondary)] bg-[#1e2228] px-2 py-0.5 rounded-full">
                   {monthSessions.length} sessions
                 </span>
-                <span className="text-xs font-mono text-[#3a3f4a]">{totalHours.toFixed(1)}h</span>
-                {totalTSS > 0 && <span className="text-xs font-mono text-[#3a3f4a]">{Math.round(totalTSS)} TSS</span>}
+                <span className="text-xs font-mono text-[var(--text-muted)]">{totalHours.toFixed(1)}h</span>
+                {totalTSS > 0 && <span className="text-xs font-mono text-[var(--text-muted)]">{Math.round(totalTSS)} TSS</span>}
                 <div className="flex gap-1 hidden sm:flex">
                   {['bike','run','swim','gym'].map(d => {
                     const cnt = monthSessions.filter(s => s.discipline?.toLowerCase() === d).length
                     if (!cnt) return null
                     return (
-                      <span key={d} className="text-xs font-mono px-1.5 py-0.5 rounded" style={{ color: DISC_CONFIG[d].color, background: `${DISC_CONFIG[d].color}20` }}>
-                        {DISC_CONFIG[d].icon}{cnt}
+                      <span key={d}
+                            className="text-xs font-mono px-1.5 py-0.5 rounded inline-flex items-center gap-1"
+                            style={{ color: DISC_CONFIG[d].color, background: `${DISC_CONFIG[d].color}20` }}>
+                        <SportIcon discipline={d} size={13} />
+                        {cnt}
                       </span>
                     )
                   })}
                 </div>
               </div>
-              <span className="text-[#8a909e] text-sm font-mono flex-shrink-0">{isOpen ? '▼' : '▶'}</span>
+              <span className="text-[var(--text-secondary)] text-sm font-mono flex-shrink-0">{isOpen ? '▼' : '▶'}</span>
             </button>
 
             {isOpen && (
@@ -462,7 +517,7 @@ function SessionsTab({ sessions, showDeleted, onToggleDeleted, onRefresh }) {
 // ─── Plans Tab ─────────────────────────────────────────────────────────────────
 
 function PlansTab({ plans }) {
-  if (!plans.length) return <p className="text-[#8a909e] text-sm py-4">No training plans generated yet.</p>
+  if (!plans.length) return <p className="text-[var(--text-secondary)] text-sm py-4">No training plans generated yet.</p>
   return (
     <div className="space-y-4">
       {plans.map(p => (
@@ -471,14 +526,14 @@ function PlansTab({ plans }) {
             <span className="font-bold text-[#e8eaf0] tracking-wide" style={{ fontFamily: 'Barlow Condensed, sans-serif', fontSize: '1.05rem' }}>
               WEEK {p.week_number} — {p.plan_phase}
             </span>
-            <span className="text-xs font-mono text-[#8a909e]">{p.week_start} – {p.week_end}</span>
+            <span className="text-xs font-mono text-[var(--text-secondary)]">{p.week_start} – {p.week_end}</span>
           </div>
           {p.plan_content?.coaching_comment && (
-            <p className="text-[#8a909e] text-sm">{p.plan_content.coaching_comment}</p>
+            <p className="text-[var(--text-secondary)] text-sm">{p.plan_content.coaching_comment}</p>
           )}
           <div className="mt-3 flex flex-wrap gap-1">
             {(p.plan_content?.days || []).map((d, i) => (
-              <span key={i} className={`text-xs px-2 py-0.5 rounded-full font-mono ${d.session_type === 'rest' ? 'bg-[#1e2228] text-[#3a3f4a]' : 'bg-[#1e2228] text-[#8a909e]'}`}>
+              <span key={i} className={`text-xs px-2 py-0.5 rounded-full font-mono ${d.session_type === 'rest' ? 'bg-[#1e2228] text-[var(--text-muted)]' : 'bg-[#1e2228] text-[var(--text-secondary)]'}`}>
                 {d.day.slice(0, 2)}: {d.session_type}
               </span>
             ))}
@@ -533,7 +588,7 @@ export default function History() {
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-mono transition-all border-b-2 -mb-px ${tab === t.key ? 'border-[#00d4ff] text-[#00d4ff]' : 'border-transparent text-[#8a909e] hover:text-[#e8eaf0]'}`}
+            className={`px-4 py-2 text-sm font-mono transition-all border-b-2 -mb-px ${tab === t.key ? 'border-[#00d4ff] text-[#00d4ff]' : 'border-transparent text-[var(--text-secondary)] hover:text-[#e8eaf0]'}`}
           >
             {t.label}
           </button>
@@ -541,7 +596,7 @@ export default function History() {
       </div>
 
       {loading ? (
-        <div className="text-[#8a909e] font-mono text-sm py-6 text-center tracking-widest">LOADING...</div>
+        <div className="text-[var(--text-secondary)] font-mono text-sm py-6 text-center tracking-widest">LOADING...</div>
       ) : (
         <>
           {tab === 'sessions' && <SessionsTab sessions={sessions} showDeleted={showDeleted} onToggleDeleted={() => setShowDeleted(v => !v)} onRefresh={load} />}

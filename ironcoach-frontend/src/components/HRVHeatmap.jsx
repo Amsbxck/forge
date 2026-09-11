@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 
-const STATUS_COLOR = { green: '#22c55e', yellow: '#eab308', red: '#ef4444' }
+import { STATUS_COLOR } from '../utils/colors'
 const STATUS_LABEL = { green: 'Good', yellow: 'Caution', red: 'Rest' }
 const DAY_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', 'Sun']
 
@@ -79,7 +79,12 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
     if (weeksForward != null) return weeksForward
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    const end = endDate ? new Date(endDate) : new Date(today.getFullYear(), 11, 31)
+    // Ohne Zieldatum nur zwei Wochen nach vorn. Vorher lief das Raster bis
+    // zum Jahresende und malte je nach Datum ein halbes Jahr leerer Kästchen
+    // — die Fläche wirkte wie fehlende Daten statt wie Zukunft.
+    if (!endDate) return 2
+    const end = new Date(endDate)
+    if (end < today) return 0
     const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1
     const thisWeekMonday = new Date(today)
     thisWeekMonday.setDate(today.getDate() - dayOfWeek)
@@ -94,7 +99,7 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
 
   if (!data?.length) {
     return (
-      <div className="text-center py-6 text-sm font-mono" style={{ color: '#8a909e' }}>
+      <div className="text-center py-6 text-sm font-mono" style={{ color: 'var(--text-secondary)' }}>
         No HRV data yet.
       </div>
     )
@@ -108,7 +113,7 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
     <div className="space-y-3">
       <div className="flex gap-2 items-start overflow-x-auto pb-1">
         {/* Day labels */}
-        <div className="flex flex-col gap-1 pt-5 font-mono shrink-0" style={{ color: '#3a3f4a' }}>
+        <div className="flex flex-col gap-1 pt-5 font-mono shrink-0" style={{ color: 'var(--text-muted)' }}>
           {DAY_LABELS.map((d, i) => (
             <div key={i} className="h-3.5 flex items-center" style={{ fontSize: '9px', lineHeight: 1 }}>
               {d}
@@ -119,7 +124,7 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
         {/* Heatmap grid */}
         <div className="shrink-0">
           {/* Month labels */}
-          <div className="flex gap-1 mb-1 font-mono" style={{ color: '#3a3f4a' }}>
+          <div className="flex gap-1 mb-1 font-mono" style={{ color: 'var(--text-muted)' }}>
             {columns.map((c, i) => (
               <div key={i} className="w-[18px] text-center" style={{ fontSize: '9px' }}>
                 {c.monthLabel}
@@ -146,20 +151,20 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
       </div>
 
       {/* Hover details — fixed height to prevent layout shift */}
-      <div className="text-xs font-mono h-5 px-1 flex items-center" style={{ color: '#8a909e' }}>
+      <div className="text-xs font-mono h-5 px-1 flex items-center" style={{ color: 'var(--text-secondary)' }}>
         {hover ? (
           hover.rmssd != null ? (
             <span className="flex items-center gap-2">
               <span style={{ color: '#e8eaf0' }}>{hover.date}</span>
-              <span style={{ color: '#3a3f4a' }}>·</span>
+              <span style={{ color: 'var(--text-muted)' }}>·</span>
               <span style={{ color: '#00d4ff' }} className="font-semibold">{hover.rmssd} ms</span>
               {hover.readiness_score != null && (
                 <>
-                  <span style={{ color: '#3a3f4a' }}>·</span>
+                  <span style={{ color: 'var(--text-muted)' }}>·</span>
                   <span>Body Battery <span style={{ color: '#e8eaf0' }}>{hover.readiness_score}</span></span>
                 </>
               )}
-              <span style={{ color: '#3a3f4a' }}>·</span>
+              <span style={{ color: 'var(--text-muted)' }}>·</span>
               <span style={{ color: STATUS_COLOR[hover.hrv_status] }} className="uppercase tracking-wider">
                 {STATUS_LABEL[hover.hrv_status]}
               </span>
@@ -167,21 +172,21 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
           ) : (
             <span>
               <span style={{ color: '#e8eaf0' }}>{hover.date}</span>
-              <span className="mx-2" style={{ color: '#3a3f4a' }}>·</span>
-              <span style={{ color: '#3a3f4a' }}>
+              <span className="mx-2" style={{ color: 'var(--text-muted)' }}>·</span>
+              <span style={{ color: 'var(--text-muted)' }}>
                 {hover.future ? 'Upcoming' : hover.today ? 'Today — no entry yet' : 'No measurement'}
               </span>
             </span>
           )
         ) : (
-          <span style={{ color: '#3a3f4a' }}>
+          <span style={{ color: 'var(--text-muted)' }}>
             {totalDays} measurements · {greenPct}% green days
           </span>
         )}
       </div>
 
       {/* Legend */}
-      <div className="flex gap-2 items-center text-xs font-mono pt-1" style={{ color: '#3a3f4a' }}>
+      <div className="flex gap-2 items-center text-xs font-mono pt-1" style={{ color: 'var(--text-muted)' }}>
         <span style={{ fontSize: '10px' }}>STATUS</span>
         <span className="w-3 h-3 rounded-sm ml-1" style={{ background: '#1a1d24' }} title="No data" />
         <span className="w-3 h-3 rounded-sm" style={{ background: '#ef4444' }} title="Rest" />
