@@ -279,10 +279,27 @@ without a vault are unaffected.
 ```
 Reusable    ✓   the container rejoins on every deploy
 Ephemeral   ✓   dead nodes disappear on their own
-Tags        tag:ironcoach
+Tags        leave empty for now — see below
 ```
 
    The value is shown once and starts with `tskey-auth-`.
+
+   **Tags need to exist first.** Tailscale rejects a key that claims a tag
+   which is not declared in the ACL policy:
+
+   ```
+   requested tags [tag:ironcoach] are invalid or not permitted
+   ```
+
+   If you want the ACL rules in §4.3, add this to **Access Controls** before
+   generating the key, then set `TS_TAGS=tag:ironcoach` on Railway:
+
+   ```json
+   "tagOwners": { "tag:ironcoach": ["autogroup:admin"] }
+   ```
+
+   Without `TS_TAGS` the server joins as a normal device owned by you. That
+   works — you just cannot target it by tag in the access rules.
 
 2. Railway → `forge` → Variables:
 

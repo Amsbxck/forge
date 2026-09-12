@@ -31,11 +31,21 @@ if [ -n "${TS_AUTHKEY:-}" ]; then
     sleep 1
   done
 
-  if /usr/bin/tailscale up \
-       --authkey="${TS_AUTHKEY}" \
-       --hostname="${TS_HOSTNAME:-ironcoach-api}" \
-       --advertise-tags="${TS_TAGS:-tag:ironcoach}" \
-       --accept-dns=true; then
+  # Tags nur, wenn ausdrücklich gesetzt. Ein Vorgabewert hier wäre eine
+  # Falle: Tailscale verlangt, dass ein Tag vorher in den Zugriffsregeln
+  # unter `tagOwners` steht. Wer das nicht eingerichtet hat, bekommt
+  # "requested tags are invalid or not permitted" — und sucht den Fehler beim
+  # Schlüssel statt in einer Einstellung, von der er nichts weiß.
+  TS_ARGS=(
+    --authkey="${TS_AUTHKEY}"
+    --hostname="${TS_HOSTNAME:-ironcoach-api}"
+    --accept-dns=true
+  )
+  if [ -n "${TS_TAGS:-}" ]; then
+    TS_ARGS+=(--advertise-tags="${TS_TAGS}")
+  fi
+
+  if /usr/bin/tailscale up "${TS_ARGS[@]}"; then
     echo "[start] Tailscale: verbunden als ${TS_HOSTNAME:-ironcoach-api}"
     # Ausdrücklich NICHT als ALL_PROXY: Der gesamte ausgehende Verkehr — zu
     # Anthropic, Strava, zum Mailserver — liefe sonst durch den Tunnel. Nur
