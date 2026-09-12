@@ -50,12 +50,21 @@ if ! gzip -t "$DATEI" 2>/dev/null; then
 fi
 
 # Alte Stände aufräumen, die jüngsten behalten.
-ANZAHL="$(ls -1 "$ZIEL"/ironcoach_*.sql.gz 2>/dev/null | wc -l | tr -d ' ')"
+# `find` statt eines Platzhalters: Ein Muster wie ironcoach_*.sql.gz bleibt
+# unaufgelöst stehen, wenn die Shell das Verzeichnis nicht auflisten darf —
+# unter launchd ist das bei geschützten Orten der Fall. `ls` bekommt dann das
+# Muster als Dateinamen, scheitert, und das Skript bricht nach dem Schreiben
+# der Sicherung ab: Die Datei ist da, der Lauf gilt trotzdem als gescheitert.
+liste_sicherungen() {
+  find "$ZIEL" -maxdepth 1 -name 'ironcoach_*.sql.gz' -type f 2>/dev/null | sort
+}
+
+ANZAHL="$(liste_sicherungen | wc -l | tr -d ' ')"
 if [ "$ANZAHL" -gt "$BEHALTEN" ]; then
-  ls -1t "$ZIEL"/ironcoach_*.sql.gz | tail -n +$((BEHALTEN + 1)) | while read -r alt; do
+  liste_sicherungen | sort -r | tail -n +$((BEHALTEN + 1)) | while read -r alt; do
     rm -f "$alt"
     echo "Alte Sicherung entfernt: $(basename "$alt")"
   done
 fi
 
-echo "Vorhandene Sicherungen: $(ls -1 "$ZIEL"/ironcoach_*.sql.gz | wc -l | tr -d ' ')"
+echo "Vorhandene Sicherungen: $(liste_sicherungen | wc -l | tr -d ' ')"
