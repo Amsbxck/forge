@@ -72,6 +72,7 @@ class ObsidianClient:
         api_key: str | None = None,
         timeout: float | None = None,
         verify: bool | None = None,
+        proxy: str | None = None,
     ):
         # Kein Rückfall mehr auf die Umgebungskonfiguration: Sie zeigt auf
         # genau einen Vault — den der Installation. Solange es diesen Rückfall
@@ -86,6 +87,10 @@ class ObsidianClient:
         self.api_key = api_key or ""
         self.timeout = timeout if timeout is not None else settings.OBSIDIAN_TIMEOUT_S
         self.verify = verify if verify is not None else settings.OBSIDIAN_VERIFY_TLS
+        # Der Weg ins private Netz, falls einer eingerichtet ist. Die Adresse
+        # des Athleten liegt dann nicht im öffentlichen Netz, sondern im
+        # Tailnet — ohne diesen Proxy läuft die Anfrage ins Leere.
+        self.proxy = proxy if proxy is not None else settings.OBSIDIAN_PROXY
 
     @property
     def enabled(self) -> bool:
@@ -113,7 +118,12 @@ class ObsidianClient:
 
         for attempt in range(retries + 1):
             try:
-                with httpx.Client(timeout=self.timeout, verify=self.verify) as client:
+                with httpx.Client(
+                    timeout=self.timeout,
+                    verify=self.verify,
+                    # Ohne Proxy verhält sich der Client wie bisher.
+                    proxy=self.proxy or None,
+                ) as client:
                     response = client.request(method, url, **kwargs)
             except httpx.HTTPError as e:
                 last_error = e

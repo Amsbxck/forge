@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     # gibt es ein echtes Zertifikat und das hier kann auf True.
     OBSIDIAN_VERIFY_TLS: bool = False
     OBSIDIAN_TIMEOUT_S: float = 5.0
+    # SOCKS5-Proxy für den Weg ins private Netz. Wird vom Startskript gesetzt,
+    # sobald Tailscale verbunden ist. Ausdrücklich nur für Obsidian und nicht
+    # als ALL_PROXY: Sonst liefe auch der Verkehr zu Anthropic, Strava und zum
+    # Mailserver durch den Tunnel — langsamer, fehleranfälliger, und bei einem
+    # Tailscale-Ausfall stünde die ganze Anwendung statt nur der Vault-Abgleich.
+    OBSIDIAN_PROXY: str = ""
 
     # Öffentliche Adresse dieser Installation — die Adresse, unter der die
     # App erreichbar ist, nicht die eines einzelnen Athleten. Nur für den

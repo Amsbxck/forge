@@ -270,23 +270,45 @@ network part.
 
 ### 4.1 Put the server on the tailnet
 
-1. Tailscale admin → **Settings → Keys** → generate a **reusable, ephemeral**
-   auth key. Ephemeral means the node disappears when the container stops,
-   so redeploys don't leave dead entries behind.
-2. Railway → backend service → Variables: `TS_AUTHKEY=tskey-auth-...`
-3. The container needs `tailscaled` in userspace mode. Railway has no
-   `/dev/net/tun`, so the normal kernel mode will not work:
+The image already ships with Tailscale and starts it when `TS_AUTHKEY` is
+set. Without the key nothing happens — local development and installations
+without a vault are unaffected.
 
-```dockerfile
-RUN apt-get update && apt-get install -y curl &&     curl -fsSL https://tailscale.com/install.sh | sh
-# then, before uvicorn:
-#   tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
-#   tailscale up --authkey="$TS_AUTHKEY" --hostname=ironcoach-api
+1. Tailscale admin → **Settings → Keys** → **Generate auth key**:
+
+```
+Reusable    ✓   the container rejoins on every deploy
+Ephemeral   ✓   dead nodes disappear on their own
+Tags        tag:ironcoach
 ```
 
-Userspace mode means outgoing connections go through the SOCKS5 proxy — the
-HTTP client needs `ALL_PROXY=socks5://localhost:1055` for requests to reach
-the tailnet.
+   The value is shown once and starts with `tskey-auth-`.
+
+2. Railway → `forge` → Variables:
+
+```
+TS_AUTHKEY=tskey-auth-...
+TS_HOSTNAME=ironcoach-api        # optional, this is the default
+```
+
+3. Redeploy. The startup log shows which path was taken:
+
+```
+[start] Tailscale: verbunden als ironcoach-api
+[start] Migrationen …
+[start] Server auf Port 8080, 1 Prozess(e)
+```
+
+If the key is rejected, the app still starts — only the Obsidian sync is
+missing. Refusing to boot over a failed vault connection would be the harsher
+punishment.
+
+**The proxy is scoped to Obsidian on purpose.** Userspace mode routes
+outbound connections through a local SOCKS5 server. Exporting that as
+`ALL_PROXY` would send traffic to Anthropic, Strava and the mail server
+through the tunnel as well — slower, more fragile, and a Tailscale outage
+would take down the whole application instead of one integration. The
+entrypoint sets `OBSIDIAN_PROXY`, which only the vault client reads.
 
 ### 4.2 Each athlete joins
 

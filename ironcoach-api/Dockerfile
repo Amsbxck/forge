@@ -2,7 +2,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y gcc libpq-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y gcc libpq-dev curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Tailscale, damit der Server die Obsidian-Instanzen der Athleten erreicht.
+# Die laufen auf deren eigenen Rechnern im Heimnetz — ohne privates Netz gibt
+# es dorthin keinen Weg. Ohne TS_AUTHKEY bleibt alles davon ungenutzt; das
+# Abbild wird dadurch nur etwa 30 MB größer.
+COPY --from=docker.io/tailscale/tailscale:stable /usr/local/bin/tailscaled /usr/sbin/tailscaled
+COPY --from=docker.io/tailscale/tailscale:stable /usr/local/bin/tailscale /usr/bin/tailscale
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -11,12 +19,13 @@ COPY . .
 
 RUN mkdir -p /app/uploads
 
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
+
 # Kein --reload: Das ist der Entwicklungsserver. Er überwacht das Dateisystem,
 # läuft einprozessig und startet bei jeder Änderung neu — auf einem Server
 # kostet das Speicher und bringt nichts, weil sich dort nichts ändert.
 #
-# Die Portnummer kommt aus der Umgebung, weil Plattformen wie Railway sie
-# vorgeben; ohne Vorgabe bleibt es bei 8000. WEB_CONCURRENCY steuert die Zahl
-# der Prozesse — bei einem kleinen Server ist einer richtig, mehr Prozesse
-# teilen sich sonst denselben Kern und werden langsamer.
-CMD ["sh", "-c", "alembic -c /app/alembic.ini upgrade head && exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-1} --proxy-headers --forwarded-allow-ips='*'"]
+# Der Ablauf steht im Startskript statt hier, weil vor dem Server noch das
+# private Netz aufgebaut werden muss und eine CMD-Zeile dafür zu eng wird.
+CMD ["/app/docker-entrypoint.sh"]
