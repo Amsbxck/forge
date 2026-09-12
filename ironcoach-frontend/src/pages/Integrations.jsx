@@ -67,7 +67,11 @@ export default function Integrations() {
       if (form.api_key) payload.api_key = form.api_key
       const { data } = await updateObsidian(payload)
       setState(data)
-      setForm(f => ({ ...f, api_key: '' }))
+      // Die vervollständigte Adresse zurück ins Feld: Wer nur `100.84.12.7`
+      // eingefügt hat, sieht sonst weiter seine Eingabe, während gespeichert
+      // etwas anderes ist. Beim nächsten Speichern stünde die Frage im Raum,
+      // welche der beiden gilt.
+      setForm(f => ({ ...f, base_url: data.obsidian.base_url || f.base_url, api_key: '' }))
       setSaved(true)
     } catch (err) {
       setError(err.response?.data?.detail || 'Speichern fehlgeschlagen')
@@ -302,11 +306,12 @@ export default function Integrations() {
             <span className={`${LABEL} block mb-1`}>ADRESSE DER LOCAL REST API</span>
             <input className={FIELD} style={FIELD_STYLE} value={form.base_url}
                    onChange={e => setForm({ ...form, base_url: e.target.value })}
-                   placeholder="https://100.x.y.z:27124" />
+                   placeholder="100.84.12.7" />
             <span className="block mt-1 text-[11px] font-mono text-[var(--text-muted)]">
-              Die Adresse, die in der Tailscale-App bei deinem Rechner steht — mit
-              <span className="text-[var(--text-secondary)]"> https:// </span>davor und
-              <span className="text-[var(--text-secondary)]"> :27124 </span>dahinter.
+              Genau das einfügen, was in der Tailscale-App bei deinem Rechner steht.
+              <span className="text-[var(--text-secondary)]"> https:// </span>und der
+              Port<span className="text-[var(--text-secondary)]"> :27124 </span>
+              kommen beim Speichern von selbst dazu.
             </span>
           </label>
           <label className="block">
@@ -382,8 +387,8 @@ export default function Integrations() {
             <li>In Obsidian: Einstellungen → Community-Plugins → „Local REST API" installieren und aktivieren</li>
             <li>Im selben Plugin: API-Schlüssel kopieren, „Binding Host" auf 0.0.0.0 setzen</li>
             <li>Tailscale installieren (tailscale.com/download) und mit der Einladung anmelden, die du bekommen hast</li>
-            <li>In der Tailscale-App steht bei deinem Rechner eine Adresse wie 100.84.12.7 — die ist gemeint</li>
-            <li>Oben eintragen: https://100.84.12.7:27124 und den Schlüssel, dann „Verbindung testen"</li>
+            <li>In der Tailscale-App steht bei deinem Rechner eine Adresse wie 100.84.12.7 — die ist gemeint (der Eintrag „IPv4")</li>
+            <li>Diese Adresse oben einfügen, dazu den Schlüssel, dann „Verbindung testen"</li>
           </ol>
           <p className="mt-2 leading-relaxed">
             Der Abgleich läuft nur, solange dein Rechner wach und Obsidian geöffnet ist.

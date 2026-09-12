@@ -13,7 +13,7 @@ import ipaddress
 import logging
 import time
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 import httpx
 
@@ -263,6 +263,48 @@ def client_for_profile(profile) -> ObsidianClient:
         api_key=profile.obsidian_api_key or "",
         verify=pruefung_noetig(basis, getattr(profile, "obsidian_verify_tls", None)),
     )
+
+
+# Die Standardports des Local-REST-API-Plugins. HTTPS ist der aktive, HTTP
+# muss im Plugin erst eingeschaltet werden und lauscht dann nur lokal.
+PLUGIN_PORT_HTTPS = 27124
+PLUGIN_PORT_HTTP = 27123
+
+
+def normalisiere_adresse(eingabe: str) -> str:
+    """Aus dem, was jemand einfügt, eine vollständige Adresse machen.
+
+    In der Tailscale-App steht eine nackte Adresse — `100.84.12.7` oder
+    `rechner.tailnet.ts.net`. Wer sie herauskopiert, fügt genau das ein.
+    Verlangt man zusätzlich `https://` davor und `:27124` dahinter, scheitert
+    die Einrichtung an zwei Angaben, die für jede Installation gleich sind
+    und die niemand raten kann.
+
+    Ergänzt wird nur, was fehlt. Eine vollständig eingegebene Adresse bleibt
+    unangetastet, auch mit abweichendem Port oder Pfad.
+    """
+    text = (eingabe or "").strip().strip("/")
+    if not text:
+        return ""
+
+    # Ein IPv6-Literal muss in Klammern, sonst liest jeder URL-Parser die
+    # letzte Zifferngruppe als Portnummer. Die Tailscale-App zeigt die
+    # Adresse ohne Klammern an, also kommen sie von hier.
+    try:
+        if isinstance(ipaddress.ip_address(text), ipaddress.IPv6Address):
+            text = f"[{text}]"
+    except ValueError:
+        pass
+
+    if "://" not in text:
+        text = f"https://{text}"
+
+    teile = urlsplit(text)
+    if teile.port is None:
+        vorgabe = PLUGIN_PORT_HTTP if teile.scheme == "http" else PLUGIN_PORT_HTTPS
+        teile = teile._replace(netloc=f"{teile.netloc}:{vorgabe}")
+
+    return urlunsplit(teile).rstrip("/")
 
 
 def pruefung_noetig(base_url: str, vorgabe: bool | None) -> bool:

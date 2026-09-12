@@ -16,7 +16,9 @@ from core.config import settings
 from core.deps import get_profile, require_user
 from database import get_db
 from models import StravaCredentials, User
-from services.obsidian.client import DEFAULT_VAULT_SUBDIR, pruefung_noetig
+from services.obsidian.client import (
+    DEFAULT_VAULT_SUBDIR, normalisiere_adresse, pruefung_noetig,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -90,9 +92,12 @@ def update_obsidian(
         raise HTTPException(status_code=404, detail="Kein Athletenprofil")
 
     if body.base_url is not None:
-        url = body.base_url.strip().rstrip("/")
+        # Schema und Port ergänzen, statt sie zu verlangen: In der
+        # Tailscale-App steht eine nackte Adresse, und genau die fügt jemand
+        # hier ein.
+        url = normalisiere_adresse(body.base_url)
         if url and not url.startswith(("http://", "https://")):
-            raise HTTPException(status_code=422, detail="Adresse muss mit http:// oder https:// beginnen")
+            raise HTTPException(status_code=422, detail="Adresse ist unlesbar")
         # Eine neue Adresse hebt eine frühere Festlegung auf: Die Entscheidung
         # über das Zertifikat gehörte zur alten Adresse. Ohne das bliebe ein
         # einmal gesetztes Flag für immer kleben — und es gibt keinen Weg
@@ -128,7 +133,12 @@ def test_obsidian(
 
     profile = get_profile(db, user)
     if body and (body.base_url or body.api_key):
-        basis = body.base_url or (profile.obsidian_base_url if profile else None) or ""
+        # Auch hier normalisieren: Der Test läuft vor dem Speichern, mit dem,
+        # was im Feld steht. Ohne das scheiterte er an einer Adresse, die
+        # gespeichert funktioniert hätte.
+        basis = normalisiere_adresse(
+            body.base_url or (profile.obsidian_base_url if profile else None) or ""
+        )
         client = ObsidianClient(
             base_url=basis,
             api_key=body.api_key or (profile.obsidian_api_key if profile else None),

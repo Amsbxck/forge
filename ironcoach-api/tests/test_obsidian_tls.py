@@ -9,7 +9,9 @@ Zertifikat gibt.
 
 import pytest
 
-from services.obsidian.client import client_for_profile, pruefung_noetig
+from services.obsidian.client import (
+    client_for_profile, normalisiere_adresse, pruefung_noetig,
+)
 
 
 class _Profil:
@@ -63,3 +65,35 @@ def test_ohne_profil_kein_zugriff():
     """Kein Profil heißt keine Anbindung — nicht etwa die des Betreibers."""
     client = client_for_profile(None)
     assert client.enabled is False
+
+
+@pytest.mark.parametrize(
+    "eingabe, erwartet",
+    [
+        # Der Hauptfall: genau das, was in der Tailscale-App steht.
+        ("100.84.12.7", "https://100.84.12.7:27124"),
+        ("rechner.tail47caa9.ts.net", "https://rechner.tail47caa9.ts.net:27124"),
+        # IPv6 ohne Klammern — sonst liest jeder Parser ":7" als Port.
+        ("fd7a:115c:a1e0::2a01:d79f", "https://[fd7a:115c:a1e0::2a01:d79f]:27124"),
+        # Teilweise ausgefüllt.
+        ("https://100.84.12.7", "https://100.84.12.7:27124"),
+        ("100.84.12.7:27124", "https://100.84.12.7:27124"),
+        # Vollständig — bleibt unangetastet, auch mit abweichendem Port.
+        ("https://100.84.12.7:27124", "https://100.84.12.7:27124"),
+        ("https://vault.example.org:8443", "https://vault.example.org:8443"),
+        # http bekommt den HTTP-Port des Plugins, nicht den HTTPS-Port.
+        ("http://127.0.0.1", "http://127.0.0.1:27123"),
+        # Kopierreste.
+        ("  100.84.12.7/  ", "https://100.84.12.7:27124"),
+        ("", ""),
+    ],
+)
+def test_adresse_wird_vervollstaendigt(eingabe, erwartet):
+    assert normalisiere_adresse(eingabe) == erwartet
+
+
+def test_vervollstaendigte_adresse_trifft_dieselbe_zertifikatsentscheidung():
+    """Die beiden Regeln müssen zusammenpassen, nicht nur je für sich stimmen."""
+    assert pruefung_noetig(normalisiere_adresse("100.84.12.7"), None) is False
+    assert pruefung_noetig(normalisiere_adresse("rechner.tail47caa9.ts.net"), None) is True
+    assert pruefung_noetig(normalisiere_adresse("fd7a:115c::1"), None) is False
