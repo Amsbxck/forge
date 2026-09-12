@@ -302,7 +302,12 @@ export default function Integrations() {
             <span className={`${LABEL} block mb-1`}>ADRESSE DER LOCAL REST API</span>
             <input className={FIELD} style={FIELD_STYLE} value={form.base_url}
                    onChange={e => setForm({ ...form, base_url: e.target.value })}
-                   placeholder="https://127.0.0.1:27124" />
+                   placeholder="https://100.x.y.z:27124" />
+            <span className="block mt-1 text-[11px] font-mono text-[var(--text-muted)]">
+              Die Adresse, die in der Tailscale-App bei deinem Rechner steht — mit
+              <span className="text-[var(--text-secondary)]"> https:// </span>davor und
+              <span className="text-[var(--text-secondary)]"> :27124 </span>dahinter.
+            </span>
           </label>
           <label className="block">
             <span className={`${LABEL} block mb-1`}>
@@ -356,8 +361,9 @@ export default function Integrations() {
                 ✕ {test.error}
                 {test.reachable === false && (
                   <div className="text-[var(--text-secondary)] mt-1">
-                    Läuft Obsidian? Steht „Binding Host" im Plugin auf 0.0.0.0? Bei einem
-                    Server außerhalb deines Rechners braucht es einen Tunnel.
+                    Der Reihe nach: Ist Obsidian offen und der Rechner wach? Steht
+                    „Binding Host" im Plugin auf 0.0.0.0? Zeigt die Tailscale-App
+                    „Connected"? Stimmt die Adresse mit der überein, die dort steht?
                   </div>
                 )}
               </>
@@ -367,12 +373,23 @@ export default function Integrations() {
 
         <details className="text-[11px] font-mono text-[var(--text-muted)]">
           <summary className="cursor-pointer hover:text-[var(--text-secondary)]">So richtest du es ein</summary>
+          <p className="mt-2 leading-relaxed">
+            Dein Vault liegt auf deinem Rechner, IronCoach läuft im Netz. Tailscale legt
+            zwischen beide eine direkte, verschlüsselte Verbindung — ohne offenen Port,
+            ohne Router-Einstellung, ohne Terminal.
+          </p>
           <ol className="mt-2 space-y-1 list-decimal list-inside leading-relaxed">
             <li>In Obsidian: Einstellungen → Community-Plugins → „Local REST API" installieren und aktivieren</li>
-            <li>Im Plugin den API-Schlüssel kopieren und den Port notieren (Standard 27124)</li>
-            <li>Läuft IronCoach nicht auf demselben Rechner: „Binding Host" auf 0.0.0.0 setzen und den Port erreichbar machen</li>
-            <li>Adresse und Schlüssel hier eintragen, dann „Verbindung testen"</li>
+            <li>Im selben Plugin: API-Schlüssel kopieren, „Binding Host" auf 0.0.0.0 setzen</li>
+            <li>Tailscale installieren (tailscale.com/download) und mit der Einladung anmelden, die du bekommen hast</li>
+            <li>In der Tailscale-App steht bei deinem Rechner eine Adresse wie 100.84.12.7 — die ist gemeint</li>
+            <li>Oben eintragen: https://100.84.12.7:27124 und den Schlüssel, dann „Verbindung testen"</li>
           </ol>
+          <p className="mt-2 leading-relaxed">
+            Der Abgleich läuft nur, solange dein Rechner wach und Obsidian geöffnet ist.
+            Verpasst er eine Einheit, holt er sie beim nächsten Mal nach — es geht nichts
+            verloren.
+          </p>
         </details>
       </form>
     </div>

@@ -160,6 +160,11 @@ class AthleteProfile(Base):
     # einen Rechner. Ein zweiter Athlet hätte in fremde Notizen geschrieben.
     obsidian_base_url: Mapped[str | None] = mapped_column(String)
     obsidian_api_key: Mapped[str | None] = mapped_column(String)
+    # NULL heißt „automatisch": Bei einer .ts.net-Adresse aus `tailscale serve`
+    # gibt es ein gültiges Zertifikat und es wird geprüft, bei einer nackten
+    # IP spricht man direkt mit dem Plugin und dessen selbstsigniertem
+    # Zertifikat. True/False überschreiben die Entscheidung.
+    obsidian_verify_tls: Mapped[bool | None] = mapped_column(Boolean)
     obsidian_vault_subdir: Mapped[str | None] = mapped_column(String)
 
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

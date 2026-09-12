@@ -16,7 +16,7 @@ from core.config import settings
 from core.deps import get_profile, require_user
 from database import get_db
 from models import StravaCredentials, User
-from services.obsidian.client import DEFAULT_VAULT_SUBDIR
+from services.obsidian.client import DEFAULT_VAULT_SUBDIR, pruefung_noetig
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -26,6 +26,10 @@ class ObsidianSettings(BaseModel):
     base_url: str | None = None
     api_key: str | None = None
     vault_subdir: str | None = None
+    # Leer heißt „entscheide selbst" — siehe `pruefung_noetig` im Client.
+    # Als Feld vorhanden, damit sich die Automatik übergehen lässt, aber
+    # niemand sie setzen muss.
+    verify_tls: bool | None = None
 
 
 def _mask(secret: str | None) -> str | None:
@@ -50,6 +54,7 @@ def integrations(db: Session = Depends(get_db), user: User = Depends(require_use
     # lesen, obwohl seine Notizen nirgendwo landen.
     base_url = (profile.obsidian_base_url if profile else None) or None
     api_key = (profile.obsidian_api_key if profile else None) or None
+    verify_gesetzt = profile.obsidian_verify_tls if profile else None
 
     return {
         "strava": {
@@ -65,6 +70,11 @@ def integrations(db: Session = Depends(get_db), user: User = Depends(require_use
                 (profile.obsidian_vault_subdir if profile else None)
                 or DEFAULT_VAULT_SUBDIR
             ),
+            # Was gespeichert ist (meist nichts) und was daraus folgt. Die
+            # Oberfläche zeigt nur das Ergebnis — wer eine IP einträgt, soll
+            # nicht erst lernen müssen, was ein Zertifikat ist.
+            "verify_tls": verify_gesetzt,
+            "verify_tls_effective": pruefung_noetig(base_url or "", verify_gesetzt),
         },
     }
 
@@ -83,12 +93,21 @@ def update_obsidian(
         url = body.base_url.strip().rstrip("/")
         if url and not url.startswith(("http://", "https://")):
             raise HTTPException(status_code=422, detail="Adresse muss mit http:// oder https:// beginnen")
+        # Eine neue Adresse hebt eine frühere Festlegung auf: Die Entscheidung
+        # über das Zertifikat gehörte zur alten Adresse. Ohne das bliebe ein
+        # einmal gesetztes Flag für immer kleben — und es gibt keinen Weg
+        # zurück auf „automatisch", weil ein fehlendes Feld hier „unverändert"
+        # heißt.
+        if url != (profile.obsidian_base_url or ""):
+            profile.obsidian_verify_tls = None
         profile.obsidian_base_url = url or None
     if body.api_key is not None:
         # Leerer String löscht den Schlüssel, statt ihn auf "" zu setzen.
         profile.obsidian_api_key = body.api_key.strip() or None
     if body.vault_subdir is not None:
         profile.obsidian_vault_subdir = body.vault_subdir.strip().strip("/") or None
+    if body.verify_tls is not None:
+        profile.obsidian_verify_tls = body.verify_tls
 
     db.commit()
     return integrations(db, user)
@@ -109,9 +128,19 @@ def test_obsidian(
 
     profile = get_profile(db, user)
     if body and (body.base_url or body.api_key):
+        basis = body.base_url or (profile.obsidian_base_url if profile else None) or ""
         client = ObsidianClient(
-            base_url=body.base_url or (profile.obsidian_base_url if profile else None),
+            base_url=basis,
             api_key=body.api_key or (profile.obsidian_api_key if profile else None),
+            # Dieselbe Entscheidung wie beim späteren Abgleich. Ohne sie
+            # scheiterte der Test an einem selbstsignierten Zertifikat,
+            # während der gespeicherte Zugang funktioniert — der Athlet
+            # würde eine richtige Adresse wieder herausnehmen.
+            verify=pruefung_noetig(
+                basis,
+                body.verify_tls if body.verify_tls is not None
+                else (profile.obsidian_verify_tls if profile else None),
+            ),
         )
     else:
         client = client_for_profile(profile)

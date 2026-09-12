@@ -9,9 +9,11 @@ in dieselbe Zeitüberschreitung rennt.
 Alle Pfade sind relativ zur Vault-Wurzel — der Vault-Name kommt nicht vor.
 """
 
+import ipaddress
 import logging
 import time
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
 import httpx
 
@@ -255,10 +257,55 @@ def client_for_profile(profile) -> ObsidianClient:
     """
     if profile is None:
         return ObsidianClient(base_url="", api_key="")
+    basis = profile.obsidian_base_url or ""
     return ObsidianClient(
-        base_url=profile.obsidian_base_url or "",
+        base_url=basis,
         api_key=profile.obsidian_api_key or "",
+        verify=pruefung_noetig(basis, getattr(profile, "obsidian_verify_tls", None)),
     )
+
+
+def pruefung_noetig(base_url: str, vorgabe: bool | None) -> bool:
+    """Soll das Zertifikat der Gegenstelle geprüft werden?
+
+    Die Entscheidung hängt an der Adresse, nicht am Athleten. Entscheidend
+    ist, wer am anderen Ende das Zertifikat ausgestellt hat:
+
+    * `rechner.tailnet.ts.net` — `tailscale serve` steht davor und hält ein
+      echtes Zertifikat. Hier wird geprüft.
+    * `100.72.215.32`, `localhost`, `macbook.local` — das ist das
+      Obsidian-Plugin selbst, und dessen Zertifikat ist selbstsigniert. Eine
+      Prüfung schlägt dort immer fehl; der Athlet stünde vor einem Fehler,
+      den er nicht beheben kann, obwohl seine Adresse richtig ist.
+
+    Der Verzicht ist vertretbar, weil die Verbindung ohnehin im Tailnet
+    liegt: Der WireGuard-Tunnel ist beidseitig authentifiziert und
+    verschlüsselt, das TLS darüber ist die zweite Lage. Sie wegzulassen
+    öffnet den Weg nicht — es verzichtet auf eine doppelte Absicherung
+    innerhalb eines bereits geschlossenen Netzes.
+
+    `vorgabe` ist die Festlegung des Athleten und schlägt alles: True/False
+    gelten, None heißt „entscheide selbst".
+    """
+    if vorgabe is not None:
+        return vorgabe
+
+    host = (urlparse(base_url).hostname or "").strip().lower()
+    if not host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return False        # nackte IP → Plugin direkt → selbstsigniert
+    except ValueError:
+        pass
+    # Ein Name ohne öffentliche Endung (`localhost`) oder mit `.local` kommt
+    # nicht aus einer Zertifizierungsstelle. Das ist zugleich der lokale
+    # Entwicklungsfall: bis hierher galt `OBSIDIAN_VERIFY_TLS = False` für
+    # alle, und `https://localhost:27124` funktionierte. Das darf eine
+    # Automatik nicht nebenbei kaputt machen.
+    if "." not in host or host.endswith(".local"):
+        return False
+    return True
 
 
 DEFAULT_VAULT_SUBDIR = "Training"
