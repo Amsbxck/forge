@@ -92,19 +92,52 @@ CORS_ORIGINS=https://your-frontend.vercel.app
 controls the number of worker processes; leave it at 1 on a small instance —
 more processes share the same core and get slower, not faster.
 
-Optional: a welcome email on registration. Leave these out and registration
-still works — the send is skipped and logged.
+Email. Registration, email verification, password reset and budget warnings
+all go through it. Leave it out and the app still runs — sends are skipped
+and logged — but nobody except you can get an account, because verification
+and reset links never arrive.
+
+**Do not use SMTP on Railway.** Railway blocks outbound SMTP (ports 25, 465,
+587) on Free, Trial and Hobby; only Pro allows it. The failure is a network
+error before any mail server answers:
 
 ```
-MAIL_HOST=smtp.your-provider.com
+Mailversand fehlgeschlagen: [Errno 101] Network is unreachable
+```
+
+No credential fixes that — the connection never leaves the datacenter. Send
+over HTTPS instead, on port 443, which is not filtered:
+
+```
+MAIL_PROVIDER=brevo
+MAIL_API_KEY=<xkeysib-… from Brevo → SMTP & API → API Keys>
+MAIL_FROM=your@gmail.com        # must be a verified sender in Brevo
+MAIL_FROM_NAME=IronCoach
+```
+
+Brevo's free tier sends 300 mails a day and — unlike Resend or Postmark —
+needs no domain of your own: verifying a single sender address by clicking a
+link is enough. Mailjet works the same way if you prefer it; only
+`_send_brevo` in `services/mail.py` would change.
+
+For local development, or any host that leaves port 587 open, SMTP is still
+the simpler path — no extra account:
+
+```
+MAIL_HOST=smtp.gmail.com
 MAIL_PORT=587
-MAIL_USER=coach@your-domain.com
-MAIL_PASSWORD=<smtp password>
-MAIL_FROM=coach@your-domain.com
+MAIL_USER=your@gmail.com
+MAIL_PASSWORD=<16-character Google app password, no spaces>
+MAIL_FROM=your@gmail.com
 MAIL_FROM_NAME=IronCoach
 MAIL_STARTTLS=true          # port 587; for port 465 use MAIL_SSL=true instead
+```
 
-# Required as soon as MAIL_HOST is set — the app refuses to start otherwise.
+With neither `MAIL_PROVIDER` nor `MAIL_API_KEY` set, the app falls back to
+SMTP, so existing installations keep working unchanged.
+
+```
+# Required as soon as mail is configured — the app refuses to start otherwise.
 # Verification and password-reset links are built from this. Without it they
 # point at localhost: the mail arrives, the link is useless, and nobody
 # notices until someone cannot sign in.

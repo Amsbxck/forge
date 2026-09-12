@@ -44,6 +44,20 @@ class Settings(BaseSettings):
     PUBLIC_BASE_URL: str = ""
 
     # --- E-Mail ---
+    # Zwei Wege, weil einer allein nicht überall funktioniert:
+    #
+    # "smtp"  — der klassische Weg, gut für lokalen Betrieb und eigene Server.
+    # "brevo" — Versand über HTTPS. Nötig, sobald die Anwendung bei einem
+    #           Anbieter läuft, der ausgehendes SMTP sperrt. Railway tut das
+    #           auf allen Tarifen unterhalb von Pro: die Verbindung zu
+    #           smtp.gmail.com:587 scheitert dort mit "Network is
+    #           unreachable", bevor der Mailserver überhaupt antwortet. Port
+    #           443 ist davon nicht betroffen.
+    #
+    # Leer heißt: aus MAIL_HOST bzw. MAIL_API_KEY ableiten, was gesetzt ist.
+    MAIL_PROVIDER: str = ""
+    MAIL_API_KEY: str = ""
+
     # Ohne MAIL_HOST und MAIL_FROM wird nichts versendet — die App läuft
     # trotzdem vollständig, Mails werden dann nur protokolliert.
     MAIL_HOST: str = ""

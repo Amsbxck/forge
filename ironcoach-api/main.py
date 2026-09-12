@@ -47,10 +47,15 @@ async def lifespan(app: FastAPI):
     # Passwortmails auf localhost. Die Mail kommt an, der Link ist wertlos,
     # und es fällt erst auf, wenn sich jemand nicht anmelden kann. Beim
     # Versand wäre es zu spät — deshalb hier beim Start.
-    if settings.MAIL_HOST and not settings.PUBLIC_BASE_URL:
+    # Nach `mail_configured()` gefragt, nicht nach MAIL_HOST: Seit es den
+    # Versand über HTTPS gibt, ist eine vollständig eingerichtete Installation
+    # ohne MAIL_HOST möglich — und wäre an dieser Schranke vorbeigelaufen.
+    from services.mail import mail_configured
+
+    if mail_configured() and not settings.PUBLIC_BASE_URL:
         raise RuntimeError(
-            "MAIL_HOST ist gesetzt, PUBLIC_BASE_URL aber nicht. Die Links in "
-            "Bestätigungs- und Passwortmails zeigten dann auf localhost und "
+            "Mailversand ist eingerichtet, PUBLIC_BASE_URL aber nicht. Die Links "
+            "in Bestätigungs- und Passwortmails zeigten dann auf localhost und "
             "wären für die Empfänger nutzlos."
         )
 
