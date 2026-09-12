@@ -198,38 +198,62 @@ In Vercel: **Settings → Domains** → add your domain. Vercel handles TLS auto
 
 ## 3. Re-register Strava webhook
 
-Strava webhooks need to point to your public Railway URL.
+There is **one** subscription per Strava application. An old one — pointing at
+ngrok or localhost — has to go before a new one can be created.
 
-### 3.1 Update `register_webhook.py`
-
-Edit the script (or run with env vars):
-
-```bash
-export STRAVA_CLIENT_ID=...
-export STRAVA_CLIENT_SECRET=...
-export STRAVA_VERIFY_TOKEN=...   # same value you set in Railway
-export CALLBACK_URL=https://<your-railway-url>/webhook
-
-python register_webhook.py
-```
-
-Strava sends a `GET /webhook?hub.verify_token=...` to confirm — the backend handles it in `routers/strava_webhook.py`.
-
-### 3.2 (Optional) Delete old webhook first
-
-If you already registered a localhost/ngrok webhook earlier, list and delete it:
+`register_webhook.py` reads everything from the environment, falling back to
+`.env`. Nothing is hardcoded: the client secret used to live in this file, in
+a public repository, and had to be rotated because of it.
 
 ```bash
-curl -X GET https://www.strava.com/api/v3/push_subscriptions \
-  -F client_id=$STRAVA_CLIENT_ID \
-  -F client_secret=$STRAVA_CLIENT_SECRET
+cd /path/to/IronCoach-AI
 
-# returns [{ "id": 12345, ... }]
+# What is registered right now?
+python register_webhook.py --list
 
-curl -X DELETE "https://www.strava.com/api/v3/push_subscriptions/12345" \
-  -F client_id=$STRAVA_CLIENT_ID \
-  -F client_secret=$STRAVA_CLIENT_SECRET
+# Remove a stale one
+python register_webhook.py --delete 12345
+
+# Register the current backend
+CALLBACK_URL=https://<railway-url>/webhook python register_webhook.py
 ```
+
+Strava calls the URL immediately and expects `STRAVA_VERIFY_TOKEN` back, so:
+
+- the backend must already be deployed and publicly reachable over HTTPS
+- the token in `.env` must match the one set on Railway
+
+If registration is rejected, the script prints the three usual causes.
+
+### Two settings on Strava's own app page
+
+These are separate from the webhook and easy to confuse:
+
+| Field | Value | Purpose |
+|---|---|---|
+| Authorization Callback Domain | `<railway-host>` | OAuth redirect. **Host only** — no `https://`, no trailing slash, no path. With a scheme in the field the comparison fails and authorization dies with `redirect_uri invalid`. |
+| Website | `https://<vercel-url>` | Informational, shown on the consent screen. Full URL is fine here. |
+
+There is only one callback-domain field. If you also want to authorize
+against `localhost` during development, register a **second Strava
+application** for that — switching the field back and forth is the kind of
+step that gets forgotten, and then production authorization breaks.
+
+### Rotating the client secret invalidates existing tokens
+
+Verified the hard way: after a secret rotation, refreshing a stored token
+returns `401 Unauthorized`. Every athlete has to press **Connect Strava**
+again. Training data is untouched — only the connection is renewed.
+
+### New apps are limited to one athlete
+
+A fresh Strava application may connect exactly one athlete: you. Others can
+register and use everything else, but **Connect Strava** will be refused for
+them until Strava raises the limit — request that on your developer page.
+
+Until then they upload `.fit` files under **Upload**; the resulting sessions
+carry the same zones, TSS and stream data as a Strava import.
+
 
 ---
 
