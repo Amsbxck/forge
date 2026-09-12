@@ -84,7 +84,15 @@ def _send_brevo(to: str, subject: str, text: str, html: str | None) -> bool:
     try:
         response = httpx.post(
             BREVO_URL,
-            headers={"api-key": settings.MAIL_API_KEY, "accept": "application/json"},
+            headers={
+                # Abgeschnitten, weil ein Schlüssel fast immer über die
+                # Zwischenablage in ein Eingabefeld wandert und dabei gern ein
+                # Zeilenumbruch oder Leerzeichen mitkommt. Brevo antwortet dann
+                # mit "Key not found" — einer Meldung, die jeden dazu bringt,
+                # den Schlüssel neu zu erzeugen statt ihn anzusehen.
+                "api-key": settings.MAIL_API_KEY.strip(),
+                "accept": "application/json",
+            },
             json=nutzlast,
             timeout=15,
         )
@@ -98,13 +106,35 @@ def _send_brevo(to: str, subject: str, text: str, html: str | None) -> bool:
         # erschöpft, Schlüssel abgelaufen. Ohne ihn steht im Log nur eine
         # Zahl, und die Suche beginnt von vorn.
         logger.warning(
-            "Mailversand abgelehnt (%r an %s): %s %s",
+            "Mailversand abgelehnt (%r an %s): %s %s%s",
             subject, to, response.status_code, response.text[:300],
+            _schluessel_hinweis() if response.status_code == 401 else "",
         )
         return False
 
     logger.info("Mail verschickt: %r an %s", subject, to)
     return True
+
+
+def _schluessel_hinweis() -> str:
+    """Bei 401 sagen, welcher Schlüssel eingetragen ist.
+
+    Brevo legt SMTP- und API-Schlüssel auf dieselbe Seite, und für die v3-API
+    taugt nur der zweite. Wer den falschen erwischt, bekommt "Key not found"
+    — eine Meldung, die nach einem ungültigen Schlüssel klingt, nicht nach
+    einem Schlüssel der falschen Art. Das Präfix ist nicht geheim und
+    beendet die Suche sofort.
+    """
+    key = (settings.MAIL_API_KEY or "").strip()
+    if key.startswith("xsmtpsib-"):
+        return (
+            " — Hinweis: Das ist ein SMTP-Schlüssel (xsmtpsib-…). Für den "
+            "Versand über HTTPS wird der API-Schlüssel gebraucht (xkeysib-…), "
+            "in Brevo unter SMTP & API → Reiter API Keys."
+        )
+    if not key.startswith("xkeysib-"):
+        return f" — Hinweis: Schlüssel beginnt mit {key[:9]!r}, erwartet wird 'xkeysib-'."
+    return ""
 
 
 def _send_smtp(to: str, subject: str, text: str, html: str | None) -> bool:

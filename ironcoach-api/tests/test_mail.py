@@ -116,3 +116,40 @@ def test_netzwerkfehler_wirft_nicht(leere_konfiguration):
 
     leere_konfiguration.setattr(mail.httpx, "post", platzt)
     assert mail.send_mail("a@b.de", "Betreff", "Text") is False
+
+
+@pytest.mark.parametrize(
+    "key, erwartet_im_hinweis",
+    [
+        ("xsmtpsib-abc", "SMTP-Schlüssel"),
+        ("abc123", "erwartet wird"),
+        ("xkeysib-abc", ""),          # richtiger Typ — kein Hinweis
+    ],
+)
+def test_hinweis_bei_401_nennt_den_schluesseltyp(leere_konfiguration, key, erwartet_im_hinweis, caplog):
+    leere_konfiguration.setattr(settings, "MAIL_API_KEY", key)
+    leere_konfiguration.setattr(settings, "MAIL_FROM", "coach@example.org")
+    leere_konfiguration.setattr(
+        mail.httpx, "post",
+        lambda url, **kw: httpx.Response(401, text='{"message":"Key not found"}'),
+    )
+    with caplog.at_level("WARNING"):
+        assert mail.send_mail("a@b.de", "Betreff", "Text") is False
+    text = caplog.text
+    if erwartet_im_hinweis:
+        assert erwartet_im_hinweis in text
+    else:
+        assert "Hinweis" not in text
+
+
+def test_leerzeichen_im_schluessel_wird_abgeschnitten(leere_konfiguration):
+    """Der Zeilenumbruch aus der Zwischenablage darf nicht in den Header."""
+    leere_konfiguration.setattr(settings, "MAIL_API_KEY", "  xkeysib-abc\n")
+    leere_konfiguration.setattr(settings, "MAIL_FROM", "coach@example.org")
+    gesehen = {}
+    leere_konfiguration.setattr(
+        mail.httpx, "post",
+        lambda url, **kw: (gesehen.update(kw["headers"]), httpx.Response(201))[1],
+    )
+    mail.send_mail("a@b.de", "Betreff", "Text")
+    assert gesehen["api-key"] == "xkeysib-abc"
