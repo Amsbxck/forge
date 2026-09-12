@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 
 import { STATUS_COLOR } from '../utils/colors'
+import { parseTag } from '../utils/dates'
 const STATUS_LABEL = { green: 'Good', yellow: 'Caution', red: 'Rest' }
 const DAY_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', 'Sun']
 
@@ -83,7 +84,7 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
     // zum Jahresende und malte je nach Datum ein halbes Jahr leerer Kästchen
     // — die Fläche wirkte wie fehlende Daten statt wie Zukunft.
     if (!endDate) return 2
-    const end = new Date(endDate)
+    const end = parseTag(endDate)
     if (end < today) return 0
     const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1
     const thisWeekMonday = new Date(today)

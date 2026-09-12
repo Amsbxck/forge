@@ -8,7 +8,7 @@ import {
 import SeriesBadge from '../components/SeriesBadge'
 import Modal from '../components/Modal'
 import BenchmarkGuide from '../components/BenchmarkGuide'
-import { daysUntil } from '../utils/dates'
+import { daysUntil, formatTag } from '../utils/dates'
 import { DISCIPLINE_COLOR } from '../utils/colors'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
@@ -423,7 +423,7 @@ export default function Races() {
       const d = err.response?.data?.detail
       if (d && typeof d === 'object') {
         const ab = d.frueheste
-          ? ` Frühestens ab ${new Date(d.frueheste).toLocaleDateString('de-DE')}.`
+          ? ` Frühestens ab ${formatTag(d.frueheste)}.`
           : ''
         setError(`${(d.gruende || []).join(' ')}${ab}`.trim() || d.message)
       } else {
