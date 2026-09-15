@@ -1,5 +1,6 @@
 import logging
 from fastapi import APIRouter, Request, HTTPException, BackgroundTasks, Depends
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from database import get_db, SessionLocal
@@ -102,18 +103,35 @@ async def strava_callback(code: str, state: str | None = None, db: Session = Dep
     from core.security import user_id_from_token
     from core.tenancy import acting_as
 
+    from core.urls import app_pfad
+
+    # Am Ende dieses Aufrufs steht ein Mensch vor einem Browserfenster, nicht
+    # ein Programm vor einer Antwort. Deshalb wird umgeleitet statt JSON
+    # zurückgegeben — auch im Fehlerfall: Eine HTTPException zeigte dem
+    # Athleten eine rohe Fehlerzeile auf der API-Domain, ohne Weg zurück.
     user_id = user_id_from_token(state)
     if user_id is None:
-        raise HTTPException(status_code=400, detail="Ungültiger oder fehlender state — Verbindung erneut starten")
+        return RedirectResponse(app_pfad(
+            "/connect", strava="fehler",
+            grund="Die Freigabe konnte keinem Konto zugeordnet werden. "
+                  "Bitte melde dich an und starte die Verbindung erneut.",
+        ), status_code=303)
 
     service = StravaService(db)
     try:
         token_data = await service.exchange_code(code)
         with acting_as(user_id):
             athlete_id = service.save_credentials(token_data)
-        return {"message": "Strava verbunden", "athlete_id": athlete_id}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"OAuth fehlgeschlagen: {str(e)}")
+        logger.warning("Strava-OAuth für Nutzer %s fehlgeschlagen: %s", user_id, e)
+        return RedirectResponse(app_pfad(
+            "/connect", strava="fehler", grund=str(e)[:200],
+        ), status_code=303)
+
+    # 303 und nicht 302: Der Browser soll die Zieladresse mit GET holen.
+    return RedirectResponse(app_pfad(
+        "/connect", strava="ok", athlet=str(athlete_id),
+    ), status_code=303)
 
 
 @api_router.get("/api/strava/status", response_model=StravaConnected)

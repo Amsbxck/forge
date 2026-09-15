@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getWeekMetrics, getLatestHrv, getHrv, getSessions, getProfile, getIntakeStatus } from '../services/api'
+import { getWeekMetrics, getLatestHrv, getHrv, getSessions, getProfile, getIntakeStatus, getMe } from '../services/api'
 import HRVInput from '../components/HRVInput'
 import HealthStatus from '../components/HealthStatus'
 import HRVHistoryChart from '../components/HRVHistoryChart'
@@ -7,6 +7,7 @@ import PerformanceChart from '../components/PerformanceChart'
 import HRZoneChart from '../components/HRZoneChart'
 import Onboarding from '../components/Onboarding'
 import IntakeDialog from '../components/IntakeDialog'
+import EmailBestaetigung from '../components/EmailBestaetigung'
 import Glossary from '../components/Glossary'
 import TodayCard from '../components/TodayCard'
 import SportIcon from '../components/SportIcon'
@@ -46,6 +47,9 @@ export default function Dashboard() {
   // Willkommensfenster für neue Konten. `null` heißt: noch nicht geprüft —
   // ohne diesen dritten Zustand blitzte das Fenster bei jedem Laden kurz auf.
   const [intakeFaellig, setIntakeFaellig] = useState(null)
+  // Konto nur für den Bestätigungshinweis. Getrennt vom Profil, weil die
+  // Bestätigung am Konto hängt und nicht am Athletenprofil.
+  const [konto, setKonto] = useState(null)
 
   const load = async () => {
     setLoading(true)
@@ -62,6 +66,7 @@ export default function Dashboard() {
       getIntakeStatus()
         .then(({ data }) => setIntakeFaellig(!!data?.faellig))
         .catch(() => setIntakeFaellig(false))
+      getMe().then(({ data }) => setKonto(data)).catch(() => setKonto(null))
       setMetrics(m.data)
       setHrv(h.data)
       setHrvHistory(Array.isArray(hh.data) ? hh.data : [])
@@ -147,6 +152,10 @@ export default function Dashboard() {
           aber abgedunkelt — der Athlet sieht, wohin er kommt, kann es aber
           noch nicht bedienen. */}
       <IntakeDialog open={intakeFaellig === true} name={profile?.name} onFertig={() => { setIntakeFaellig(false); load() }} />
+
+      {/* Vor der Checkliste: Solange die Adresse unbestätigt ist, ist der
+          erste Schritt nicht das Ziel, sondern das Postfach. */}
+      {konto && konto.email_verified === false && <EmailBestaetigung email={konto.email} />}
 
       <Onboarding warten={intakeFaellig !== false} />
 

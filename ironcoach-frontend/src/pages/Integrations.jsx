@@ -31,6 +31,8 @@ export default function Integrations() {
   const [webhook, setWebhook] = useState(null)
   const [publicUrl, setPublicUrl] = useState('')
   const [hookResult, setHookResult] = useState(null)
+  // Ergebnis der Strava-Freigabe, aus der Adresszeile gelesen.
+  const [stravaRueckmeldung, setStravaRueckmeldung] = useState(null)
 
   const load = useCallback(async () => {
     try {
@@ -58,6 +60,25 @@ export default function Integrations() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Nach der Freigabe bei Strava leitet das Backend hierher zurück und hängt
+  // das Ergebnis an die Adresse. Ohne diese Auswertung landete der Athlet auf
+  // einer Seite, die aussieht wie vorher — ob es geklappt hat, wüsste er erst
+  // nach einem Neuladen.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search)
+    const stand = p.get('strava')
+    if (!stand) return
+    setStravaRueckmeldung(
+      stand === 'ok'
+        ? { ok: true, text: 'Strava ist verbunden. Neue Aktivitäten kommen ab jetzt von selbst an.' }
+        : { ok: false, text: p.get('grund') || 'Die Verbindung mit Strava ist fehlgeschlagen.' }
+    )
+    // Parameter wieder entfernen: Ein Neuladen zeigte die Meldung sonst
+    // erneut, obwohl gerade nichts passiert ist.
+    window.history.replaceState({}, '', window.location.pathname)
+    if (stand === 'ok') load()
+  }, [load])
 
   const save = async (e) => {
     e.preventDefault()
@@ -164,6 +185,16 @@ export default function Integrations() {
                   : 'Nicht verbunden'}
               </Status>
             </div>
+            {stravaRueckmeldung && (
+              <div className="rounded-lg px-3 py-2 font-mono text-[11px] leading-relaxed mt-3 max-w-md"
+                   style={{
+                     background: stravaRueckmeldung.ok ? '#22c55e12' : '#ef444412',
+                     border: `1px solid ${stravaRueckmeldung.ok ? '#22c55e33' : '#ef444433'}`,
+                     color: stravaRueckmeldung.ok ? '#22c55e' : '#ef4444',
+                   }}>
+                {stravaRueckmeldung.ok ? '✓ ' : '✕ '}{stravaRueckmeldung.text}
+              </div>
+            )}
           </div>
 
           {state.strava.connected ? (

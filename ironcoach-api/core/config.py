@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     # Strava-Webhook nötig; leer bedeutet lokaler Betrieb.
     PUBLIC_BASE_URL: str = ""
 
+    # Adresse, unter der der Athlet die App im Browser hat. Getrennt von
+    # PUBLIC_BASE_URL, weil die beiden auseinanderfallen können: Der
+    # Strava-Webhook muss die **API** erreichen, ein Link in einer Mail und
+    # die Rückleitung nach einer OAuth-Freigabe dagegen das **Frontend**.
+    # Leer heisst: aus PUBLIC_BASE_URL bzw. CORS_ORIGINS ableiten.
+    FRONTEND_URL: str = ""
+
     # --- E-Mail ---
     # Zwei Wege, weil einer allein nicht überall funktioniert:
     #

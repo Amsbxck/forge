@@ -16,8 +16,8 @@ VERIFY_HOURS = 48
 RESET_HOURS = 2
 
 
-def _app_url() -> str:
-    return (settings.PUBLIC_BASE_URL or "http://localhost:3000").rstrip("/")
+# Eine Auflösung für alle Links nach draussen — siehe core/urls.py.
+from core.urls import app_url as _app_url
 
 
 def _rahmen(titel: str, absaetze: list[str], knopf_text: str, knopf_link: str, fuss: str) -> str:

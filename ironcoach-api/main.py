@@ -14,6 +14,8 @@ logging.basicConfig(
 )
 logging.getLogger("apscheduler.executors.default").setLevel(logging.WARNING)
 
+logger = logging.getLogger(__name__)
+
 from core.config import settings
 from core.scheduler import shutdown_scheduler, start_scheduler
 from fastapi import Depends
@@ -50,7 +52,15 @@ async def lifespan(app: FastAPI):
     # Nach `mail_configured()` gefragt, nicht nach MAIL_HOST: Seit es den
     # Versand über HTTPS gibt, ist eine vollständig eingerichtete Installation
     # ohne MAIL_HOST möglich — und wäre an dieser Schranke vorbeigelaufen.
+    from core.urls import app_url
     from services.mail import mail_configured
+
+    # Einmal beim Start ausschreiben, wohin Athleten geschickt werden: Links
+    # in Mails und die Rückleitung nach der Strava-Freigabe. Zeigt die
+    # Adresse versehentlich auf die API statt aufs Frontend, läuft jeder
+    # dieser Wege in eine 404 — sichtbar wird das sonst erst, wenn jemand
+    # klickt, und dann ohne erkennbaren Zusammenhang.
+    logger.info("Athletenlinks zeigen auf %s", app_url())
 
     if mail_configured() and not settings.PUBLIC_BASE_URL:
         raise RuntimeError(

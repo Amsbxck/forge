@@ -5,13 +5,30 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from database import get_db
-from models import AthleteProfile, TrainingSession, HrvMeasurement
+from models import AthleteProfile, TrainingSession, HrvMeasurement, User
 from schemas import WeekMetrics, TrendPoint
 from services.plan_generator import get_current_week
 from core.prompt_templates import get_phase
-from core.deps import get_profile as resolve_profile, get_plan_anchor
+from core.deps import get_profile as resolve_profile, get_plan_anchor, get_current_user
 
 router = APIRouter()
+
+
+def kalenderwoche(tag: date) -> tuple[date, date]:
+    """Montag und Sonntag der Woche, in der `tag` liegt.
+
+    "Diese Woche" auf dem Dashboard ist eine Kalenderwoche, keine Planwoche.
+    Über `week_number` gefiltert brach die Anzeige für jeden Athleten
+    zusammen, dessen Aufbau noch nicht begonnen hat: `get_week_for_date`
+    gibt `max(1, …)` zurück, also für jedes Datum vor dem Startdatum eine 1
+    — und die aktuelle Woche ist dann ebenfalls 1. Das Ergebnis war, dass
+    ausnahmslos alle jemals absolvierten Einheiten als "diese Woche" galten.
+
+    Ein Datumsbereich hat dieses Problem nicht. Er stimmt vor dem Aufbau,
+    während des Aufbaus und nach dem Rennen.
+    """
+    montag = tag - timedelta(days=tag.weekday())
+    return montag, montag + timedelta(days=6)
 
 
 @router.get("/metrics/week", response_model=WeekMetrics)
@@ -29,9 +46,12 @@ def week_metrics(db: Session = Depends(get_db)):
     plan_start = getattr(anchor, "plan_start_date", None)
     state = season_state(race_date, plan_start=plan_start)
 
+    # Nach Datum, nicht nach Planwoche — siehe `kalenderwoche`.
+    woche_von, woche_bis = kalenderwoche(date.today())
     sessions = (
         db.query(TrainingSession)
-        .filter(TrainingSession.week_number == current_week)
+        .filter(TrainingSession.session_date >= woche_von)
+        .filter(TrainingSession.session_date <= woche_bis)
         .filter(TrainingSession.deleted_at == None)
         .all()
     )
@@ -90,29 +110,40 @@ def week_metrics(db: Session = Depends(get_db)):
 
 @router.get("/metrics/trends", response_model=list[TrendPoint])
 def trends(weeks: int = 4, db: Session = Depends(get_db)):
+    """Belastung der letzten Wochen, je Kalenderwoche.
+
+    Gebündelt wird nach Datum, aus demselben Grund wie in `week_metrics`:
+    Über die Planwoche fielen vor dem Aufbaubeginn sämtliche Wochen auf die
+    Nummer 1 zusammen — ein einziger Balken mit allem darin und daneben
+    lauter leere.
+    """
+    from services.plan_generator import get_week_for_date
+
     anchor = get_plan_anchor(db)
-    current_week = get_current_week(anchor) if anchor else 1
+    diese_woche, _ = kalenderwoche(date.today())
 
     result = []
-    for w in range(max(1, current_week - weeks + 1), current_week + 1):
-        sessions = db.query(TrainingSession).filter(TrainingSession.week_number == w).all()
-        total_tss = sum((s.tss or 0) for s in sessions)
+    for zurueck in range(weeks - 1, -1, -1):
+        woche_von = diese_woche - timedelta(weeks=zurueck)
+        woche_bis = woche_von + timedelta(days=6)
 
-        # `profile` war hier nie definiert — der Endpunkt brach mit einem
-        # NameError ab, sobald überhaupt eine Woche zu berichten war. Das
-        # Startdatum kommt jetzt aus demselben Anker wie die Wochennummer,
-        # sonst datieren Zählung und Zeitraum auseinander.
-        plan_start = getattr(anchor, "plan_start_date", None)
-        if plan_start:
-            from core.prompt_templates import get_week_dates
-            week_start, _ = get_week_dates(w, plan_start)
-        else:
-            week_start = date.today()
+        sessions = (
+            db.query(TrainingSession)
+            .filter(TrainingSession.session_date >= woche_von)
+            .filter(TrainingSession.session_date <= woche_bis)
+            # Gelöschte zählten hier mit, in `week_metrics` dagegen nicht.
+            # Dieselbe Woche stand dadurch je nach Kachel mit anderen Zahlen da.
+            .filter(TrainingSession.deleted_at == None)
+            .all()
+        )
+        total_tss = sum((s.tss or 0) for s in sessions)
 
         result.append(
             TrendPoint(
-                week_number=w,
-                week_start=week_start,
+                # Die Nummer bleibt die Planwoche — sie beschriftet den Balken.
+                # Gebündelt wird trotzdem nach Datum.
+                week_number=get_week_for_date(anchor, woche_von) if anchor else 1,
+                week_start=woche_von,
                 total_tss=round(total_tss, 1),
                 sessions_count=len(sessions),
             )
@@ -255,14 +286,41 @@ class IntakeIn(BaseModel):
 
 
 @router.get("/profile/intake")
-def intake_status(db: Session = Depends(get_db)):
-    """Soll das Willkommensfenster erscheinen?"""
+def intake_status(
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    """Soll das Willkommensfenster erscheinen?
+
+    Erst nach bestätigter E-Mail. Vorher steht der Athlet vor einem Dialog,
+    der nach Wettkampfziel, Zonen und Einschränkungen fragt — während sein
+    Konto noch gar nicht ihm gehören muss. Wer sich mit einer fremden
+    Adresse anmeldet, käme sonst bis zum eingerichteten Profil, und der
+    eigentliche Inhaber bekäme davon nichts mit.
+
+    Die Prüfung sitzt hier und nicht in der Oberfläche: Sie gilt dann für
+    jede Ansicht, die das Fenster zeigt, auch für künftige.
+    """
     profile = resolve_profile(db)
     if not profile:
         return {"faellig": False}
+
+    # Nur dort, wo es überhaupt eine Anmeldung gibt. Im lokalen
+    # Einzelplatzbetrieb (AUTH_REQUIRED=false) wird keine Adresse bestätigt,
+    # weil es keinen Anmeldeweg gibt — die Sperre würde das Fenster dort für
+    # immer zurückhalten.
+    from core.config import settings
+
+    unbestaetigt = bool(
+        settings.AUTH_REQUIRED and user is not None and user.email_verified_at is None
+    )
+
     return {
-        "faellig": profile.intake_done_at is None,
+        "faellig": profile.intake_done_at is None and not unbestaetigt,
         "erledigt_am": profile.intake_done_at.isoformat() if profile.intake_done_at else None,
+        # Damit die Oberfläche den Unterschied zwischen "schon erledigt" und
+        # "noch gesperrt" zeigen kann, statt einfach nichts anzuzeigen.
+        "wartet_auf_bestaetigung": unbestaetigt,
     }
 
 
