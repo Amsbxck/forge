@@ -11,7 +11,7 @@ import EmailBestaetigung from '../components/EmailBestaetigung'
 import Glossary from '../components/Glossary'
 import TodayCard from '../components/TodayCard'
 import SportIcon from '../components/SportIcon'
-import { daysUntil } from '../utils/dates'
+import { daysUntil, kalenderwoche } from '../utils/dates'
 import SessionDetail from '../components/SessionDetail'
 import ReflectionEditor from '../components/ReflectionEditor'
 import { calculatePMC, formColor, formLabel } from '../components/PerformanceChart'
@@ -116,7 +116,16 @@ export default function Dashboard() {
   // vollständig, obwohl sie stattgefunden hat.
   const DISC_ORDER = ['swim', 'bike', 'run', 'brick', 'gym', 'hike', 'other']
 
-  const weekSessions = sessions.filter(s => !s.deleted_at && s.week_number === metrics?.week_number)
+  // Nach Kalenderwoche, nicht nach Planwochennummer. Über die Nummer
+  // gefiltert zeigte der Breakdown bei jedem Athleten, dessen Aufbau noch
+  // nicht begonnen hat, sämtliche jemals absolvierten Einheiten: Vor dem
+  // Startdatum bekommt jede Einheit die Nummer 1, und die laufende Woche
+  // ist dann ebenfalls 1. Dieselbe Korrektur wie im Backend — hier stand
+  // sie ein zweites Mal.
+  const { von: wocheVon, bis: wocheBis } = kalenderwoche()
+  const weekSessions = sessions.filter(
+    s => !s.deleted_at && s.session_date >= wocheVon && s.session_date <= wocheBis
+  )
   const totals = { count: 0, km: 0, min: 0 }
   const byDisc = {}
   weekSessions.forEach(s => {
