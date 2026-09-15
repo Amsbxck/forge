@@ -5,12 +5,12 @@ import { parseTag } from '../utils/dates'
 const STATUS_LABEL = { green: 'Good', yellow: 'Caution', red: 'Rest' }
 const DAY_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', 'Sun']
 
-// Eine Spalte ist 18 px breit, dazu 4 px Abstand. Hier als Zahl, weil die
-// Vorausschau daraus ausrechnet, wie viele Wochen überhaupt ins Bild passen.
-const SPALTE_PX = 22
-// So viel Zukunft immer, auch wenn nicht gescrollt wird: Die restlichen Tage
-// der laufenden Woche sollen sichtbar sein, sonst endet das Raster mitten in
-// der Woche, in der man gerade steht.
+const ABSTAND = 4          // Lücke zwischen zwei Kacheln
+const ZELLE_BASIS = 18     // Wunschgrösse; wächst, um die Breite zu füllen
+const ZELLE_MIN = 15
+const ZELLE_MAX = 28
+// So viel Zukunft immer: Die restlichen Tage der laufenden Woche sollen
+// sichtbar sein, sonst endet das Raster mitten in der Woche, in der man steht.
 const VORSCHAU_MIN = 3
 
 function isoDate(d) {
@@ -59,8 +59,8 @@ function buildGrid(data, weeksBack, weeksForward) {
   return columns
 }
 
-function Cell({ day, onHover, isActive }) {
-  if (!day) return <div className="w-[18px] h-[18px]" />
+function Cell({ day, onHover, isActive, groesse }) {
+  if (!day) return <div style={{ width: groesse, height: groesse }} />
   const hasData = day.rmssd != null
   const isFuture = day.future
   const isToday = day.today
@@ -71,8 +71,10 @@ function Cell({ day, onHover, isActive }) {
 
   return (
     <div
-      className="w-[18px] h-[18px] rounded-sm transition-all cursor-pointer"
+      className="rounded-sm transition-all cursor-pointer"
       style={{
+        width: groesse,
+        height: groesse,
         background: color,
         opacity: isActive ? 1 : hasData ? 0.92 : isFuture ? 0.7 : 0.6,
         transform: isActive ? 'scale(1.4)' : 'scale(1)',
@@ -120,6 +122,42 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
     return Math.max(weeksBack, wochen)
   }, [data, weeksBack])
 
+  // Kachelgrösse und Vorausschau zusammen, weil beide von derselben Frage
+  // abhängen: Passt die Historie in die verfügbare Breite?
+  //
+  // Vorher war die Kachel fest 18 px. 29 Spalten ergaben damit 638 px, und
+  // auf einem grossen Bildschirm blieb der Rest der Zeile schlicht leer —
+  // das Raster sah abgeschnitten aus, obwohl nichts fehlte.
+  const layout = useMemo(() => {
+    if (!boxBreite) return { zelle: ZELLE_BASIS, vorschau: VORSCHAU_MIN }
+
+    const passt = Math.max(1, Math.floor((boxBreite + ABSTAND) / (ZELLE_BASIS + ABSTAND)))
+
+    // Die Historie allein ist breiter als das Fenster: Es wird gescrollt,
+    // die Kacheln behalten ihre Wunschgrösse, und rechts der laufenden Woche
+    // braucht es ein Viertel der Breite für die Ausrichtung auf drei Viertel.
+    if (computedBack + VORSCHAU_MIN > passt) {
+      return { zelle: ZELLE_BASIS, vorschau: Math.max(VORSCHAU_MIN, Math.ceil(passt * 0.25)) }
+    }
+
+    // Es ist Platz übrig. Zwei Hebel, in dieser Reihenfolge:
+    //
+    // Erst wachsen die Kacheln. Auf einem grossen Bildschirm 18-px-Kästchen
+    // zu zeigen und den Rest mit anderthalb Jahren Zukunft aufzufüllen,
+    // ergäbe ein winziges Raster in einer riesigen Fläche.
+    //
+    // Erst wenn sie ihre Obergrenze erreicht haben, kommen Wochen dazu.
+    // Sonst würden die Kacheln auf einem sehr breiten Fenster grotesk gross.
+    let spalten = computedBack + VORSCHAU_MIN
+    const groesseBei = n => Math.floor((boxBreite - (n - 1) * ABSTAND) / n)
+    while (groesseBei(spalten) > ZELLE_MAX) spalten++
+
+    return {
+      zelle: Math.max(ZELLE_MIN, groesseBei(spalten)),
+      vorschau: spalten - computedBack,
+    }
+  }, [boxBreite, computedBack])
+
   const computedForward = useMemo(() => {
     if (weeksForward != null) return weeksForward
 
@@ -134,23 +172,8 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
       return Math.max(0, Math.ceil((end - thisWeekMonday) / 86400000 / 7))
     }
 
-    // Wie viel Zukunft nötig ist, hängt allein davon ab, ob gescrollt wird.
-    //
-    // Passt die Historie ohnehin ins Fenster, gibt es nichts zu scrollen —
-    // dann sind viele Wochen Vorausschau nur ein breiter Block leerer
-    // Kacheln neben den Daten. Auf einem grossen Bildschirm sah das aus wie
-    // fehlende Messungen, nicht wie Zukunft.
-    //
-    // Läuft das Raster dagegen über den Rand hinaus, wird gescrollt, und
-    // dann braucht es rechts von der laufenden Woche ein Viertel der
-    // sichtbaren Breite — sonst schlägt die Ausrichtung am Ende an und
-    // heute klebt am rechten Rand statt bei drei Vierteln zu stehen.
-    const sichtbareSpalten = boxBreite ? Math.floor(boxBreite / SPALTE_PX) : 0
-    if (!sichtbareSpalten || computedBack + VORSCHAU_MIN <= sichtbareSpalten) {
-      return VORSCHAU_MIN
-    }
-    return Math.max(VORSCHAU_MIN, Math.ceil(sichtbareSpalten * 0.25))
-  }, [weeksForward, endDate, boxBreite, computedBack])
+    return layout.vorschau
+  }, [weeksForward, endDate, layout])
 
   const columns = useMemo(
     () => buildGrid(data || [], computedBack, computedForward),
@@ -188,9 +211,20 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
       <div className="flex gap-2 items-start">
         {/* Wochentage bleiben stehen — sie gehören zu jeder Spalte gleichermassen
             und wären beim Scrollen als erstes aus dem Bild gewandert. */}
-        <div className="flex flex-col gap-1 pt-5 font-mono shrink-0" style={{ color: 'var(--text-muted)' }}>
+        {/* Höhe und Abstand kommen aus derselben Rechnung wie die Zellen.
+            Fest verdrahtet (14 px + 4 px gegen 18 px + 4 px) liefen die
+            Beschriftungen über sieben Zeilen um 28 px aus dem Takt — "Sun"
+            stand neben dem Samstag. */}
+        <div
+          className="flex flex-col pt-5 font-mono shrink-0"
+          style={{ color: 'var(--text-muted)', gap: ABSTAND }}
+        >
           {DAY_LABELS.map((d, i) => (
-            <div key={i} className="h-3.5 flex items-center" style={{ fontSize: '9px', lineHeight: 1 }}>
+            <div
+              key={i}
+              className="flex items-center"
+              style={{ height: layout.zelle, fontSize: '9px', lineHeight: 1 }}
+            >
               {d}
             </div>
           ))}
@@ -209,26 +243,28 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
         >
           <div className="inline-block">
             {/* Month labels */}
-            <div className="flex gap-1 mb-1 font-mono" style={{ color: 'var(--text-muted)' }}>
+            <div className="flex mb-1 font-mono" style={{ color: 'var(--text-muted)', gap: ABSTAND }}>
               {columns.map((c, i) => (
-                <div key={i} className="w-[18px] text-center" style={{ fontSize: '9px' }}>
+                <div key={i} className="text-center" style={{ width: layout.zelle, fontSize: '9px' }}>
                   {c.monthLabel}
                 </div>
               ))}
             </div>
 
             {/* Cells */}
-            <div className="flex gap-1">
+            <div className="flex" style={{ gap: ABSTAND }}>
               {columns.map((col, ci) => (
                 <div
                   key={ci}
                   ref={col.istDieseWoche ? heuteSpalte : null}
-                  className="flex flex-col gap-1"
+                  className="flex flex-col"
+                  style={{ gap: ABSTAND }}
                 >
                   {col.days.map((day, di) => (
                     <Cell
                       key={di}
                       day={day}
+                      groesse={layout.zelle}
                       onHover={setHover}
                       isActive={hover && day && hover.date === day.date}
                     />
