@@ -154,6 +154,7 @@ def test_obsidian(
         )
     else:
         client = client_for_profile(profile)
+    basis = client.base_url
 
     if not client.enabled:
         return {"ok": False, "error": "Adresse oder Schlüssel fehlen"}
@@ -162,15 +163,21 @@ def test_obsidian(
         info = client.ping()
         return {
             "ok": True,
+            # Die vervollständigte Adresse zurückgeben, damit die Oberfläche
+            # sie sofort ins Feld schreiben kann. Sonst ergänzt das Backend
+            # `https://` und den Port zwar korrekt, der Athlet sieht davon
+            # aber erst nach dem Speichern etwas — und hält die Automatik
+            # für kaputt, während sie längst funktioniert hat.
+            "base_url": basis,
             "authenticated": bool(info.get("authenticated")),
             "plugin_version": info.get("versions", {}).get("self"),
             "vault_root": client.list_dir()[:12],
         }
     except ObsidianError as e:
         # Erreichbar, aber abgelehnt — meist ein falscher Schlüssel.
-        return {"ok": False, "reachable": True, "error": str(e)}
+        return {"ok": False, "reachable": True, "error": str(e), "base_url": basis}
     except ObsidianUnavailable as e:
-        return {"ok": False, "reachable": False, "error": str(e)}
+        return {"ok": False, "reachable": False, "error": str(e), "base_url": basis}
 
 
 class WebhookSettings(BaseModel):

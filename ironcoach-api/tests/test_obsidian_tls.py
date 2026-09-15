@@ -97,3 +97,27 @@ def test_vervollstaendigte_adresse_trifft_dieselbe_zertifikatsentscheidung():
     assert pruefung_noetig(normalisiere_adresse("100.84.12.7"), None) is False
     assert pruefung_noetig(normalisiere_adresse("rechner.tail47caa9.ts.net"), None) is True
     assert pruefung_noetig(normalisiere_adresse("fd7a:115c::1"), None) is False
+
+
+def test_verbindungstest_gibt_die_vervollstaendigte_adresse_zurueck(client, db):
+    """Der Athlet soll die Ergänzung sehen, nicht nur davon profitieren.
+
+    Das Backend bildet die vollständige Adresse für den Test ohnehin. Gab es
+    sie nicht zurück, blieb im Eingabefeld die nackte IP stehen — und der
+    erste neue Nutzer meldete, die automatische Ergänzung funktioniere
+    nicht, während sie längst korrekt gespeichert hatte.
+    """
+    from models import AthleteProfile
+
+    profil = db.query(AthleteProfile).first()
+    profil.obsidian_api_key = "geheim"
+    db.commit()
+
+    antwort = client.post(
+        "/api/integrations/obsidian/test",
+        json={"base_url": "100.84.12.7", "api_key": "geheim"},
+    ).json()
+
+    # Erreichbar ist dort nichts — entscheidend ist die zurückgegebene Adresse.
+    assert antwort["ok"] is False
+    assert antwort["base_url"] == "https://100.84.12.7:27124"

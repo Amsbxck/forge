@@ -107,6 +107,11 @@ export default function Integrations() {
       if (form.api_key) payload.api_key = form.api_key
       const { data } = await testObsidian(payload)
       setTest(data)
+      // Die vervollständigte Adresse sofort ins Feld — das Backend hat sie
+      // für den Test ohnehin schon gebildet. Ohne das sieht der Athlet seine
+      // nackte Eingabe stehen und hält die Ergänzung für kaputt, obwohl sie
+      // funktioniert hat. Genau so ist es dem ersten neuen Nutzer ergangen.
+      if (data?.base_url) setForm(f => ({ ...f, base_url: data.base_url }))
     } catch (err) {
       setTest({ ok: false, error: err.response?.data?.detail || 'Test fehlgeschlagen' })
     } finally { setBusy(null) }
@@ -339,10 +344,11 @@ export default function Integrations() {
                    onChange={e => setForm({ ...form, base_url: e.target.value })}
                    placeholder="100.84.12.7" />
             <span className="block mt-1 text-[11px] font-mono text-[var(--text-muted)]">
-              Genau das einfügen, was in der Tailscale-App bei deinem Rechner steht.
+              Genau das einfügen, was in der Tailscale-App bei deinem Rechner steht —
+              etwa <span className="text-[var(--text-secondary)]">100.84.12.7</span>.
               <span className="text-[var(--text-secondary)]"> https:// </span>und der
               Port<span className="text-[var(--text-secondary)]"> :27124 </span>
-              kommen beim Speichern von selbst dazu.
+              ergänzt die App selbst, sobald du speicherst oder die Verbindung testest.
             </span>
           </label>
           <label className="block">
@@ -419,7 +425,9 @@ export default function Integrations() {
             <li>Im selben Plugin: API-Schlüssel kopieren, „Binding Host" auf 0.0.0.0 setzen</li>
             <li>Tailscale installieren (tailscale.com/download) und mit der Einladung anmelden, die du bekommen hast</li>
             <li>In der Tailscale-App steht bei deinem Rechner eine Adresse wie 100.84.12.7 — die ist gemeint (der Eintrag „IPv4")</li>
-            <li>Diese Adresse oben einfügen, dazu den Schlüssel, dann „Verbindung testen"</li>
+            <li>Diese Adresse oben einfügen, dazu den Schlüssel aus Schritt 2</li>
+            <li><strong>„Speichern"</strong> drücken — dabei werden https:// und der Port :27124 ergänzt</li>
+            <li>„Verbindung testen" drücken; steht dort ein grünes Häkchen, ist alles fertig</li>
           </ol>
           <p className="mt-2 leading-relaxed">
             Der Abgleich läuft nur, solange dein Rechner wach und Obsidian geöffnet ist.
