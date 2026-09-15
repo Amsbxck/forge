@@ -155,9 +155,48 @@ def week_block(
         return ""
 
     aufzaehlung = "\n".join(f"- {z}" for z in zeilen)
+    schluss = (
+        "Diese Termine ändern weder Planlänge noch Phase. Das Saisonziel bleibt "
+        "unverändert das A-Rennen."
+    )
+
+    # Liegt das Saisonziel bereits hinter dem Athleten, meldet der
+    # Saisonzustand `off_season` — und zwar ab dem Tag nach dem Rennen. Das
+    # ist richtig so und bleibt auch so: Die Saison ist an ihrem Ziel
+    # gemessen vorbei.
+    #
+    # Nur stimmt daraus nicht, dass nichts mehr ansteht. Wer sieben Tage
+    # nach seiner Mitteldistanz einen Halbmarathon läuft, steht in einer
+    # Wettkampfwoche, während der Rahmen „Off Season" sagt. Der Coach bekam
+    # dann zwei widersprechende Signale und musste raten, welches gilt.
+    #
+    # Deshalb wird der Widerspruch hier benannt, statt am Saisonzustand zu
+    # drehen: Diese Stelle beschreibt ohnehin die Wettkämpfe, und sie weiss
+    # als einzige von beidem.
+    nachzuegler = [r for r in rennen if r.race_date >= week_start]
+    if nachzuegler:
+        ziel = (
+            db.query(RaceGoal)
+            .filter(RaceGoal.priority == "A", RaceGoal.is_active == True)  # noqa: E712
+        )
+        if user is not None:
+            ziel = ziel.filter(RaceGoal.user_id == user.id)
+        ziel = ziel.first()
+
+        if ziel is not None and ziel.race_date < week_start:
+            naechstes = nachzuegler[0]
+            schluss = (
+                f"WICHTIG: Das Saisonziel am {ziel.race_date} liegt hinter dem "
+                f"Athleten, deshalb meldet der Saisonzustand off_season. Die "
+                f"Saison ist damit aber nicht zu Ende: Am {naechstes.race_date} "
+                f"steht {naechstes.race_name or naechstes.label} an "
+                f"({naechstes.priority}-Rennen). Diese Woche ist keine "
+                f"Off-Season-Woche — plane sie auf diesen Wettkampf hin und "
+                f"beginne den Formabbau erst danach."
+            )
+
     return (
         "## WETTKÄMPFE IN DER SAISON (nicht das Saisonziel)\n\n"
         f"{aufzaehlung}\n\n"
-        "Diese Termine ändern weder Planlänge noch Phase. Das Saisonziel bleibt "
-        "unverändert das A-Rennen.\n\n---"
+        f"{schluss}\n\n---"
     )
