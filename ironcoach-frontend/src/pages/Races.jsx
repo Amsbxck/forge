@@ -262,10 +262,11 @@ export default function Races() {
   const [showRaceForm, setShowRaceForm] = useState(false)
   const [zones, setZones] = useState(null)
 
-  const [goalForm, setGoalForm] = useState({
+  const LEERES_ZIEL = {
     sport: 'triathlon', distance: 'middle', race_date: '', race_name: '',
     goal_time: '', priority: 'A',
-  })
+  }
+  const [goalForm, setGoalForm] = useState(LEERES_ZIEL)
   const [termine, setTermine] = useState([])
   const LEERES_RENNEN = {
     sport: 'triathlon', distance: 'middle', race_date: '', race_name: '', location: '',
@@ -357,6 +358,24 @@ export default function Races() {
       })
       setGoal(data)
       setShowGoalForm(false)
+      // Zurücksetzen wie beim Rennenformular. Ohne das standen Renntag,
+      // Name und Zielzeit des gerade gespeicherten Wettkampfs beim nächsten
+      // Öffnen noch im Formular — und weil ein Platzhalter nur in einem
+      // leeren Feld erscheint, waren auch die Beispiele weg.
+      //
+      // Die Sportart bleibt: Sie wechselt zwischen zwei Einträgen praktisch
+      // nie, und mit ihr wechselte die Auswahl der Distanzen.
+      //
+      // Die Art springt auf B, sobald ein Saisonziel steht. Ein zweites A
+      // wäre kein weiterer Wettkampf, sondern würde das Ziel ersetzen und
+      // die Saison neu rechnen — nichts, was man beiläufig tut, weil das
+      // Formular noch auf A stand.
+      setGoalForm({
+        ...LEERES_ZIEL,
+        sport: goalForm.sport,
+        distance: goalForm.distance,
+        priority: data?.priority === 'A' || goal ? 'B' : goalForm.priority,
+      })
     } catch (err) {
       setError(err.response?.data?.detail || 'Ziel konnte nicht gespeichert werden')
     }
@@ -597,7 +616,10 @@ export default function Races() {
       {/* Zielformular */}
       <Modal
         open={showGoalForm} onClose={() => setShowGoalForm(false)}
-        title="ZIEL SETZEN" subtitle="Planlänge und Phasen ergeben sich aus der Distanz"
+        title={goalForm.priority === 'A' ? 'SAISONZIEL SETZEN' : 'WETTKAMPF EINTRAGEN'}
+        subtitle={goalForm.priority === 'A'
+          ? 'Planlänge und Phasen ergeben sich aus der Distanz'
+          : 'Liegt in der laufenden Saison — Planlänge und Phasen bleiben unverändert'}
         width="max-w-2xl"
       >
         <form onSubmit={submitGoal} className="space-y-4">
@@ -642,8 +664,15 @@ export default function Races() {
                 className={FIELD} style={FIELD_STYLE} value={goalForm.distance}
                 onChange={e => setGoalForm({ ...goalForm, distance: e.target.value })}
               >
+                {/* Die Wochenzahl nur beim Saisonziel: Sie ist die Länge des
+                    Aufbaus, und den bestimmt allein das A-Rennen. An einem
+                    Trainingswettkampf gelesen sagt sie etwas, das nicht
+                    stimmt — dort wird nichts geplant, die Einheit wird
+                    mitgenommen. */}
                 {distancesFor(goalForm.sport).map(d => (
-                  <option key={d.key} value={d.key}>{d.label} · {d.weeks} Wochen</option>
+                  <option key={d.key} value={d.key}>
+                    {goalForm.priority === 'A' ? `${d.label} · ${d.weeks} Wochen` : d.label}
+                  </option>
                 ))}
               </select>
             </label>
