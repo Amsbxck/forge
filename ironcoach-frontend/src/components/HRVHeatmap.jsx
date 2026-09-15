@@ -5,6 +5,14 @@ import { parseTag } from '../utils/dates'
 const STATUS_LABEL = { green: 'Good', yellow: 'Caution', red: 'Rest' }
 const DAY_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', 'Sun']
 
+// Eine Spalte ist 18 px breit, dazu 4 px Abstand. Hier als Zahl, weil die
+// Vorausschau daraus ausrechnet, wie viele Wochen überhaupt ins Bild passen.
+const SPALTE_PX = 22
+// So viel Zukunft immer, auch wenn nicht gescrollt wird: Die restlichen Tage
+// der laufenden Woche sollen sichtbar sein, sonst endet das Raster mitten in
+// der Woche, in der man gerade steht.
+const VORSCHAU_MIN = 3
+
 function isoDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
@@ -79,30 +87,21 @@ function Cell({ day, onHover, isActive }) {
 
 export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate }) {
   const [hover, setHover] = useState(null)
-  const computedForward = useMemo(() => {
-    if (weeksForward != null) return weeksForward
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    // Ohne Zieldatum zwölf Wochen nach vorn. Zwei waren zu wenig — das
-    // Raster endete sichtbar mitten im laufenden Monat und sah aus, als
-    // hörten die Daten dort auf.
-    //
-    // Zwölf und nicht acht, weil daran die Ausrichtung hängt: Die laufende
-    // Woche soll bei drei Vierteln der sichtbaren Breite stehen, und dafür
-    // muss rechts davon ein Viertel Zukunft liegen. Bei acht Wochen reichte
-    // das auf einem schmalen Fenster nicht, die Scrollposition schlug am
-    // Ende an und heute klebte am rechten Rand. Nachgemessen: bei 676 px
-    // sichtbarer Breite ist die Position mit zwölf Wochen frei (168 von
-    // 232), mit acht sitzt sie am Anschlag.
-    if (!endDate) return 12
-    const end = parseTag(endDate)
-    if (end < today) return 0
-    const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1
-    const thisWeekMonday = new Date(today)
-    thisWeekMonday.setDate(today.getDate() - dayOfWeek)
-    const diffDays = Math.ceil((end - thisWeekMonday) / 86400000)
-    return Math.max(0, Math.ceil(diffDays / 7))
-  }, [weeksForward, endDate])
+  const scrollBox = useRef(null)
+  const heuteSpalte = useRef(null)
+
+  // Breite des Scrollbereichs, gemessen statt geraten. Davon hängt ab, wie
+  // viel Zukunft das Raster überhaupt braucht.
+  const [boxBreite, setBoxBreite] = useState(0)
+  useLayoutEffect(() => {
+    const box = scrollBox.current
+    if (!box) return
+    const messen = () => setBoxBreite(box.clientWidth)
+    messen()
+    const beobachter = new ResizeObserver(messen)
+    beobachter.observe(box)
+    return () => beobachter.disconnect()
+  }, [])
 
   // So weit zurück, wie Messungen vorliegen — mindestens aber `weeksBack`.
   // Vorher war das Raster bei 14 Wochen abgeschnitten, und alles davor war
@@ -121,6 +120,38 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
     return Math.max(weeksBack, wochen)
   }, [data, weeksBack])
 
+  const computedForward = useMemo(() => {
+    if (weeksForward != null) return weeksForward
+
+    if (endDate) {
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      const end = parseTag(endDate)
+      if (end < today) return 0
+      const dayOfWeek = today.getDay() === 0 ? 6 : today.getDay() - 1
+      const thisWeekMonday = new Date(today)
+      thisWeekMonday.setDate(today.getDate() - dayOfWeek)
+      return Math.max(0, Math.ceil((end - thisWeekMonday) / 86400000 / 7))
+    }
+
+    // Wie viel Zukunft nötig ist, hängt allein davon ab, ob gescrollt wird.
+    //
+    // Passt die Historie ohnehin ins Fenster, gibt es nichts zu scrollen —
+    // dann sind viele Wochen Vorausschau nur ein breiter Block leerer
+    // Kacheln neben den Daten. Auf einem grossen Bildschirm sah das aus wie
+    // fehlende Messungen, nicht wie Zukunft.
+    //
+    // Läuft das Raster dagegen über den Rand hinaus, wird gescrollt, und
+    // dann braucht es rechts von der laufenden Woche ein Viertel der
+    // sichtbaren Breite — sonst schlägt die Ausrichtung am Ende an und
+    // heute klebt am rechten Rand statt bei drei Vierteln zu stehen.
+    const sichtbareSpalten = boxBreite ? Math.floor(boxBreite / SPALTE_PX) : 0
+    if (!sichtbareSpalten || computedBack + VORSCHAU_MIN <= sichtbareSpalten) {
+      return VORSCHAU_MIN
+    }
+    return Math.max(VORSCHAU_MIN, Math.ceil(sichtbareSpalten * 0.25))
+  }, [weeksForward, endDate, boxBreite, computedBack])
+
   const columns = useMemo(
     () => buildGrid(data || [], computedBack, computedForward),
     [data, computedBack, computedForward]
@@ -129,9 +160,8 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
   // Beim Öffnen so scrollen, dass die laufende Woche bei drei Vierteln der
   // sichtbaren Breite steht: rechts bleibt ein Stück Zukunft sichtbar, und
   // nach links lässt sich die Vergangenheit heranziehen. Ganz rechts
-  // angeschlagen wäre die Zukunft weg, ganz links die Gegenwart.
-  const scrollBox = useRef(null)
-  const heuteSpalte = useRef(null)
+  // angeschlagen wäre die Zukunft weg, ganz links die Gegenwart. Passt alles
+  // ins Fenster, ist der Wert 0 und die Ausrichtung entfällt von selbst.
   useLayoutEffect(() => {
     const box = scrollBox.current
     const ziel = heuteSpalte.current
