@@ -134,3 +134,32 @@ def test_athlet_im_aufbau_sieht_weiterhin_seine_woche(client, db):
     daten = client.get("/api/metrics/week").json()
     assert daten["sessions_count"] == 1
     assert daten["total_tss"] == pytest.approx(55.0)
+
+
+def test_zaehlt_unabhaengig_von_jedem_plan(client, db, aufbau_beginnt_spaeter):
+    """Gezählt wird, was gemacht wurde — nicht, was vorgesehen war.
+
+    Die Kachel beantwortet "was habe ich diese Woche trainiert". Ein
+    Wochenplan muss dafür nicht existieren, und eine Einheit muss keiner
+    geplanten zugeordnet sein: Ein spontaner Lauf, ein Import aus einer
+    FIT-Datei und eine Einheit aus dem Plan zählen gleich.
+
+    Der Test hält das fest, weil die Kachel früher über die Planwoche ging
+    und damit eine Verbindung zum Plan hatte, die sie nicht haben soll.
+    """
+    montag, _ = kalenderwoche(date.today())
+
+    geplant_gewesen = _einheit(db, montag, week_number=1, tss=40)
+    geplant_gewesen.planned_session_id = None      # keine Zuordnung
+    spontan = _einheit(db, montag + timedelta(days=1), week_number=1, tss=25)
+    spontan.strava_activity_id = 99887766          # direkt aus Strava
+    # Eine Einheit mit einer Wochennummer, die zu gar nichts passt.
+    _einheit(db, montag + timedelta(days=2), week_number=999, tss=35)
+    db.commit()
+
+    daten = client.get("/api/metrics/week").json()
+
+    assert daten["sessions_count"] == 3
+    assert daten["total_tss"] == pytest.approx(100.0)
+    # Und die Aufschlüsselung nach Disziplin zählt sie ebenso.
+    assert daten["disciplines"] == {"run": 3}
