@@ -131,6 +131,13 @@ export default function WeeklyPlan() {
   useEffect(() => { load(versatz) }, [versatz, load])
 
   const shownWeek = plan?.week_number ?? currentWeek
+  // Gibt es für die betrachtete Woche keinen Plan, ist keine Wochennummer
+  // bekannt — die des geladenen Plans wäre die einer anderen Woche. Dann
+  // steht dort der Montag statt einer Nummer, die nicht stimmt.
+  const wochenMarke = plan
+    ? `WK ${plan.week_number}`
+    : new Date(montagMitVersatz(versatz) + 'T00:00:00').toLocaleDateString('de-DE',
+        { day: '2-digit', month: '2-digit' })
   // Am Versatz erkannt, nicht am Vergleich der Wochennummern: Vor dem
   // Beginn des Aufbaus tragen laufende und kommende Woche dieselbe Nummer,
   // und die Seite hielte die kommende für die laufende.
@@ -179,7 +186,7 @@ export default function WeeklyPlan() {
               ))}
               <span className="text-lg font-mono order-2 px-1"
                     style={{ color: versatz === 0 ? 'var(--text-muted)' : '#00d4ff' }}>
-                WK {shownWeek}
+                {wochenMarke}
                 {versatz === 1 && <span className="text-[10px] ml-1">KOMMENDE</span>}
                 {versatz < 0 && <span className="text-[10px] ml-1">VERGANGEN</span>}
               </span>
