@@ -10,25 +10,9 @@ from schemas import WeekMetrics, TrendPoint
 from services.plan_generator import get_current_week
 from core.prompt_templates import get_phase
 from core.deps import get_profile as resolve_profile, get_plan_anchor, get_current_user
+from core.wochen import kalenderwoche
 
 router = APIRouter()
-
-
-def kalenderwoche(tag: date) -> tuple[date, date]:
-    """Montag und Sonntag der Woche, in der `tag` liegt.
-
-    "Diese Woche" auf dem Dashboard ist eine Kalenderwoche, keine Planwoche.
-    Über `week_number` gefiltert brach die Anzeige für jeden Athleten
-    zusammen, dessen Aufbau noch nicht begonnen hat: `get_week_for_date`
-    gibt `max(1, …)` zurück, also für jedes Datum vor dem Startdatum eine 1
-    — und die aktuelle Woche ist dann ebenfalls 1. Das Ergebnis war, dass
-    ausnahmslos alle jemals absolvierten Einheiten als "diese Woche" galten.
-
-    Ein Datumsbereich hat dieses Problem nicht. Er stimmt vor dem Aufbau,
-    während des Aufbaus und nach dem Rennen.
-    """
-    montag = tag - timedelta(days=tag.weekday())
-    return montag, montag + timedelta(days=6)
 
 
 @router.get("/metrics/week", response_model=WeekMetrics)

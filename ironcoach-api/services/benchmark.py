@@ -172,10 +172,14 @@ def create_benchmark_plan(db: Session, user=None):
     anker = goal or profile
     woche = get_week_for_date(anker, start) if anker else 1
 
-    # Nicht zweimal dieselbe Woche anlegen.
+    # Nicht zweimal dieselbe Woche anlegen — erkannt am Montag, nicht an der
+    # Wochennummer. Die Nummer entsteht aus `max(1, …)` und ist vor dem Beginn
+    # des Aufbaus für jedes Datum 1: Die Testwoche hätte dann dieselbe Nummer
+    # wie ein längst bestehender Plan, und statt sie anzulegen käme dieser
+    # fremde Plan zurück.
     existing = (
         db.query(WeeklyPlan)
-        .filter(WeeklyPlan.week_number == woche)
+        .filter(WeeklyPlan.week_start == start)
         .order_by(WeeklyPlan.generated_at.desc())
         .first()
     )

@@ -5,6 +5,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from database import get_db
+from core.wochen import kalenderwoche
 from models import AthleteProfile, WeeklyPlan
 from schemas import WeeklyPlanOut
 from services.plan_generator import generate_and_save_plan, get_current_week
@@ -49,9 +50,13 @@ async def generate_plan(
 
 @router.get("/plan/current", response_model=WeeklyPlanOut)
 def get_current_plan(db: Session = Depends(get_db)):
-    anchor = get_plan_anchor(db)
-    current_week = get_current_week(anchor) if anchor else 1
-    plan = _pick_plan(db.query(WeeklyPlan).filter(WeeklyPlan.week_number == current_week))
+    # Über das Datum, nicht über die Planwochennummer: Die Nummer entsteht
+    # aus `max(1, …)` und fällt vor dem Beginn des Aufbaus für jedes Datum
+    # auf 1 zusammen. Eine Testwoche für die kommende Woche bekäme dann
+    # dieselbe Nummer wie die laufende und erschiene hier als aktueller Plan
+    # — obwohl sie sieben Tage später liegt.
+    montag, _ = kalenderwoche()
+    plan = _pick_plan(db.query(WeeklyPlan).filter(WeeklyPlan.week_start == montag))
     if not plan:
         raise HTTPException(status_code=404, detail="Kein Plan für diese Woche — erst /api/plan/generate aufrufen")
     return plan

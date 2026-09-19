@@ -51,6 +51,17 @@ def naechster_montag(ab: date | None = None) -> date:
     return ab + timedelta(days=7 - ab.weekday())
 
 
+def montag_ab(tag: date) -> date:
+    """Der erste Montag an oder nach `tag`.
+
+    Unterschied zu `naechster_montag`: Fällt `tag` selbst auf einen Montag,
+    ist das die Antwort. Für den frühesten erlaubten Termin ist das richtig —
+    `naechster_montag` hätte dort eine ganze Woche draufgelegt, weil es
+    ausdrücklich nie den laufenden Montag zurückgibt.
+    """
+    return tag + timedelta(days=(7 - tag.weekday()) % 7)
+
+
 def pruefe(db: Session, ziel_datum: date | None = None,
            heute: date | None = None) -> dict:
     """Kann die Testwoche in der kommenden Woche liegen?
@@ -72,14 +83,22 @@ def pruefe(db: Session, ziel_datum: date | None = None,
         .first()
     )
     if letztes is not None:
-        seit = (heute - letztes.race_date).days
-        if seit < SPERRE_NACH_RENNEN:
-            frei = naechster_montag(letztes.race_date + timedelta(days=SPERRE_NACH_RENNEN))
+        # Gemessen ab dem Montag der Testwoche, nicht ab heute: Getestet wird
+        # nicht heute, sondern in der kommenden Woche. Wer am 16. Tag nach
+        # seinem Rennen steht und dessen kommender Montag der 22. Tag ist, hat
+        # die Erholungsfrist zum Testzeitpunkt voll. Ihn trotzdem zu sperren
+        # verschiebt den Test grundlos um eine weitere Woche — und die
+        # Begründung ("dein Wettkampf ist erst 16 Tage her") beschreibt einen
+        # Tag, an dem gar nicht getestet wird.
+        abstand_bei_start = (start - letztes.race_date).days
+        if abstand_bei_start < SPERRE_NACH_RENNEN:
+            frei = montag_ab(letztes.race_date + timedelta(days=SPERRE_NACH_RENNEN))
             frueheste = max(frueheste, frei)
             gruende.append(
-                f"Dein Wettkampf ist erst {seit} Tage her. Ein Maximaltest misst "
-                f"jetzt vor allem die Restermüdung — und die zu niedrigen Werte "
-                f"würden anschließend monatelang als Vorgabe gelten."
+                f"Beim Start der Testwoche am {start} liegt dein Wettkampf erst "
+                f"{abstand_bei_start} Tage zurück. Ein Maximaltest misst dann vor "
+                f"allem die Restermüdung — und die zu niedrigen Werte würden "
+                f"anschließend monatelang als Vorgabe gelten."
             )
 
     # --- Laufende Krankheit oder Verletzung ---
