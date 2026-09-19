@@ -4,6 +4,9 @@ Modul 1 stellt nur Lesen + Backfill bereit. Das Verschieben per Drag & Drop
 (PATCH) kommt in Modul 2, sobald das Frontend darauf umgestellt ist.
 """
 
+from datetime import date
+
+from core.wochen import kalenderwoche
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -44,6 +47,32 @@ def planned_status(db: Session = Depends(get_db)):
         "planned_sessions": count,
         "hint": None if available else "Migration 005 ausführen: alembic upgrade head",
     }
+
+
+@router.get("/planned/am/{montag}", response_model=list[PlannedSessionOut])
+def planned_for_monday(montag: date, db: Session = Depends(get_db)):
+    """Einheiten des aktiven Plans einer Kalenderwoche.
+
+    Gegenstück zu `/plan/am/{montag}` — dieselbe Begründung: Über die
+    Wochennummer angesprochen ist die kommende Woche vor dem Aufbaubeginn
+    nicht von der laufenden zu unterscheiden.
+    """
+    _require_table(db)
+    start, _ = kalenderwoche(montag)
+    plan = (
+        db.query(WeeklyPlan)
+        .filter(WeeklyPlan.week_start == start)
+        .order_by(WeeklyPlan.generated_at.desc())
+        .first()
+    )
+    if plan is None:
+        return []
+    return (
+        db.query(PlannedSession)
+        .filter(PlannedSession.plan_id == plan.id)
+        .order_by(PlannedSession.planned_date.asc())
+        .all()
+    )
 
 
 @router.get("/planned/week/{week_number}", response_model=list[PlannedSessionOut])

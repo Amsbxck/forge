@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   getCurrentPlan, generatePlan, getPlannedCurrent,
-  getPlanByWeek, getPlannedWeek,
+  getPlanByMonday, getPlannedByMonday,
   getWeekMetrics,
 } from '../services/api'
 import WeekCalendar from '../components/WeekCalendar'
 import PlanExport from '../components/PlanExport'
 import HealthStatus from '../components/HealthStatus'
+import { montagMitVersatz } from '../utils/dates'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
 const LABEL = 'text-xs font-mono tracking-widest text-[var(--text-secondary)]'
@@ -61,19 +62,24 @@ export default function WeeklyPlan() {
   const [generating, setGenerating] = useState(false)
   const [requests, setRequests] = useState('')
   const [error, setError] = useState(null)
-  // null = "aktuelle Woche". Sobald geblättert wird, steht hier die Nummer.
-  const [week, setWeek] = useState(null)
+  // Versatz in Kalenderwochen: 0 = laufende, -1 = vorige, +1 = kommende.
+  //
+  // Vorher stand hier die Planwochennummer. Die entsteht aus `max(1, …)` und
+  // ist vor dem Beginn des Aufbaus für jedes Datum 1 — "eine Woche vor"
+  // führte dort auf Nummer 2, für die es nie einen Plan gibt, während die
+  // kommende Woche unter derselben 1 lag wie die laufende.
+  const [versatz, setVersatz] = useState(0)
   const [currentWeek, setCurrentWeek] = useState(null)
   // Zieldauer statt fester 33: Eine 14-Wochen-Vorbereitung ließ sich bis
   // Woche 33 durchblättern (alles leer), eine 40-Wochen-Saison brach bei 33 ab.
   const [totalWeeks, setTotalWeeks] = useState(null)
   const [notFound, setNotFound] = useState(false)
 
-  const loadPlanned = useCallback(async (targetWeek) => {
+  const loadPlanned = useCallback(async (offset) => {
     try {
-      const resp = targetWeek == null
+      const resp = offset === 0
         ? await getPlannedCurrent()
-        : await getPlannedWeek(targetWeek)
+        : await getPlannedByMonday(montagMitVersatz(offset))
       setPlanned(resp.data?.length ? resp.data : null)
     } catch (e) {
       // 503 = Projektion noch nicht migriert. Kein Fehler für den Nutzer,
@@ -82,18 +88,18 @@ export default function WeeklyPlan() {
     }
   }, [])
 
-  const load = useCallback(async (targetWeek = null) => {
+  const load = useCallback(async (offset = 0) => {
     setLoading(true)
     setError(null)
     setNotFound(false)
     try {
-      const resp = targetWeek == null
+      const resp = offset === 0
         ? await getCurrentPlan()
-        : await getPlanByWeek(targetWeek)
+        : await getPlanByMonday(montagMitVersatz(offset))
       setPlan(resp.data)
       // Die erste Antwort definiert, welche Woche "aktuell" ist.
-      setCurrentWeek(prev => (prev == null && targetWeek == null ? resp.data.week_number : prev))
-      await loadPlanned(targetWeek)
+      setCurrentWeek(prev => (prev == null && offset === 0 ? resp.data.week_number : prev))
+      await loadPlanned(offset)
     } catch (e) {
       if (e.response?.status === 404) {
         setPlan(null)
@@ -122,10 +128,13 @@ export default function WeeklyPlan() {
     }
   }
 
-  useEffect(() => { load(week) }, [week, load])
+  useEffect(() => { load(versatz) }, [versatz, load])
 
-  const shownWeek = plan?.week_number ?? week ?? currentWeek
-  const isCurrent = currentWeek != null && shownWeek === currentWeek
+  const shownWeek = plan?.week_number ?? currentWeek
+  // Am Versatz erkannt, nicht am Vergleich der Wochennummern: Vor dem
+  // Beginn des Aufbaus tragen laufende und kommende Woche dieselbe Nummer,
+  // und die Seite hielte die kommende für die laufende.
+  const isCurrent = versatz === 0
 
   // Bevorzugt die normalisierten Einheiten — nur die tragen ids und Zielwerte.
   const calendarDays = useMemo(
@@ -157,27 +166,29 @@ export default function WeeklyPlan() {
                 <button
                   key={dir}
                   title={title}
-                  onClick={() => setWeek(Math.max(
-                    1,
-                    // Eine Woche über das Ziel hinaus bleibt erreichbar: Dort
-                    // liegen die Off-Season-Pläne.
-                    Math.min(totalWeeks ? totalWeeks + 1 : 99, shownWeek + dir),
-                  ))}
+                  // Nach vorn genau eine Woche: Weiter gibt es nichts zu
+                  // sehen, weil Pläne immer nur für die kommende Woche
+                  // entstehen. Nach hinten offen — dort liegt die Historie.
+                  disabled={dir === 1 && versatz >= 1}
+                  onClick={() => setVersatz(v => Math.min(1, v + dir))}
                   className={`px-2 py-0.5 rounded font-mono text-[var(--text-secondary)] hover:text-[#00d4ff] transition-colors ${i === 1 ? 'order-3' : ''}`}
                   style={{ border: '1px solid #1e2228' }}
                 >
                   {label}
                 </button>
               ))}
-              <span className="text-lg font-mono text-[var(--text-muted)] order-2 px-1">
+              <span className="text-lg font-mono order-2 px-1"
+                    style={{ color: versatz === 0 ? 'var(--text-muted)' : '#00d4ff' }}>
                 WK {shownWeek}
+                {versatz === 1 && <span className="text-[10px] ml-1">KOMMENDE</span>}
+                {versatz < 0 && <span className="text-[10px] ml-1">VERGANGEN</span>}
               </span>
             </div>
           )}
 
           {!isCurrent && shownWeek != null && (
             <button
-              onClick={() => setWeek(null)}
+              onClick={() => setVersatz(0)}
               className="text-[10px] font-mono px-2 py-1 rounded tracking-wide"
               style={{ background: '#00d4ff15', border: '1px solid #00d4ff33', color: '#00d4ff' }}
             >
@@ -237,11 +248,11 @@ export default function WeeklyPlan() {
       {/* Gesundheit steht über dem Plan: wer krank ist, muss zuerst wissen,
           ob der Plan darunter überhaupt noch gilt. */}
       <HealthStatus variant="bar" onChanged={() => {
-        load(week)
+        load(versatz)
         // Die Neuplanung läuft im Hintergrund und braucht etwa eine halbe
         // Minute — deshalb ein zweiter Blick, sonst steht hier noch der
         // alte Plan und man hält die Anpassung für ausgefallen.
-        setTimeout(() => load(week), 30000)
+        setTimeout(() => load(versatz), 30000)
       }} />
 
       {/* Error */}
@@ -265,7 +276,7 @@ export default function WeeklyPlan() {
             className="text-2xl font-black text-[var(--text-muted)] mb-2"
             style={{ fontFamily: 'Barlow Condensed, sans-serif' }}
           >
-            {notFound && !isCurrent ? `KEIN PLAN FÜR WK ${shownWeek}` : 'NO PLAN YET'}
+            {notFound && !isCurrent ? 'KEIN PLAN FÜR DIESE WOCHE' : 'NO PLAN YET'}
           </div>
           <p className="text-sm font-mono text-[var(--text-muted)]">
             {notFound && !isCurrent

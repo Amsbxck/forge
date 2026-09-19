@@ -81,12 +81,16 @@ export const generatePlan = (requests = '') =>
   api.get('/api/plan/generate', { params: { requests }, timeout: 180000 })
 export const getCurrentPlan = () => api.get('/api/plan/current')
 export const getPlanByWeek = (week) => api.get(`/api/plan/${week}`)
+// Über den Montag statt über die Wochennummer: Die Nummer ist vor dem
+// Beginn des Aufbaus für jedes Datum 1, damit liesse sich nicht blättern.
+export const getPlanByMonday = (montag) => api.get(`/api/plan/am/${montag}`)
 export const downloadPlanPDF = (week) =>
   api.get(`/api/plan/${week}/pdf`, { responseType: 'blob' })
 
 // Planned sessions — normalisierte Projektion des Wochenplans
 export const getPlannedCurrent = () => api.get('/api/planned/current')
 export const getPlannedWeek = (week) => api.get(`/api/planned/week/${week}`)
+export const getPlannedByMonday = (montag) => api.get(`/api/planned/am/${montag}`)
 export const patchPlannedSession = (id, data) => api.patch(`/api/planned/${id}`, data)
 export const setPlannedReplacement = (id, text, durationMin) =>
   api.post(`/api/planned/${id}/replacement`, { text, duration_min: durationMin ?? null })

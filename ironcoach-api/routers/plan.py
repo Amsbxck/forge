@@ -5,6 +5,8 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from database import get_db
+from datetime import date
+
 from core.wochen import kalenderwoche
 from models import AthleteProfile, WeeklyPlan
 from schemas import WeeklyPlanOut
@@ -88,6 +90,26 @@ def download_plan_pdf(week_number: int, db: Session = Depends(get_db)):
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/plan/am/{montag}", response_model=WeeklyPlanOut)
+def get_plan_by_monday(montag: date, db: Session = Depends(get_db)):
+    """Plan einer Kalenderwoche, angesprochen über ihren Montag.
+
+    Neben `/plan/{week_number}`, weil die Wochennummer zum Blättern nicht
+    taugt: Sie entsteht aus `max(1, …)` und ist vor dem Beginn des Aufbaus
+    für jedes Datum 1. "Eine Woche vor" führte dort auf Nummer 2, für die es
+    nie einen Plan gibt — während die kommende Woche unter derselben 1 lag
+    wie die laufende und unerreichbar blieb.
+
+    Ein beliebiger Tag wird auf seinen Montag gezogen, damit die Adresse
+    nicht davon abhängt, welchen Wochentag der Aufrufer geschickt hat.
+    """
+    start, _ = kalenderwoche(montag)
+    plan = _pick_plan(db.query(WeeklyPlan).filter(WeeklyPlan.week_start == start))
+    if not plan:
+        raise HTTPException(status_code=404, detail=f"Kein Plan für die Woche ab {start}")
+    return plan
 
 
 @router.get("/plan/{week_number}", response_model=WeeklyPlanOut)

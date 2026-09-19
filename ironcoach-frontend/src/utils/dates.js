@@ -71,3 +71,15 @@ export function isoTag(d) {
   const z = n => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`
 }
+
+/** Montag der Kalenderwoche, die `versatz` Wochen von heute entfernt liegt.
+ *
+ *  0 = laufende Woche, -1 = vorige, +1 = kommende. Als ISO-Datum, weil es
+ *  so in die Adresse des Endpunkts geht.
+ */
+export function montagMitVersatz(versatz = 0) {
+  const tag = new Date()
+  tag.setHours(0, 0, 0, 0)
+  tag.setDate(tag.getDate() + versatz * 7)
+  return kalenderwoche(tag).von
+}
