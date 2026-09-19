@@ -135,7 +135,10 @@ export default function WeeklyPlan() {
   // bekannt — die des geladenen Plans wäre die einer anderen Woche. Dann
   // steht dort der Montag statt einer Nummer, die nicht stimmt.
   const wochenMarke = plan
-    ? `WK ${plan.week_number}`
+    // Negative Nummern sind die Wochen vor dem Aufbaubeginn: 0 ist die Woche
+    // unmittelbar davor, -7 die achte davor. Der Zusatz erklärt das, ohne
+    // dass man die Rechnung kennen muss.
+    ? (plan.week_number < 1 ? `WK ${plan.week_number} · VORLAUF` : `WK ${plan.week_number}`)
     : new Date(montagMitVersatz(versatz) + 'T00:00:00').toLocaleDateString('de-DE',
         { day: '2-digit', month: '2-digit' })
   // Am Versatz erkannt, nicht am Vergleich der Wochennummern: Vor dem

@@ -162,6 +162,11 @@ def phase_for_week(week: int, total_weeks: int = 33) -> str:
     hier `total_weeks + 1`, wodurch nach dem Rennen noch eine Wettkampfwoche
     erschien, die es nicht gibt.
     """
+    if week < 1:
+        # Vor Woche 1 hat die Vorbereitung noch nicht begonnen. Ohne diesen
+        # Zweig fiel eine negative Woche durch die Phasengrenzen hindurch und
+        # landete am Ende auf "Base" — als liefe der Aufbau bereits.
+        return "Grundlage"
     if week > total_weeks:
         return "Off Season"
     if week == total_weeks:

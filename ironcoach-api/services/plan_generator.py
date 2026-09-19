@@ -21,17 +21,35 @@ def get_current_week(anchor) -> int:
 
 
 def get_week_for_date(anchor, target_date: date) -> int:
-    from core.deps import total_weeks_for
+    """Trainingswoche eines Datums, gezählt ab dem Beginn der Vorbereitung.
 
+    Woche 1 ist die Woche, in der `plan_start_date` liegt. Davor wird
+    weitergezählt: 0 ist die Woche unmittelbar davor, -1 die davor, und so
+    fort. Acht Wochen vor dem Start steht also -7.
+
+    Bis hierher stand hier `max(1, …)`. Die Absicht war richtig — "Woche
+    minus sieben" klingt zunächst nach Unsinn. Der Preis war aber, dass
+    **jedes** Datum vor dem Beginn dieselbe Nummer bekam. Die Nummer war
+    damit als Beschriftung falsch und als Kennung unbrauchbar, und beides
+    hat sich gerächt: Der Wochenbreakdown zeigte sämtliche jemals
+    absolvierten Einheiten, die Testwoche für die kommende Woche galt als
+    bereits vorhanden, und im Wochenplan liess sich nicht vorwärts
+    blättern — alles dieselbe Ursache.
+
+    Die vorzeichenbehaftete Zählung ist auch inhaltlich die ehrlichere
+    Auskunft: Sie sagt, wie weit es noch bis zum Aufbau ist, statt eine
+    Woche 1 zu behaupten, die erst in zwei Monaten beginnt.
+
+    Ohne Startdatum gibt es keinen Bezugspunkt — dann bleibt es bei 1.
+    """
     start = getattr(anchor, "plan_start_date", None)
     if start is None:
         return 1
-    delta = (target_date - start).days
-    # Nicht mehr auf die Zieldauer gedeckelt: der Deckel ließ die Anzeige nach
-    # dem Rennen für immer auf der letzten Woche stehen ("Woche 33, Taper"),
-    # obwohl die Saison vorbei war. Wer über die Zieldauer hinaus zählt, ist
-    # in der Off Season — das erkennt `phase_for_week` an der Nummer.
-    return max(1, delta // 7 + 1)
+    # Ganzzahlige Division rundet in Python immer abwärts, auch bei
+    # negativen Zahlen: -55 // 7 ist -8, nicht -7. Genau das ist hier
+    # richtig — ein Datum 55 Tage vor dem Start liegt in der achten Woche
+    # davor und bekommt damit die -7.
+    return (target_date - start).days // 7 + 1
 
 
 def build_athlete_dict(profile: AthleteProfile, goal=None) -> dict:

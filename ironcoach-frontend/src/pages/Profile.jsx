@@ -238,7 +238,7 @@ export default function Profile() {
               aus dem Alter geschätzt wäre er für die meisten Menschen falsch.
             </div>
 
-            {profile.current_week && (
+            {profile.current_week != null && (
               <div className="mt-4 text-xs font-mono text-[var(--text-muted)] tracking-widest">
                 {daysLeft !== null && daysLeft < 0
                   ? 'OFF SEASON'
