@@ -8,6 +8,7 @@ import WeekCalendar from '../components/WeekCalendar'
 import PlanExport from '../components/PlanExport'
 import HealthStatus from '../components/HealthStatus'
 import { montagMitVersatz } from '../utils/dates'
+import { phaseColor } from '../utils/colors'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
 const LABEL = 'text-xs font-mono tracking-widest text-[var(--text-secondary)]'
@@ -324,8 +325,11 @@ export default function WeeklyPlan() {
                 <div>
                   <div className={`${LABEL} mb-0.5`}>PHASE</div>
                   <div
-                    className="text-sm font-bold text-[#e8eaf0]"
-                    style={{ fontFamily: 'Barlow Condensed, sans-serif' }}
+                    className="text-sm font-bold"
+                    style={{
+                      fontFamily: 'Barlow Condensed, sans-serif',
+                      color: phaseColor(plan.plan_phase),
+                    }}
                   >
                     {plan.plan_phase?.toUpperCase()}
                   </div>

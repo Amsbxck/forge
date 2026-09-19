@@ -8,7 +8,7 @@ import {
 } from '../services/api'
 import SessionDetail from '../components/SessionDetail'
 
-import { ACCENT, DISCIPLINE_COLOR, DISCIPLINE_LABEL } from '../utils/colors'
+import { ACCENT, DISCIPLINE_COLOR, DISCIPLINE_LABEL, phaseColor } from '../utils/colors'
 import SportIcon from '../components/SportIcon'
 import { disciplineLabel } from '../utils/colors'
 
@@ -524,7 +524,7 @@ function PlansTab({ plans }) {
         <div key={p.id} className="bg-[#111318] border border-[#1e2228] rounded-xl p-5">
           <div className="flex justify-between items-start mb-2">
             <span className="font-bold text-[#e8eaf0] tracking-wide" style={{ fontFamily: 'Barlow Condensed, sans-serif', fontSize: '1.05rem' }}>
-              WEEK {p.week_number} — {p.plan_phase}
+              WEEK {p.week_number} — <span style={{ color: phaseColor(p.plan_phase) }}>{p.plan_phase}</span>
             </span>
             <span className="text-xs font-mono text-[var(--text-secondary)]">{p.week_start} – {p.week_end}</span>
           </div>

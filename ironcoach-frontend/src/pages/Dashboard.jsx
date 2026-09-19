@@ -19,7 +19,7 @@ import { useNavigate } from 'react-router-dom'
 
 import {
   DISCIPLINE_COLOR, DISCIPLINE_LABEL, HR_ZONE_COLOR, HR_ZONE_LABEL,
-  STATUS_COLOR as HRV_COLOR, disciplineColor, disciplineLabel,
+  STATUS_COLOR as HRV_COLOR, disciplineColor, disciplineLabel, phaseColor,
 } from '../utils/colors'
 
 const HRV_TEXT = {
@@ -206,7 +206,9 @@ export default function Dashboard() {
               <span className="text-[var(--text-muted)]"> / {metrics.total_weeks}</span>
             )}
             {metrics.phase && (
-              <span className="ml-3 text-[#00d4ff]">{metrics.phase.toUpperCase()}</span>
+              <span className="ml-3" style={{ color: phaseColor(metrics.phase) }}>
+                {metrics.phase.toUpperCase()}
+              </span>
             )}
             {/* Wie weit ist es noch — die Zahl, nach der man beim Öffnen als
                 Erstes sucht, stand bisher nur im Profil. */}

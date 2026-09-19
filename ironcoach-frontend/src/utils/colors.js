@@ -82,3 +82,43 @@ export const HR_ZONE_COLOR = ['#3b82f6', '#22c55e', '#eab308', '#f97316', '#ef44
 export const HR_ZONE_LABEL = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5']
 
 export const ACCENT = '#00d4ff'
+
+// --- Trainingsphasen ---------------------------------------------------------
+/** Farbe einer Trainingsphase, abgeleitet aus der Zonenskala.
+ *
+ *  Die Phase sagt, in welcher Intensität die Woche überwiegend liegt — also
+ *  dasselbe, was die Zonenskala abbildet. Deshalb wird sie hier nicht neu
+ *  erfunden, sondern aus `HR_ZONE_COLOR` genommen: Wer die Zonenfarben aus
+ *  dem Profil kennt, liest die Phase ohne Legende.
+ *
+ *  Bewusst nicht aus der Disziplinenfamilie (Blau/Violett/Pink): Die steht
+ *  für Sportarten und bewertet nichts. Eine Phase dagegen beschreibt eine
+ *  Intensität — sie gehört auf die Skala, nicht daneben.
+ */
+const [Z1, Z2, Z3, Z4, Z5] = HR_ZONE_COLOR
+
+export const PHASE_COLOR = {
+  grundlage: Z2,    // Grundlagenumfang, überwiegend Z2
+  base: Z2,
+  build: Z3,        // mehr Tempo: Z3, gelegentlich Z4
+  peak: Z5,         // VO2max-Arbeit
+  taper: Z1,        // aktive Erholung, Umfang zurück
+  benchmark: Z4,    // harte Tests, aber kein Peak-Block
+  race: ACCENT,     // die Woche, auf die alles hinausläuft
+  off: '#79808f',   // Saison vorbei — gedämpft, keine Intensität
+}
+
+/** Phase auf ihre Farbe abbilden.
+ *
+ *  Die Namen tragen Nummern ("Base 1", "Peak 3") und mal Deutsch, mal
+ *  Englisch ("Grundlage", "Race Week"). Verglichen wird deshalb der Anfang
+ *  in Kleinschreibung, nicht der ganze Name.
+ */
+export function phaseColor(phase) {
+  const name = (phase || '').toLowerCase().trim()
+  if (!name) return 'var(--text-muted)'
+  for (const schluessel of ['grundlage', 'base', 'build', 'peak', 'taper', 'benchmark', 'race', 'off']) {
+    if (name.startsWith(schluessel)) return PHASE_COLOR[schluessel]
+  }
+  return ACCENT
+}
