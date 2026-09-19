@@ -163,9 +163,14 @@ export default function WeeklyPlan() {
           </h1>
 
           {/* Wochennavigation — ein im Voraus erstellter Plan war sonst bis
-              zum Wochenwechsel unsichtbar. */}
-          {shownWeek != null && (
-            <div className="flex items-center gap-1">
+              zum Wochenwechsel unsichtbar.
+
+              Ohne Bedingung: Sie hing daran, dass eine Wochennummer bekannt
+              ist, und die wird erst gesetzt, wenn ein Plan geladen werden
+              konnte. Wer für die laufende Woche keinen Plan hat, bekam
+              dadurch gar keine Pfeile — und damit keinen Weg zu der Woche,
+              in der einer liegt. Gerade dann braucht man sie. */}
+          <div className="flex items-center gap-1">
               {[
                 { dir: -1, label: '‹', title: 'Woche zurück' },
                 { dir: 1, label: '›', title: 'Woche vor' },
@@ -178,7 +183,7 @@ export default function WeeklyPlan() {
                   // entstehen. Nach hinten offen — dort liegt die Historie.
                   disabled={dir === 1 && versatz >= 1}
                   onClick={() => setVersatz(v => Math.min(1, v + dir))}
-                  className={`px-2 py-0.5 rounded font-mono text-[var(--text-secondary)] hover:text-[#00d4ff] transition-colors ${i === 1 ? 'order-3' : ''}`}
+                  className={`px-2 py-0.5 rounded font-mono text-[var(--text-secondary)] transition-colors ${i === 1 ? 'order-3' : ''} ${dir === 1 && versatz >= 1 ? 'opacity-30 cursor-not-allowed' : 'hover:text-[#00d4ff]'}`}
                   style={{ border: '1px solid #1e2228' }}
                 >
                   {label}
@@ -188,18 +193,17 @@ export default function WeeklyPlan() {
                     style={{ color: versatz === 0 ? 'var(--text-muted)' : '#00d4ff' }}>
                 {wochenMarke}
                 {versatz === 1 && <span className="text-[10px] ml-1">KOMMENDE</span>}
-                {versatz < 0 && <span className="text-[10px] ml-1">VERGANGEN</span>}
-              </span>
-            </div>
-          )}
+            {versatz < 0 && <span className="text-[10px] ml-1">VERGANGEN</span>}
+            </span>
+          </div>
 
-          {!isCurrent && shownWeek != null && (
+          {!isCurrent && (
             <button
               onClick={() => setVersatz(0)}
               className="text-[10px] font-mono px-2 py-1 rounded tracking-wide"
               style={{ background: '#00d4ff15', border: '1px solid #00d4ff33', color: '#00d4ff' }}
             >
-              ZURÜCK ZU WK {currentWeek}
+              {currentWeek != null ? `ZURÜCK ZU WK ${currentWeek}` : 'ZURÜCK ZU DIESER WOCHE'}
             </button>
           )}
         </div>

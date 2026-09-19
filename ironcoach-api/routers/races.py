@@ -447,9 +447,14 @@ def benchmark_plan(db: Session = Depends(get_db), user: User | None = Depends(ge
         "plan_id": plan.id,
         "week_number": plan.week_number,
         "week_start": str(plan.week_start),
+        # Die Woche über ihr Datum benennen, nicht über die Wochennummer:
+        # Die entsteht aus `max(1, …)` und ist vor dem Beginn der
+        # Vorbereitung für jedes Datum 1. Die Meldung sagte dann "für Woche 1
+        # existiert bereits ein Plan" und nannte im selben Atemzug ein Datum
+        # aus dem September — zwei Angaben, die sich widersprechen.
         "message": (
             "Testwoche angelegt" if created
-            else f"Für Woche {plan.week_number} existiert bereits ein Plan"
+            else f"Für die Woche ab {plan.week_start} existiert bereits ein Plan"
         ),
     }
 
