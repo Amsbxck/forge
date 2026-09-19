@@ -179,7 +179,8 @@ export default function Dashboard() {
             das schon gelaufen ist — dann steht hier Off Season und der
             Hinweis auf das nächste Ziel. */}
         {metrics?.season_state === 'off_season' ? (
-          <h2 className="text-3xl font-black tracking-tight text-[var(--text-secondary)]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
+          <h2 className="text-3xl font-black tracking-tight"
+              style={{ fontFamily: 'Barlow Condensed, sans-serif', color: phaseColor('Off Season') }}>
             OFF SEASON
             {metrics.race_date && (
               <span className="ml-3 text-sm font-mono tracking-widest text-[var(--text-muted)]">
@@ -190,7 +191,11 @@ export default function Dashboard() {
         ) : metrics?.season_state === 'base_period' ? (
           /* Ziel steht, der Aufbau beginnt später. Hier eine Wochennummer zu
              zeigen wäre falsch: Diese Wochen zählen nicht auf den Plan. */
-          <h2 className="text-3xl font-black tracking-tight text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
+          /* Die Überschrift ist hier selbst der Phasenname, also trägt sie
+             auch dessen Farbe — im dritten Zweig steht die Phase dagegen als
+             eigener Zusatz neben der Wochennummer. */
+          <h2 className="text-3xl font-black tracking-tight"
+              style={{ fontFamily: 'Barlow Condensed, sans-serif', color: phaseColor('Grundlage') }}>
             GRUNDLAGE
             {metrics.plan_start_date && (
               <span className="ml-3 text-sm font-mono tracking-widest text-[var(--text-muted)]">
