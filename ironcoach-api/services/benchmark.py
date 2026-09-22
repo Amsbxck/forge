@@ -386,8 +386,35 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
             "z3_max": round(max_hr * 0.90),
             "z4_max": round(max_hr * 0.95),
         }
-        if best_run_session and best_run_session.avg_hr:
+        # Schwellenpuls aus **demselben** Fenster wie die Schwellenpace.
+        #
+        # Vorher stand hier `best_run_session.avg_hr` — das Mittel über die
+        # ganze Einheit. Bei einem Test mit Ein- und Auslaufen liegt das weit
+        # unter dem Puls während der 20 harten Minuten; an echten Einheiten
+        # gemessen waren es bis zu 22 Schläge. Und ein zu niedriger
+        # Schwellenpuls bläht jede pulsbasierte TSS auf: Sie geht quadratisch
+        # in die Intensität ein, 16 Schläge zu wenig ergeben rund 19 Prozent
+        # zu viel Belastung — bei jedem Lauf, monatelang.
+        fenster_hr = (best_run or {}).get("avg_hr")
+        if fenster_hr:
+            result["threshold_hr"] = round(fenster_hr * LTHR_FACTOR)
+            result["sources"]["threshold_hr"] = {
+                "session_id": best_run_session.id,
+                "date": str(best_run_session.session_date),
+                "avg_hr_20min": fenster_hr,
+                "basis": "20-Minuten-Fenster",
+            }
+        elif best_run_session and best_run_session.avg_hr:
+            # Kein Pulsstream: Dann bleibt nur das Mittel der ganzen Einheit.
+            # Es wird benutzt, aber ausdrücklich als das gekennzeichnet, was
+            # es ist — sonst sieht der Wert aus wie gemessen.
             result["threshold_hr"] = round(best_run_session.avg_hr * LTHR_FACTOR)
+            result["sources"]["threshold_hr"] = {
+                "session_id": best_run_session.id,
+                "date": str(best_run_session.session_date),
+                "avg_hr_gesamt": best_run_session.avg_hr,
+                "basis": "ganze Einheit — kein Pulsstream, Wert eher zu niedrig",
+            }
 
     if not any(k in result for k in ("ftp_watts", "threshold_pace_s_per_km", "max_hr", "css_pace_s_per_100m")):
         return {"status": "no_usable_data", "checked_sessions": len(sessions)}

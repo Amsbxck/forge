@@ -321,7 +321,16 @@ def best_effort_power(session, seconds: int = 1200) -> dict | None:
 
 
 def best_effort_pace(session, seconds: int = 1200) -> dict | None:
-    """Schnellste Durchschnittspace über ein Zeitfenster."""
+    """Schnellste Durchschnittspace über ein Zeitfenster — samt Puls darin.
+
+    Der Puls gehört mit hierher, weil er sich sonst nicht auf denselben
+    Abschnitt bezieht. Genau das war der Fehler: Die Schwellenpace kam aus
+    diesem Fenster, die Schwellen-HF dagegen aus `session.avg_hr` — dem
+    Mittel über die **ganze** Einheit, also einschliesslich Ein- und
+    Auslaufen. Bei einem Test mit 15 Minuten Einlaufen und 10 Minuten
+    Auslaufen lagen zwischen beiden Werten über 20 Schläge, und ein zu
+    niedriger Schwellenpuls bläht anschliessend jede pulsbasierte TSS auf.
+    """
     speed = (session.streams or {}).get("speed") or []
     if not speed:
         return None
@@ -333,18 +342,30 @@ def best_effort_pace(session, seconds: int = 1200) -> dict | None:
     # Über die Distanz maximieren: in gleicher Zeit weiter = schneller.
     running = sum(speed[:window])
     best = running
+    best_start = 0
     for i in range(window, len(speed)):
         running += speed[i] - speed[i - window]
         if running > best:
             best = running
+            best_start = i - window + 1
 
     avg_kmh = best / window
     if avg_kmh <= 0:
         return None
+
+    # Puls über genau dieselben Stützstellen mitteln. Fehlt der Stream oder
+    # enthält das Fenster keine Werte, bleibt es None — dann weiss der
+    # Aufrufer, dass er keine belastbare Angabe hat, statt eine zu bekommen,
+    # die sich auf einen anderen Abschnitt bezieht.
+    hr_stream = (session.streams or {}).get("hr") or []
+    fenster_hr = [h for h in hr_stream[best_start:best_start + window] if h]
+
     return {
         "seconds": int(window * sample_seconds),
         "avg_kmh": round(avg_kmh, 2),
         "pace_s_per_km": round(3600 / avg_kmh),
+        "start_s": int(best_start * sample_seconds),
+        "avg_hr": round(sum(fenster_hr) / len(fenster_hr)) if fenster_hr else None,
     }
 
 
