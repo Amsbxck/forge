@@ -23,8 +23,25 @@ logger = logging.getLogger(__name__)
 
 # FTP ist definitionsgemäß 95 % der besten 20-Minuten-Leistung.
 FTP_FACTOR = 0.95
-# Die Schwellen-HF liegt bei einem 20-Minuten-Test nahe an der mittleren HF
-# des Tests selbst; der kleine Abschlag berücksichtigt den Anstieg zu Beginn.
+# Abschlag vom Plateaupuls des 20-Minuten-Tests auf die Schwellen-HF.
+#
+# Die Richtung ist nach unten, und das ist weniger offensichtlich, als es
+# aussieht. Ein 20-Minuten-Test wird **oberhalb** der Schwelle gelaufen —
+# genau deshalb hält man ihn nur zwanzig Minuten durch, und genau deshalb
+# ist die FTP auch nur 95 % der 20-Minuten-Leistung. Der Puls, der sich
+# dabei einstellt, liegt entsprechend etwas über dem, den man eine Stunde
+# hielte. Man muss also abziehen, um auf die Schwelle zu kommen, nicht
+# addieren.
+#
+# Warum trotzdem nur 2 % und nicht 5 % wie bei der Leistung: Der Puls
+# steigt mit der Intensität nicht proportional mit, sondern flacht zur
+# Maximalherzfrequenz hin ab. Zwischen einem 20-Minuten- und einem
+# Stundentempo liegen bei der Leistung fünf Prozent, beim Puls nur wenige
+# Schläge.
+#
+# Bezugsgrösse ist seit dem Umbau das Plateau der zweiten Testhälfte, nicht
+# mehr das Mittel über die ganzen zwanzig Minuten. Friel verwirft beim
+# 30-Minuten-Test aus demselben Grund die ersten zehn Minuten.
 LTHR_FACTOR = 0.98
 
 TEST_WINDOW_S = 1200  # 20 Minuten
@@ -395,14 +412,15 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
         # Schwellenpuls bläht jede pulsbasierte TSS auf: Sie geht quadratisch
         # in die Intensität ein, 16 Schläge zu wenig ergeben rund 19 Prozent
         # zu viel Belastung — bei jedem Lauf, monatelang.
-        fenster_hr = (best_run or {}).get("avg_hr")
-        if fenster_hr:
-            result["threshold_hr"] = round(fenster_hr * LTHR_FACTOR)
+        plateau = (best_run or {}).get("avg_hr_plateau")
+        if plateau:
+            result["threshold_hr"] = round(plateau * LTHR_FACTOR)
             result["sources"]["threshold_hr"] = {
                 "session_id": best_run_session.id,
                 "date": str(best_run_session.session_date),
-                "avg_hr_20min": fenster_hr,
-                "basis": "20-Minuten-Fenster",
+                "avg_hr_letzte_10min": plateau,
+                "avg_hr_20min": best_run.get("avg_hr"),
+                "basis": "Plateau der zweiten Testhälfte",
             }
         elif best_run_session and best_run_session.avg_hr:
             # Kein Pulsstream: Dann bleibt nur das Mittel der ganzen Einheit.

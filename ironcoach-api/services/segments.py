@@ -360,12 +360,22 @@ def best_effort_pace(session, seconds: int = 1200) -> dict | None:
     hr_stream = (session.streams or {}).get("hr") or []
     fenster_hr = [h for h in hr_stream[best_start:best_start + window] if h]
 
+    # Zusätzlich die zweite Hälfte für sich. Der Puls braucht einige Minuten,
+    # bis er das Niveau der Belastung erreicht — über das ganze Fenster
+    # gemittelt zieht die Anlaufphase den Wert nach unten. Joe Friel
+    # verwirft beim 30-Minuten-Test aus genau diesem Grund die ersten zehn
+    # Minuten und nimmt nur den Rest.
+    mitte = best_start + window // 2
+    plateau_hr = [h for h in hr_stream[mitte:best_start + window] if h]
+
+    mittel = lambda xs: round(sum(xs) / len(xs)) if xs else None
     return {
         "seconds": int(window * sample_seconds),
         "avg_kmh": round(avg_kmh, 2),
         "pace_s_per_km": round(3600 / avg_kmh),
         "start_s": int(best_start * sample_seconds),
-        "avg_hr": round(sum(fenster_hr) / len(fenster_hr)) if fenster_hr else None,
+        "avg_hr": mittel(fenster_hr),
+        "avg_hr_plateau": mittel(plateau_hr),
     }
 
 

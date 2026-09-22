@@ -62,3 +62,43 @@ def test_luecken_im_stream_stoeren_nicht():
     hf = [130] * 15 + ([180, None] * 10) + [120] * 10
     ergebnis = best_effort_pace(_Einheit({"speed": ein, "hr": hf}, 45), seconds=1200)
     assert ergebnis["avg_hr"] == 180, "nur die vorhandenen Werte zählen"
+
+
+def test_plateau_ignoriert_die_anlaufphase():
+    """Der Puls braucht Minuten, bis er die Belastung abbildet.
+
+    Ein Testlauf mit ansteigendem Puls in den ersten Minuten: Über das
+    ganze Fenster gemittelt zieht der Anstieg den Wert nach unten, das
+    Plateau der zweiten Hälfte bildet die tatsächliche Belastung ab.
+    """
+    ein = [10.0] * 5 + [15.0] * 20 + [10.0] * 5
+    # Puls steigt über die ersten zehn Minuten des harten Teils von 160 auf 190.
+    anstieg = [160, 166, 172, 178, 184, 190, 190, 190, 190, 190]
+    hf = [120] * 5 + anstieg + [192] * 10 + [120] * 5
+    ergebnis = best_effort_pace(_Einheit({"speed": ein, "hr": hf}, 30), seconds=1200)
+
+    assert ergebnis["avg_hr"] == 186, "das Mittel über die ganzen 20 Minuten"
+    assert ergebnis["avg_hr_plateau"] == 192, "die zweite Hälfte für sich"
+
+
+def test_ohne_pulsstream_bleibt_auch_das_plateau_leer():
+    ohne = _Einheit({"speed": [12.0] * 45}, duration_min=45)
+    assert best_effort_pace(ohne, seconds=1200)["avg_hr_plateau"] is None
+
+
+def test_die_korrektur_geht_nach_unten():
+    """Die Richtung, nicht die Zahl.
+
+    Ein 20-Minuten-Test wird oberhalb der Schwelle gelaufen — deshalb ist
+    die FTP auch nur 95 % der 20-Minuten-Leistung. Der Puls dabei liegt
+    entsprechend über dem Stundenwert: Man zieht ab, um auf die Schwelle
+    zu kommen.
+    """
+    from services.benchmark import LTHR_FACTOR
+    assert LTHR_FACTOR < 1.0
+
+    from services.benchmark import FTP_FACTOR
+    # Beim Puls fällt der Abschlag kleiner aus als bei der Leistung: Der
+    # Puls flacht zur Maximalherzfrequenz hin ab, statt proportional
+    # mitzusteigen.
+    assert FTP_FACTOR < LTHR_FACTOR < 1.0
