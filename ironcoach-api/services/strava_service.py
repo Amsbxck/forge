@@ -127,27 +127,44 @@ class StravaService:
         return out
 
     async def list_activities(
-        self, athlete_id: int, after: int | None = None, per_page: int = 50
+        self, athlete_id: int, after: int | None = None, per_page: int = 50,
+        max_seiten: int = 1,
     ) -> list[dict]:
         """Aktivitätsliste vom Athleten.
 
         Das ist der Weg, der ohne öffentliche Webhook-URL funktioniert:
         verpasste Events lassen sich damit nachträglich einsammeln, weil
         Strava keine Zustellung wiederholt.
+
+        `max_seiten` blättert weiter. Für das stündliche Fenster von zwei
+        Wochen genügt eine Seite. Beim erstmaligen Nachholen mehrerer Monate
+        nicht: Dort passen mehr Aktivitäten in den Zeitraum, als eine Seite
+        fasst, und der Rest fiele stillschweigend weg — ohne Fehler, nur mit
+        einer Historie, die vorne abgeschnitten ist.
         """
         token = await self.refresh_token_if_needed(athlete_id)
-        params: dict = {"per_page": per_page}
-        if after:
-            params["after"] = after
+        gesammelt: list[dict] = []
+
         async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.get(
-                f"{STRAVA_BASE}/athlete/activities",
-                params=params,
-                headers={"Authorization": f"Bearer {token}"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return data if isinstance(data, list) else []
+            for seite in range(1, max_seiten + 1):
+                params: dict = {"per_page": per_page, "page": seite}
+                if after:
+                    params["after"] = after
+                resp = await client.get(
+                    f"{STRAVA_BASE}/athlete/activities",
+                    params=params,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                resp.raise_for_status()
+                teil = resp.json()
+                if not isinstance(teil, list):
+                    break
+                gesammelt.extend(teil)
+                # Weniger als angefragt heisst: Das war die letzte Seite.
+                if len(teil) < per_page:
+                    break
+
+        return gesammelt
 
     async def list_push_subscriptions(self) -> list[dict]:
         """Health-Check der Webhook-Subscription.

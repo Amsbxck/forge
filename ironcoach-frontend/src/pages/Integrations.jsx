@@ -71,7 +71,17 @@ export default function Integrations() {
     if (!stand) return
     setStravaRueckmeldung(
       stand === 'ok'
-        ? { ok: true, text: 'Strava ist verbunden. Neue Aktivitäten kommen ab jetzt von selbst an.' }
+        ? {
+            ok: true,
+            text: p.get('historie') === '1'
+              // Beim ersten Verbinden läuft das Nachholen im Hintergrund.
+              // Ohne diesen Hinweis wirkt die Seite einen Moment lang leer,
+              // und der Athlet drückt erneut auf Verbinden.
+              ? 'Strava ist verbunden. Deine Einheiten der letzten drei Monate '
+                + 'werden gerade geholt — das dauert einen Moment und läuft im '
+                + 'Hintergrund weiter. Neue Aktivitäten kommen ab jetzt von selbst an.'
+              : 'Strava ist verbunden. Neue Aktivitäten kommen ab jetzt von selbst an.',
+          }
         : { ok: false, text: p.get('grund') || 'Die Verbindung mit Strava ist fehlgeschlagen.' }
     )
     // Parameter wieder entfernen: Ein Neuladen zeigte die Meldung sonst

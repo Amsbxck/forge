@@ -93,6 +93,14 @@ class Settings(BaseSettings):
     # Standardmäßig aus: der Job schreibt in die DB und ruft Strava auf.
     RECONCILE_ENABLED: bool = False
     RECONCILE_WINDOW_DAYS: int = 14
+    # Wie weit beim **ersten** Verbinden mit Strava zurückgeholt wird.
+    #
+    # 90 Tage und nicht 14 wie beim laufenden Abgleich: Die Fitness (CTL)
+    # ist ein Mittel über 42 Tage. Ein Athlet, der mit zwei Wochen Historie
+    # startet, bekommt eine künstlich niedrige Fitness — und eine Form, die
+    # daraus folgt. Drei Monate reichen, damit sich der Wert eingeschwungen
+    # hat, bevor der erste Plan entsteht.
+    STRAVA_BACKFILL_DAYS: int = 90
     RECONCILE_MINUTE: int = 7  # stündlich zu dieser Minute
 
     @property

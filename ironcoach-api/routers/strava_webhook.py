@@ -97,8 +97,51 @@ def strava_auth(request: Request, user=Depends(require_user)):
     return StravaAuthUrl(auth_url=service.get_auth_url(redirect_uri, state=state))
 
 
+async def _historie_nachholen(user_id: int) -> None:
+    """Beim ersten Verbinden die Historie holen.
+
+    Ohne das startet ein neuer Athlet mit leerer Formkurve: Die Fitness
+    (CTL) ist ein Mittel über 42 Tage, und aus zwei Wochen Daten ergibt sich
+    ein Wert, der zu niedrig ist und es wochenlang bleibt. Der erste Plan
+    entstünde auf dieser Grundlage.
+
+    Eigene Sitzung und ausdrücklicher Mandantenkontext: Eine
+    Hintergrundaufgabe startet, nachdem die Anfrage beendet ist — die
+    ContextVar ist dann längst zurückgesetzt. Ohne `acting_as` liefe der
+    Abgleich ohne Nutzer und schriebe die Aktivitäten dem falschen Konto zu.
+    """
+    from core.config import settings
+    from core.tenancy import acting_as
+    from database import SessionLocal
+    from services.reconcile import reconcile_activities
+
+    db = SessionLocal()
+    try:
+        with acting_as(user_id):
+            # Mehrere Seiten: Über drei Monate passen mehr Aktivitäten in
+            # den Zeitraum, als eine Seite fasst.
+            ergebnis = await reconcile_activities(
+                db, days=settings.STRAVA_BACKFILL_DAYS, limit=100, max_seiten=4
+            )
+        logger.info(
+            "Historie für Nutzer %s nachgeholt (%s Tage): %s",
+            user_id, settings.STRAVA_BACKFILL_DAYS, ergebnis.get("by_action"),
+        )
+    except Exception:
+        # Kein Abbruch: Die Verbindung steht, nur die Historie fehlt. Der
+        # stündliche Abgleich holt ab jetzt ohnehin alles Neue.
+        logger.exception("Historie für Nutzer %s konnte nicht nachgeholt werden", user_id)
+    finally:
+        db.close()
+
+
 @router.get("/api/strava/callback")
-async def strava_callback(code: str, state: str | None = None, db: Session = Depends(get_db)):
+async def strava_callback(
+    code: str,
+    background_tasks: BackgroundTasks,
+    state: str | None = None,
+    db: Session = Depends(get_db),
+):
     """Rückleitung von Strava — ohne Token, dafür mit unserem state."""
     from core.security import user_id_from_token
     from core.tenancy import acting_as
@@ -128,9 +171,20 @@ async def strava_callback(code: str, state: str | None = None, db: Session = Dep
             "/connect", strava="fehler", grund=str(e)[:200],
         ), status_code=303)
 
+    # Nur beim ersten Mal nachholen. Wer die Verbindung erneuert, hat seine
+    # Historie bereits — ein zweiter Durchlauf über drei Monate kostete dann
+    # nur Strava-Kontingent.
+    from models import TrainingSession
+
+    with acting_as(user_id):
+        hat_einheiten = db.query(TrainingSession.id).first() is not None
+    if not hat_einheiten:
+        background_tasks.add_task(_historie_nachholen, user_id)
+
     # 303 und nicht 302: Der Browser soll die Zieladresse mit GET holen.
     return RedirectResponse(app_pfad(
         "/connect", strava="ok", athlet=str(athlete_id),
+        historie="1" if not hat_einheiten else "0",
     ), status_code=303)
 
 

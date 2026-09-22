@@ -22,9 +22,14 @@ logger = logging.getLogger(__name__)
 
 
 async def reconcile_activities(
-    db: Session, days: int = 14, dry_run: bool = False, limit: int = 100
+    db: Session, days: int = 14, dry_run: bool = False, limit: int = 100,
+    max_seiten: int = 1,
 ) -> dict:
-    """Aktivitäten der letzten Tage abgleichen und Fehlendes nachziehen."""
+    """Aktivitäten der letzten Tage abgleichen und Fehlendes nachziehen.
+
+    `max_seiten` nur für das erstmalige Nachholen: Über drei Monate passen
+    mehr Aktivitäten in den Zeitraum, als eine Seite fasst.
+    """
     creds = db.query(StravaCredentials).first()
     if not creds:
         return {"status": "no_credentials", "checked": 0}
@@ -33,7 +38,9 @@ async def reconcile_activities(
     service = StravaService(db)
 
     try:
-        activities = await service.list_activities(creds.athlete_id, after=after, per_page=limit)
+        activities = await service.list_activities(
+            creds.athlete_id, after=after, per_page=limit, max_seiten=max_seiten
+        )
     except Exception as e:
         logger.error("Strava-Aktivitätsliste konnte nicht geladen werden: %s", e)
         return {"status": "strava_error", "error": str(e), "checked": 0}
