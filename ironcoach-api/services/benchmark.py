@@ -575,6 +575,8 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
             profile.css_source = "auto"
             profile.css_t400_s = quelle.get("t400_s")
             profile.css_t200_s = quelle.get("t200_s")
+            profile.css_dist_lang_m = quelle.get("d_lang_m")
+            profile.css_dist_kurz_m = quelle.get("d_kurz_m")
             applied.append("css_pace_s_per_100m")
         if result.get("max_hr") and result.get("hr_zones"):
             zones = result["hr_zones"]

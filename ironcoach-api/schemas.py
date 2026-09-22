@@ -40,6 +40,8 @@ class AthleteProfileOut(BaseModel):
     intake_done_at: datetime | None = None
     css_t400_s: int | None = None
     css_t200_s: int | None = None
+    css_dist_lang_m: int | None = None
+    css_dist_kurz_m: int | None = None
     current_week: int | None = None
     # Dauer und Renntag stammen aus dem aktiven Saisonziel, sofern eines
     # gesetzt ist — im Profil stehen nur Platzhalter aus der Registrierung.

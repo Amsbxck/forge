@@ -118,8 +118,13 @@ class AthleteProfile(Base):
     hrv_red_below: Mapped[float | None] = mapped_column(Float)
     hrv_range_source: Mapped[str | None] = mapped_column(String)
     css_source: Mapped[str | None] = mapped_column(String)
+    # Die beiden Testzeiten. Die Namen stammen aus der Zeit, als der Test
+    # fest auf 400/200 m lag; welche Strecken es tatsächlich waren, steht in
+    # den beiden Feldern darunter. `css_t400_s` ist die längere Strecke.
     css_t400_s: Mapped[int | None] = mapped_column(Integer)
     css_t200_s: Mapped[int | None] = mapped_column(Integer)
+    css_dist_lang_m: Mapped[int | None] = mapped_column(Integer)
+    css_dist_kurz_m: Mapped[int | None] = mapped_column(Integer)
     max_hr: Mapped[int] = mapped_column(Integer, default=190)
     z1_hr_max: Mapped[int] = mapped_column(Integer, default=133)
     z2_hr_min: Mapped[int] = mapped_column(Integer, default=134)

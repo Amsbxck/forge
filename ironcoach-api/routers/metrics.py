@@ -387,9 +387,17 @@ def submit_intake(body: IntakeIn = IntakeIn(), db: Session = Depends(get_db)):
 
 
 class SwimTestIn(BaseModel):
-    """Zeiten des CSS-Tests in Sekunden — oder die Pace direkt."""
+    """Zeiten des CSS-Tests in Sekunden — oder die Pace direkt.
+
+    Die Feldnamen stammen aus der Zeit, als der Test fest auf 400/200 m lag:
+    `t400_s` ist die Zeit der **längeren** Strecke, `t200_s` die der
+    kürzeren. Welche Strecken es waren, sagen `d_lang_m` und `d_kurz_m`;
+    ohne Angabe gilt weiterhin 400/200.
+    """
     t400_s: int | None = None
     t200_s: int | None = None
+    d_lang_m: int | None = None
+    d_kurz_m: int | None = None
     css_pace_s_per_100m: float | None = None
     # Eigener Schwellenpuls fürs Wasser; optional.
     swim_threshold_hr: int | None = None
@@ -414,14 +422,30 @@ def set_swim_test(
         raise HTTPException(status_code=404, detail="Kein Profil gefunden")
 
     if body.t400_s and body.t200_s:
-        css = css_from_times(body.t400_s, body.t200_s)
+        from services.swim_css import PAARE
+
+        d_lang = body.d_lang_m or 400
+        d_kurz = body.d_kurz_m or 200
+        if (d_lang, d_kurz) not in PAARE:
+            erlaubt = ", ".join(f"{a}/{b} m" for a, b in PAARE)
+            raise HTTPException(
+                status_code=422,
+                detail=f"Nur diese Streckenpaare sind vorgesehen: {erlaubt}.",
+            )
+
+        css = css_from_times(body.t400_s, body.t200_s, d_lang, d_kurz)
         if css is None:
             raise HTTPException(
                 status_code=422,
-                detail="Die 400-m-Zeit muss größer sein als die 200-m-Zeit. Vertauscht?",
+                detail=(
+                    f"Die Zeit über {d_lang} m muss größer sein als die über "
+                    f"{d_kurz} m. Vertauscht?"
+                ),
             )
         profile.css_t400_s = body.t400_s
         profile.css_t200_s = body.t200_s
+        profile.css_dist_lang_m = d_lang
+        profile.css_dist_kurz_m = d_kurz
     elif body.css_pace_s_per_100m:
         css = round(body.css_pace_s_per_100m, 1)
         profile.css_t400_s = None

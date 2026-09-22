@@ -141,7 +141,18 @@ export default function Thresholds({ profile, ftpBefund, onChanged, sport }) {
   const [fehler, setFehler] = useState(null)
   const [rad, setRad] = useState({ ftp: '' })
   const [lauf, setLauf] = useState({ hr: '', pace: '' })
-  const [schwimm, setSchwimm] = useState({ t400: '', t200: '', hr: '' })
+  // Streckenpaare des CSS-Tests. 400/200 bleibt die Vorgabe — je länger die
+  // Strecken, desto kleiner der Anteil der anaeroben Startreserve am
+  // Ergebnis. Die kürzeren Paare sind für alle, die 400 m nicht am Stück
+  // maximal schwimmen können: Dort entsteht sonst keine Messung, sondern
+  // eine Einbruchskurve.
+  const CSS_PAARE = [
+    { lang: 400, kurz: 200, label: '400 / 200', platzhalter: ['6:40', '3:10'] },
+    { lang: 200, kurz: 100, label: '200 / 100', platzhalter: ['3:10', '1:28'] },
+    { lang: 100, kurz: 50,  label: '100 / 50',  platzhalter: ['1:28', '0:40'] },
+  ]
+  const [schwimm, setSchwimm] = useState({ t400: '', t200: '', hr: '', paar: 0 })
+  const paar = CSS_PAARE[schwimm.paar]
 
   if (!profile) return null
 
@@ -241,22 +252,43 @@ export default function Thresholds({ profile, ftpBefund, onChanged, sport }) {
             { label: 'CSS', wert: alsZeit(profile.css_pace_s_per_100m), einheit: '/100m' },
           ]}
           quelle={profile.css_source}
-          hinweis="Aus 400 m und 200 m je maximal"
+          hinweis={profile.css_dist_lang_m
+            ? `Aus ${profile.css_dist_lang_m} m und ${profile.css_dist_kurz_m} m je maximal`
+            : 'Aus zwei Strecken je maximal'}
           warnung={profile.css_source === 'auto'
             ? 'Aus den Runden abgeleitet. Welche Bahn der Test war, kann die App nur raten — prüfe die Zeiten und korrigiere sie, wenn sie nicht stimmen.'
             : null}
           onReset={() => tun(clearSwimTest)}
           kinder={
             <div className="space-y-3">
+              <div>
+                <span className={`${LABEL} block mb-1`}>STRECKEN</span>
+                <div className="grid gap-1 grid-cols-3">
+                  {CSS_PAARE.map((p, i) => (
+                    <button
+                      key={p.label} type="button"
+                      onClick={() => setSchwimm(f => ({ ...f, paar: i, t400: '', t200: '' }))}
+                      className="px-2 py-1.5 rounded-lg text-[11px] font-mono transition-all"
+                      style={{
+                        background: schwimm.paar === i ? '#38bdf814' : '#0d0f17',
+                        border: `1px solid ${schwimm.paar === i ? '#38bdf844' : '#1e2228'}`,
+                        color: schwimm.paar === i ? '#38bdf8' : 'var(--text-secondary)',
+                      }}
+                    >
+                      {p.label} m
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 <label className="block">
-                  <span className={LABEL}>400 M</span>
-                  <input className={FIELD} style={FIELD_STYLE} placeholder="6:40"
+                  <span className={LABEL}>{paar.lang} M</span>
+                  <input className={FIELD} style={FIELD_STYLE} placeholder={paar.platzhalter[0]}
                          value={schwimm.t400} onChange={e => setSchwimm(f => ({ ...f, t400: e.target.value }))} />
                 </label>
                 <label className="block">
-                  <span className={LABEL}>200 M</span>
-                  <input className={FIELD} style={FIELD_STYLE} placeholder="3:10"
+                  <span className={LABEL}>{paar.kurz} M</span>
+                  <input className={FIELD} style={FIELD_STYLE} placeholder={paar.platzhalter[1]}
                          value={schwimm.t200} onChange={e => setSchwimm(f => ({ ...f, t200: e.target.value }))} />
                 </label>
                 <label className="block">
@@ -266,12 +298,22 @@ export default function Thresholds({ profile, ftpBefund, onChanged, sport }) {
                 </label>
               </div>
               <p className="text-[10px] font-mono text-[var(--text-muted)] leading-relaxed">
-                CSS = (400 m − 200 m) ÷ 2. Der Puls im Wasser liegt rund zehn Schläge
-                unter dem an Land — deshalb ein eigener Wert.
+                CSS = ({paar.lang} m − {paar.kurz} m) ÷ {(paar.lang - paar.kurz) / 100}.
+                Der Puls im Wasser liegt rund zehn Schläge unter dem an Land —
+                deshalb ein eigener Wert.
               </p>
+              {paar.lang < 400 && (
+                <p className="text-[10px] font-mono leading-relaxed" style={{ color: '#f59e0b' }}>
+                  Kürzere Strecken enthalten anteilig mehr Startreserve — der Wert
+                  fällt dadurch eher zu schnell aus. Nimm 400/200 m, sobald du
+                  400 m am Stück maximal schwimmen kannst.
+                </p>
+              )}
               <button onClick={() => tun(() => setSwimTest({
                         t400_s: zuSekunden(schwimm.t400),
                         t200_s: zuSekunden(schwimm.t200),
+                        d_lang_m: paar.lang,
+                        d_kurz_m: paar.kurz,
                         swim_threshold_hr: schwimm.hr ? Number(schwimm.hr) : null,
                       }))}
                       disabled={busy || !schwimm.t400 || !schwimm.t200}

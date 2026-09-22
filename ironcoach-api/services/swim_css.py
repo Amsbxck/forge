@@ -1,9 +1,9 @@
 """Critical Swim Speed aus dem Benchmark-Schwimmtest.
 
-Der Test besteht aus 400 m und 200 m je maximal. Aus der Differenz ergibt
+Der Test besteht aus zwei Strecken, je maximal. Aus der Differenz ergibt
 sich die Pace, die über lange Strecken durchhaltbar ist:
 
-    CSS (Sekunden je 100 m) = (t400 − t200) / 2
+    CSS (Sekunden je 100 m) = (t_lang − t_kurz) / ((d_lang − d_kurz) / 100)
 
 Warum die Differenz und nicht einfach die 400-m-Zeit: Beide Strecken
 enthalten dieselbe anaerobe Startreserve. Zieht man sie voneinander ab,
@@ -33,15 +33,41 @@ logger = logging.getLogger(__name__)
 TOLERANZ = 0.10
 
 
-def css_from_times(t400_s: float | None, t200_s: float | None) -> float | None:
-    """CSS-Pace in Sekunden je 100 m."""
-    if not t400_s or not t200_s:
+# Zulässige Streckenpaare, vom aussagekräftigsten zum anfängerfreundlichsten.
+#
+# Die Formel verlangt keine bestimmten Distanzen, nur eine Differenz. Je
+# länger die beiden Strecken aber sind, desto kleiner ist der Anteil der
+# anaeroben Startreserve am Ergebnis — und desto näher liegt der Wert an
+# der tatsächlichen Schwelle.
+#
+# 400/200 bleibt deshalb das Protokoll der Wahl. 200/100 ist für alle
+# gedacht, die 400 m nicht am Stück maximal schwimmen können: Dort entsteht
+# sonst keine Messung, sondern eine Einbruchskurve. 100/50 ist die Variante
+# für den Einstieg — grob, aber besser als eine geratene Zone.
+PAARE = ((400, 200), (200, 100), (100, 50))
+
+
+def css_from_times(
+    t_lang_s: float | None,
+    t_kurz_s: float | None,
+    d_lang_m: int = 400,
+    d_kurz_m: int = 200,
+) -> float | None:
+    """CSS-Pace in Sekunden je 100 m.
+
+    Die Vorgabewerte halten die alte Signatur am Leben: Wer nur zwei Zeiten
+    übergibt, rechnet weiter mit dem 400/200-Protokoll.
+    """
+    if not t_lang_s or not t_kurz_s:
         return None
-    if t400_s <= t200_s:
+    if d_lang_m <= d_kurz_m:
+        return None
+    if t_lang_s <= t_kurz_s:
         # Die längere Strecke muss länger dauern. Sonst sind die Zeiten
         # vertauscht oder eine davon gehört nicht zum Test.
         return None
-    return round((t400_s - t200_s) / 2, 1)
+    strecke_100m = (d_lang_m - d_kurz_m) / 100
+    return round((t_lang_s - t_kurz_s) / strecke_100m, 1)
 
 
 def format_pace(sekunden_je_100m: float | None) -> str | None:
@@ -74,38 +100,75 @@ def _passende_runde(runden: list[dict], meter: int) -> dict | None:
     return min(kandidaten, key=lambda r: r["t"])
 
 
+def guete(d_lang_m: int) -> str | None:
+    """Wie belastbar ein Ergebnis aus diesem Paar ist.
+
+    Kein Urteil über den Schwimmer, sondern über das Protokoll: Je kürzer
+    die Strecken, desto grösser der Anteil der anaeroben Startreserve am
+    Ergebnis — und desto zu schnell fällt die CSS aus. Wer daraufhin seine
+    Dauereinheiten schwimmt, liegt dauerhaft über der Schwelle.
+    """
+    if d_lang_m >= 400:
+        return None
+    if d_lang_m >= 200:
+        return (
+            "Aus 200/100 m gerechnet. Etwas grober als 400/200 m — der Wert "
+            "fällt eher zu schnell aus. Wiederhole den Test über die längeren "
+            "Strecken, sobald 400 m am Stück gehen."
+        )
+    return (
+        "Aus 100/50 m gerechnet — die gröbste Variante. Der Wert fällt "
+        "spürbar zu schnell aus und taugt als erster Anhaltspunkt, nicht als "
+        "Schwelle. Wiederhole den Test über längere Strecken, sobald es geht."
+    )
+
+
 def detect_from_session(session: TrainingSession) -> dict | None:
     """CSS aus den Runden einer Schwimmeinheit ableiten.
 
-    Gibt None zurück, wenn die Runden fehlen oder keine passenden Strecken
-    enthalten — dann bleibt nur die Eingabe von Hand.
+    Probiert die Streckenpaare der Reihe nach, vom aussagekräftigsten zum
+    kürzesten, und nimmt das erste, das in den Runden vorkommt. Gibt None
+    zurück, wenn die Runden fehlen oder kein Paar passt — dann bleibt nur
+    die Eingabe von Hand.
     """
     runden = ((session.streams or {}).get("laps")) or []
     if not runden:
         return None
 
-    r400 = _passende_runde(runden, 400)
-    r200 = _passende_runde(runden, 200)
-    if not r400 or not r200:
-        return None
+    for d_lang, d_kurz in PAARE:
+        r_lang = _passende_runde(runden, d_lang)
+        r_kurz = _passende_runde(runden, d_kurz)
+        if not r_lang or not r_kurz:
+            continue
 
-    css = css_from_times(r400["t"], r200["t"])
-    if css is None:
-        return None
+        css = css_from_times(r_lang["t"], r_kurz["t"], d_lang, d_kurz)
+        if css is None:
+            continue
 
-    return {
-        "css_pace_s_per_100m": css,
-        "t400_s": r400["t"],
-        "t200_s": r200["t"],
-        # Der Puls während der 400 m. Er ist das, was der CSS-Test an
-        # Herzfrequenz überhaupt hergibt — brauchbar als Schätzung für die
-        # Schwelle im Wasser, aber eher zu hoch: 400 m maximal liegen über
-        # der Schwelle.
-        "hr_400": r400.get("hr"),
-        "session_id": session.id,
-        "date": str(session.session_date),
-        "distanzen": {"400": round(r400["d"] * 1000), "200": round(r200["d"] * 1000)},
-    }
+        return {
+            "css_pace_s_per_100m": css,
+            "t400_s": r_lang["t"],
+            "t200_s": r_kurz["t"],
+            "d_lang_m": d_lang,
+            "d_kurz_m": d_kurz,
+            "guete": guete(d_lang),
+            # Der Puls während der längeren Strecke. Er ist das, was der Test
+            # an Herzfrequenz hergibt — brauchbar als Schätzung für die
+            # Schwelle im Wasser, aber eher zu hoch.
+            #
+            # Nur ab 200 m: Über 100 m maximal liegt der Puls so weit über
+            # der Schwelle, dass der übliche Abschlag von fünf Prozent ihn
+            # nicht mehr einfängt. Lieber kein Wert als ein falscher.
+            "hr_400": r_lang.get("hr") if d_lang >= 200 else None,
+            "session_id": session.id,
+            "date": str(session.session_date),
+            "distanzen": {
+                str(d_lang): round(r_lang["d"] * 1000),
+                str(d_kurz): round(r_kurz["d"] * 1000),
+            },
+        }
+
+    return None
 
 
 def detect_recent(db: Session, user: User | None = None, days: int = 28) -> dict | None:
