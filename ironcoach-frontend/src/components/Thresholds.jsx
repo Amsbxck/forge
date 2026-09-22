@@ -163,7 +163,10 @@ export default function Thresholds({ profile, onChanged, sport }) {
           disziplin="bike" titel="RAD · FTP" busy={busy}
           relevant={zaehlt.includes('ftp')}
           werte={[{ label: 'FTP', wert: profile.ftp_watts, einheit: 'W' }]}
-          quelle={profile.zones_source === 'manual' ? 'manual' : profile.zones_source === 'benchmark' ? 'auto' : null}
+          /* Eigenes Herkunftsfeld statt `zones_source`: Das gilt für das
+             ganze Profil, und eine von Hand eingetragene FTP stünde dort als
+             gemessen, sobald irgendetwas anderes gemessen wurde. */
+          quelle={profile.ftp_source === 'benchmark' ? 'auto' : profile.ftp_source === 'manual' ? 'manual' : null}
           hinweis="Bezugsgröße aller Wattvorgaben"
           kinder={
             <div className="space-y-3">

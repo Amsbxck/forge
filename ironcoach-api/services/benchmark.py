@@ -46,6 +46,14 @@ logger = logging.getLogger(__name__)
 BENCHMARK_PHASE = "Benchmark"
 
 SCHWELLEN_FAKTOR = 0.95
+
+# Ab welchem Anstieg innerhalb der besten zwanzig Minuten die Einheit nicht
+# mehr als gleichmässiger Test durchgeht. Ein Rampentest steigert die
+# Leistung bis zum Abbruch; sein bestes 20-Minuten-Fenster enthält die
+# leichten Anfangsstufen und liegt weit unter der Schwelle. Ein
+# Negativsplit auf der Strasse bleibt darunter — 15 % sind für einen
+# bewusst gleichmässigen Test viel, für eine Rampe wenig.
+MAX_ANSTIEG_IM_TEST = 1.15
 FTP_FACTOR = SCHWELLEN_FAKTOR
 LTHR_FACTOR = SCHWELLEN_FAKTOR
 
@@ -361,12 +369,34 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
         if effort and (best_bike is None or effort["avg_watts"] > best_bike["avg_watts"]):
             best_bike, best_bike_session = effort, session
     if best_bike:
-        result["ftp_watts"] = round(best_bike["avg_watts"] * FTP_FACTOR)
-        result["sources"]["ftp"] = {
-            "session_id": best_bike_session.id,
-            "date": str(best_bike_session.session_date),
-            "best_20min_watts": best_bike["avg_watts"],
-        }
+        # Nur aus einem gleichmässig gefahrenen Fenster. Ein Stufentest am
+        # Smart Trainer ergäbe hier eine viel zu niedrige FTP — und würde
+        # damit die Zahl überschreiben, die der Trainer am Ende selbst
+        # ausgibt und die der Athlet von Hand eingetragen hat.
+        anstieg = best_bike.get("anstieg")
+        if anstieg is not None and anstieg > MAX_ANSTIEG_IM_TEST:
+            result["ftp_hinweis"] = (
+                f"Die Leistung stieg innerhalb der besten zwanzig Minuten um "
+                f"{round((anstieg - 1) * 100)} % an — das sieht nach einem "
+                f"Stufentest aus, nicht nach einem gleichmässigen "
+                f"20-Minuten-Test. Aus einem Rampenprofil lässt sich die FTP "
+                f"nicht so ableiten; trag den Wert ein, den der Trainer am "
+                f"Ende ausgibt."
+            )
+            result["sources"]["ftp_uebersprungen"] = {
+                "session_id": best_bike_session.id,
+                "date": str(best_bike_session.session_date),
+                "anstieg": anstieg,
+            }
+        else:
+            result["ftp_watts"] = round(best_bike["avg_watts"] * FTP_FACTOR)
+            result["sources"]["ftp"] = {
+                "session_id": best_bike_session.id,
+                "date": str(best_bike_session.session_date),
+                "best_20min_watts": best_bike["avg_watts"],
+                "anstieg": anstieg,
+                "basis": f"beste 20 Minuten x {FTP_FACTOR}",
+            }
 
     # --- Lauf: schnellste 20 Minuten + zugehörige HF ---
     best_run, best_run_session = None, None
@@ -481,7 +511,16 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
             }
 
     if not any(k in result for k in ("ftp_watts", "threshold_pace_s_per_km", "max_hr", "css_pace_s_per_100m")):
-        return {"status": "no_usable_data", "checked_sessions": len(sessions)}
+        # Erklärungen mitnehmen, statt das Ergebnis zu verwerfen. Wer einen
+        # Stufentest gefahren hat, bekam hier ein nacktes "keine verwertbaren
+        # Daten" — obwohl der Grund bereits feststand und der nächste Schritt
+        # auch (den Wert eintragen, den der Trainer ausgibt).
+        return {
+            "status": "no_usable_data",
+            "checked_sessions": len(sessions),
+            **({"ftp_hinweis": result["ftp_hinweis"]} if "ftp_hinweis" in result else {}),
+            **({"sources": result["sources"]} if result.get("sources") else {}),
+        }
 
     if apply:
         profile = db.query(AthleteProfile).first()
@@ -489,7 +528,9 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
             return {**result, "status": "no_profile"}
         applied = []
         if result.get("ftp_watts"):
-            profile.ftp_watts = result["ftp_watts"]; applied.append("ftp_watts")
+            profile.ftp_watts = result["ftp_watts"]
+            profile.ftp_source = "benchmark"
+            applied.append("ftp_watts")
         # Ohne Rücksicht auf "manual": Das Übernehmen ist eine bewusste
         # Handlung nach einem Vergleich alt gegen neu. Eine Sperre hier hieße,
         # dass ein frischer Test die alten Zahlen nicht korrigieren darf.

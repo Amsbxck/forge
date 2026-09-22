@@ -88,6 +88,12 @@ class AthleteProfile(Base):
     # dessen FTP und dessen Herzfrequenzzonen startete. Was hier steht, gilt
     # nur bis zur Benchmark-Woche — zones_source hält fest, ob gemessen wurde.
     ftp_watts: Mapped[int] = mapped_column(Integer, default=200)
+    # Woher die FTP stammt: "manual" (eingetragen, etwa aus einem
+    # Stufentest am Smart Trainer), "benchmark" (aus dem 20-Minuten-Test
+    # abgeleitet), leer (Voreinstellung). Eigenes Feld, weil `zones_source`
+    # für das ganze Profil gilt und eine von Hand eingetragene FTP sonst als
+    # gemessen ausgewiesen würde, sobald irgendetwas anderes gemessen wurde.
+    ftp_source: Mapped[str | None] = mapped_column(String)
 
     # Schwellenpace im Wasser (Sekunden je 100 m) aus dem CSS-Test.
     # `css_source` hält fest, woher sie stammt: aus den Runden abgeleitet

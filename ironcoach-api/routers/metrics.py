@@ -533,6 +533,14 @@ def update_profile(data: dict, db: Session = Depends(get_db)):
     # Prozentrechnung aus dem Maximalpuls ersetzt bekommen.
     ZONEN = ["z1_hr_max", "z2_hr_min", "z2_hr_max",
              "z3_hr_min", "z3_hr_max", "z4_hr_min", "z4_hr_max"]
+    # Eine von Hand eingetragene FTP als solche festhalten — etwa der Wert,
+    # den ein Smart Trainer am Ende eines Stufentests ausgibt. Ohne das
+    # Feld liesse sie sich in der Oberfläche nicht von der Voreinstellung
+    # unterscheiden, und das automatische Ableiten würde sie kommentarlos
+    # ersetzen.
+    if "ftp_watts" in data:
+        profile.ftp_source = "manual"
+
     allowed = {"ftp_watts", "max_hr", "name", "race_goal",
                "threshold_hr", "threshold_pace_s_per_km",
                *ZONEN}

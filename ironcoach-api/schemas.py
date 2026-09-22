@@ -27,6 +27,7 @@ class AthleteProfileOut(BaseModel):
     # nicht zeigen, ob Werte gemessen oder eingetragen sind, und wann der
     # nächste Test fällig wird.
     zones_source: str | None = None
+    ftp_source: str | None = None
     zones_updated_at: datetime | None = None
     css_pace_s_per_100m: float | None = None
     css_source: str | None = None

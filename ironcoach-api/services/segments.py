@@ -299,6 +299,13 @@ def best_effort_power(session, seconds: int = 1200) -> dict | None:
     Grundlage jedes FTP-Tests: die besten 20 Minuten einer Einheit, egal wo
     sie liegen. Ein gleitendes Fenster findet sie auch dann, wenn der Test
     nicht sauber als eigene Runde aufgezeichnet wurde.
+
+    Zusätzlich wird gemeldet, wie gleichmässig das Fenster gefahren wurde.
+    Das unterscheidet einen 20-Minuten-Test von einem Stufentest: Bei einem
+    Rampentest steigt die Leistung bis zum Abbruch immer weiter, und die
+    besten zwanzig Minuten enthalten dann die leichten Anfangsstufen
+    mitsamt der harten Schlussphase. Ein Mittelwert daraus ist keine
+    Schwellenleistung — er liegt deutlich darunter.
     """
     watts = (session.streams or {}).get("watts") or []
     if not watts:
@@ -310,13 +317,27 @@ def best_effort_power(session, seconds: int = 1200) -> dict | None:
 
     running = sum(watts[:window])
     best = running
+    best_start = 0
     for i in range(window, len(watts)):
         running += watts[i] - watts[i - window]
         if running > best:
             best = running
+            best_start = i - window + 1
+
+    # Erstes gegen letztes Viertel: Bei einem gleichmässigen Test liegen die
+    # beiden nah beieinander, bei einer Rampe klafft es weit auseinander.
+    viertel = max(1, window // 4)
+    anfang = watts[best_start:best_start + viertel]
+    ende = watts[best_start + window - viertel:best_start + window]
+    mittel = lambda xs: sum(xs) / len(xs) if xs else 0
+    m_anfang, m_ende = mittel(anfang), mittel(ende)
+
     return {
         "seconds": int(window * sample_seconds),
         "avg_watts": round(best / window),
+        "start_s": int(best_start * sample_seconds),
+        # > 1 heisst: hinten härter als vorn.
+        "anstieg": round(m_ende / m_anfang, 2) if m_anfang else None,
     }
 
 
