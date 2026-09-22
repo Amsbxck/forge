@@ -39,10 +39,15 @@ export function calculatePMC(sessions) {
 
   let atl = 0, ctl = 0
   return allDays.map(date => {
+    // Die Form eines Tages ist der Stand von **gestern** — vor dem Training
+    // dieses Tages. Sonst zieht jede Einheit die eigene Form herunter.
+    // Dieselbe Definition wie in services/season_summary.py; weicht sie ab,
+    // zeigen Kachel und Diagramm verschiedene Zahlen für denselben Tag.
+    const tsb = ctl - atl
+
     const tss = dailyTSS[date] || 0
     atl = atl + (tss - atl) * K_ATL
     ctl = ctl + (tss - ctl) * K_CTL
-    const tsb = ctl - atl
     return {
       date,
       label: date.slice(5),

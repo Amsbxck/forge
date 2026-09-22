@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getWeekMetrics, getLatestHrv, getHrv, getSessions, getProfile, getIntakeStatus, getMe, getFtpCheck } from '../services/api'
+import { getWeekMetrics, getLatestHrv, getHrv, getSessions, getProfile, getIntakeStatus, getMe, getFtpCheck, getPmc } from '../services/api'
 import HRVInput from '../components/HRVInput'
 import HealthStatus from '../components/HealthStatus'
 import HRVHistoryChart from '../components/HRVHistoryChart'
@@ -52,6 +52,7 @@ export default function Dashboard() {
   // Bestätigung am Konto hängt und nicht am Athletenprofil.
   const [konto, setKonto] = useState(null)
   const [ftpBefund, setFtpBefund] = useState(null)
+  const [pmcServer, setPmcServer] = useState(null)
 
   const load = async () => {
     setLoading(true)
@@ -73,6 +74,7 @@ export default function Dashboard() {
       // Leistungsdaten mehrerer Fahrten; ein Ausfall darf das Dashboard nicht
       // aufhalten.
       getFtpCheck().then(({ data }) => setFtpBefund(data?.befund || null)).catch(() => setFtpBefund(null))
+      getPmc().then(({ data }) => setPmcServer(Array.isArray(data) ? data : null)).catch(() => setPmcServer(null))
       setMetrics(m.data)
       setHrv(h.data)
       setHrvHistory(Array.isArray(hh.data) ? hh.data : [])
@@ -109,7 +111,12 @@ export default function Dashboard() {
     : 4
   const hrColor = hrZoneIndex == null ? '#e8eaf0' : HR_ZONE_COLOR[hrZoneIndex]
 
-  const pmc = calculatePMC(sessions)
+  // Serverwert zuerst, lokale Rechnung nur als Rückfall — genau wie im
+  // Diagramm weiter unten. Vorher rechnete die Kachel immer selbst, und
+  // sobald sich die beiden Formeln unterschieden, zeigten Kachel und
+  // Diagramm verschiedene Zahlen für denselben Tag. Zwei Rechnungen für
+  // eine Grösse laufen früher oder später auseinander.
+  const pmc = pmcServer?.length ? pmcServer : calculatePMC(sessions)
   const form = pmc.length ? pmc[pmc.length - 1].tsb : null
   const formFarbe = formColor(form)
   const formText = formLabel
