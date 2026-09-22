@@ -21,28 +21,33 @@ from services.segments import best_effort_pace, best_effort_power
 
 logger = logging.getLogger(__name__)
 
-# FTP ist definitionsgemäß 95 % der besten 20-Minuten-Leistung.
-FTP_FACTOR = 0.95
-# Abschlag vom Plateaupuls des 20-Minuten-Tests auf die Schwellen-HF.
+# Abschlag vom 20-Minuten-Test auf die Schwellenwerte.
 #
-# Die Richtung ist nach unten, und das ist weniger offensichtlich, als es
-# aussieht. Ein 20-Minuten-Test wird **oberhalb** der Schwelle gelaufen —
-# genau deshalb hält man ihn nur zwanzig Minuten durch, und genau deshalb
-# ist die FTP auch nur 95 % der 20-Minuten-Leistung. Der Puls, der sich
-# dabei einstellt, liegt entsprechend etwas über dem, den man eine Stunde
-# hielte. Man muss also abziehen, um auf die Schwelle zu kommen, nicht
-# addieren.
+# Für einen 20-Minuten-Test gilt derselbe Faktor für Leistung, Puls und
+# Pace: fünf Prozent nach unten. Der Grund ist bei allen dreien derselbe —
+# ein 20-Minuten-Test wird **oberhalb** der Schwelle absolviert, sonst
+# hielte man ihn länger durch.
 #
-# Warum trotzdem nur 2 % und nicht 5 % wie bei der Leistung: Der Puls
-# steigt mit der Intensität nicht proportional mit, sondern flacht zur
-# Maximalherzfrequenz hin ab. Zwischen einem 20-Minuten- und einem
-# Stundentempo liegen bei der Leistung fünf Prozent, beim Puls nur wenige
-# Schläge.
+# Die Richtung ist die, an der die Intuition scheitert: Dass man sich über
+# zwanzig Minuten mehr abverlangen kann als über eine Stunde, heisst gerade
+# deshalb, dass der gemessene Wert **zu hoch** ist und nach unten korrigiert
+# werden muss — nicht nach oben.
 #
-# Bezugsgrösse ist seit dem Umbau das Plateau der zweiten Testhälfte, nicht
-# mehr das Mittel über die ganzen zwanzig Minuten. Friel verwirft beim
-# 30-Minuten-Test aus demselben Grund die ersten zehn Minuten.
-LTHR_FACTOR = 0.98
+# Bezugsgrösse ist das Mittel über die **ganzen** zwanzig Minuten,
+# einschliesslich der Anlaufphase des Pulses. Das ist wichtig, weil der
+# Faktor genau dagegen kalibriert ist: Joe Friels Alternative, die letzten
+# zwanzig Minuten eines 30-Minuten-Tests, kommt ohne Abschlag aus, weil die
+# Anlaufphase dort schon draussen ist. Beides zu kombinieren — Plateau und
+# Abschlag — korrigiert zweimal.
+#
+# Gegenprobe an einem echten Test: Plateau 200, Mittel 198, HFmax 207.
+# Mit 0.98 ergäbe sich eine Schwelle bei 94 % der HFmax, mit 0.95 bei 91 %.
+# Üblich sind 85–92 %.
+BENCHMARK_PHASE = "Benchmark"
+
+SCHWELLEN_FAKTOR = 0.95
+FTP_FACTOR = SCHWELLEN_FAKTOR
+LTHR_FACTOR = SCHWELLEN_FAKTOR
 
 TEST_WINDOW_S = 1200  # 20 Minuten
 
@@ -208,7 +213,7 @@ def create_benchmark_plan(db: Session, user=None):
         week_number=woche,
         week_start=start,
         week_end=start + timedelta(days=6),
-        plan_phase="Benchmark",
+        plan_phase=BENCHMARK_PHASE,
         plan_content={
             "week": woche,
             "phase": "Benchmark",
@@ -269,18 +274,34 @@ def maybe_autoderive(db: Session) -> dict | None:
 
 
 def _benchmark_sessions(db: Session, days: int = 21) -> list[TrainingSession]:
-    """Einheiten, die als Test in Frage kommen.
+    """Einheiten, die als Test gelten — und nur die.
 
-    Erkannt an der Zuordnung zu einer geplanten Threshold-Einheit oder
-    schlicht daran, dass es die härtesten Einheiten im Zeitraum sind — beides
-    besser, als eine Markierung zu verlangen, die vergessen wird.
+    Erkannt an der Zuordnung zu einer geplanten Einheit aus einer
+    Benchmark-Woche. Dafür ist die Testwoche da: Sie schreibt in jeder
+    Disziplin genau die Einheit vor, aus der die Schwellenwerte hervorgehen.
+
+    Vorher standen hier **alle** Einheiten des Zeitraums, trotz eines
+    Kommentars, der etwas anderes behauptete. Die Ableitung suchte darin das
+    schnellste 20-Minuten-Fenster — bei einem Intervalltraining also die
+    härtesten zwanzig Minuten aus einer Einheit, die nie als gleichmässiger
+    Test gedacht war. Der daraus gewonnene Schwellenwert lag zu hoch und
+    galt anschliessend monatelang als Vorgabe.
+
+    Ohne Testeinheiten wird nichts abgeleitet. Geschätzte Zonen aus einem
+    beliebigen harten Lauf wären schlimmer als gar keine — sie sehen aus wie
+    gemessen.
     """
+    from models import PlannedSession, WeeklyPlan
+
     cutoff = date.today() - timedelta(days=days)
     return (
         db.query(TrainingSession)
+        .join(PlannedSession, TrainingSession.planned_session_id == PlannedSession.id)
+        .join(WeeklyPlan, PlannedSession.plan_id == WeeklyPlan.id)
         .filter(
             TrainingSession.session_date >= cutoff,
             TrainingSession.deleted_at == None,  # noqa: E711
+            WeeklyPlan.plan_phase == BENCHMARK_PHASE,
         )
         .order_by(TrainingSession.session_date.desc())
         .all()
@@ -297,7 +318,17 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
 
     sessions = _benchmark_sessions(db, days)
     if not sessions:
-        return {"status": "no_sessions"}
+        # Ausdrücklich nicht auf beliebige Einheiten ausweichen: Zonen sind
+        # die Grundlage jeder späteren Bewertung, und eine Schätzung aus
+        # einem harten Dauerlauf sähe hier aus wie eine Messung.
+        return {
+            "status": "no_sessions",
+            "hinweis": (
+                "Keine absolvierten Einheiten aus einer Testwoche in den "
+                f"letzten {days} Tagen gefunden. Die Zonen ergeben sich aus "
+                "der Testwoche — lege sie unter Rennen an und absolviere sie."
+            ),
+        }
 
     result: dict = {"status": "ok", "sources": {}}
 
@@ -346,11 +377,23 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
         if effort and (best_run is None or effort["pace_s_per_km"] < best_run["pace_s_per_km"]):
             best_run, best_run_session = effort, session
     if best_run:
-        result["threshold_pace_s_per_km"] = best_run["pace_s_per_km"]
+        # Dieselbe Korrektur wie bei Leistung und Puls, nur in der anderen
+        # Richtung der Einheit: Pace zählt Sekunden je Kilometer, langsamer
+        # heisst also **grösser**. Fünf Prozent weniger Geschwindigkeit sind
+        # `pace / 0.95`.
+        #
+        # Bis hierher stand die Testpace unkorrigiert als Schwellenpace im
+        # Profil — also rund fünf Prozent zu schnell. Daraus leiten sich
+        # sämtliche Pace-Vorgaben ab: Jeder Dauerlauf war damit dauerhaft zu
+        # flott angesetzt, und zwar genau um den Betrag, den man über zwanzig
+        # Minuten mehr abrufen kann als über eine Stunde.
+        test_pace = best_run["pace_s_per_km"]
+        result["threshold_pace_s_per_km"] = round(test_pace / SCHWELLEN_FAKTOR)
         result["sources"]["pace"] = {
             "session_id": best_run_session.id,
             "date": str(best_run_session.session_date),
-            "best_20min_pace": best_run["pace_s_per_km"],
+            "best_20min_pace": test_pace,
+            "basis": f"Testpace / {SCHWELLEN_FAKTOR}",
         }
 
     # --- Schwimmen: CSS aus den Runden des Testschwimmens ---
@@ -412,15 +455,18 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
         # Schwellenpuls bläht jede pulsbasierte TSS auf: Sie geht quadratisch
         # in die Intensität ein, 16 Schläge zu wenig ergeben rund 19 Prozent
         # zu viel Belastung — bei jedem Lauf, monatelang.
-        plateau = (best_run or {}).get("avg_hr_plateau")
-        if plateau:
-            result["threshold_hr"] = round(plateau * LTHR_FACTOR)
+        fenster_hr = (best_run or {}).get("avg_hr")
+        if fenster_hr:
+            result["threshold_hr"] = round(fenster_hr * LTHR_FACTOR)
             result["sources"]["threshold_hr"] = {
                 "session_id": best_run_session.id,
                 "date": str(best_run_session.session_date),
-                "avg_hr_letzte_10min": plateau,
-                "avg_hr_20min": best_run.get("avg_hr"),
-                "basis": "Plateau der zweiten Testhälfte",
+                "avg_hr_20min": fenster_hr,
+                # Das Plateau wird mitgemeldet, aber nicht als Grundlage
+                # benutzt: Es ist die aussagekräftigere Zahl, der Abschlag
+                # ist aber gegen das Gesamtmittel kalibriert.
+                "avg_hr_letzte_10min": best_run.get("avg_hr_plateau"),
+                "basis": f"Mittel der 20 Testminuten x {LTHR_FACTOR}",
             }
         elif best_run_session and best_run_session.avg_hr:
             # Kein Pulsstream: Dann bleibt nur das Mittel der ganzen Einheit.

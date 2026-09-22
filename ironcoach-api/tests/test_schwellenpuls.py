@@ -86,19 +86,34 @@ def test_ohne_pulsstream_bleibt_auch_das_plateau_leer():
     assert best_effort_pace(ohne, seconds=1200)["avg_hr_plateau"] is None
 
 
-def test_die_korrektur_geht_nach_unten():
-    """Die Richtung, nicht die Zahl.
+def test_ein_faktor_fuer_leistung_puls_und_pace():
+    """Die Richtung, und dass es überall dieselbe ist.
 
-    Ein 20-Minuten-Test wird oberhalb der Schwelle gelaufen — deshalb ist
-    die FTP auch nur 95 % der 20-Minuten-Leistung. Der Puls dabei liegt
-    entsprechend über dem Stundenwert: Man zieht ab, um auf die Schwelle
-    zu kommen.
+    Für einen 20-Minuten-Test gilt derselbe Abschlag für Leistung, Puls
+    und Pace: fünf Prozent nach unten. Der Grund ist bei allen dreien
+    derselbe — der Test wird oberhalb der Schwelle absolviert, sonst
+    hielte man ihn länger durch.
+
+    Der Test steht hier, weil die Richtung der Intuition widerspricht:
+    Dass man sich über zwanzig Minuten mehr abverlangen kann als über eine
+    Stunde, heisst gerade deshalb, dass der gemessene Wert zu hoch ist.
     """
-    from services.benchmark import LTHR_FACTOR
-    assert LTHR_FACTOR < 1.0
+    from services.benchmark import FTP_FACTOR, LTHR_FACTOR, SCHWELLEN_FAKTOR
 
-    from services.benchmark import FTP_FACTOR
-    # Beim Puls fällt der Abschlag kleiner aus als bei der Leistung: Der
-    # Puls flacht zur Maximalherzfrequenz hin ab, statt proportional
-    # mitzusteigen.
-    assert FTP_FACTOR < LTHR_FACTOR < 1.0
+    assert SCHWELLEN_FAKTOR < 1.0, "nach unten, nicht nach oben"
+    assert FTP_FACTOR == LTHR_FACTOR == SCHWELLEN_FAKTOR
+
+
+def test_pace_wird_langsamer_nicht_schneller():
+    """Pace zählt Sekunden je Kilometer — langsamer heisst grösser.
+
+    Bis zur Korrektur stand die Testpace unkorrigiert als Schwellenpace im
+    Profil, also rund fünf Prozent zu schnell. Daraus leiten sich sämtliche
+    Pace-Vorgaben ab.
+    """
+    from services.benchmark import SCHWELLEN_FAKTOR
+
+    testpace = 272                       # 4:32/km
+    schwelle = round(testpace / SCHWELLEN_FAKTOR)
+    assert schwelle > testpace
+    assert schwelle == 286               # 4:46/km
