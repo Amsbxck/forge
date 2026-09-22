@@ -100,26 +100,42 @@ def _passende_runde(runden: list[dict], meter: int) -> dict | None:
     return min(kandidaten, key=lambda r: r["t"])
 
 
-def guete(d_lang_m: int) -> str | None:
-    """Wie belastbar ein Ergebnis aus diesem Paar ist.
+# Gültigkeitsbereich des Modells hinter der CSS.
+#
+# Die Rechnung unterstellt, dass sich Strecke und Zeit im geprüften Bereich
+# linear verhalten — das gilt für Belastungen von etwa zwei bis fünfzehn
+# Minuten. Darunter dominiert die anaerobe Startreserve, und die Gerade
+# kippt: Die CSS fällt zu schnell aus.
+#
+# Entscheidend ist damit die **Dauer**, nicht die Strecke. Das ist der
+# Grund, warum die kurzen Paare für Anfänger taugen und für schnelle
+# Schwimmer nicht: 100/50 m sind bei 1:20/100 m nur 75 und 35 Sekunden —
+# weit unterhalb des Bereichs. Bei 2:30/100 m sind dieselben Strecken
+# 2:20 und 1:06 und damit einwandfrei.
+MIN_DAUER_LANG_S = 120
+MIN_DAUER_KURZ_S = 60
 
-    Kein Urteil über den Schwimmer, sondern über das Protokoll: Je kürzer
-    die Strecken, desto grösser der Anteil der anaeroben Startreserve am
-    Ergebnis — und desto zu schnell fällt die CSS aus. Wer daraufhin seine
-    Dauereinheiten schwimmt, liegt dauerhaft über der Schwelle.
+
+def guete(t_lang_s: float | None, t_kurz_s: float | None) -> str | None:
+    """Vorbehalt zum Ergebnis, oder None, wenn es keinen gibt.
+
+    Bewertet die Zeiten, nicht die Strecken. Eine Bewertung nach Metern
+    hätte den Anfänger gewarnt, für den das kurze Paar gerade richtig ist,
+    und den schnellen Schwimmer durchgewinkt, bei dem es nicht trägt.
     """
-    if d_lang_m >= 400:
+    if not t_lang_s or not t_kurz_s:
         return None
-    if d_lang_m >= 200:
-        return (
-            "Aus 200/100 m gerechnet. Etwas grober als 400/200 m — der Wert "
-            "fällt eher zu schnell aus. Wiederhole den Test über die längeren "
-            "Strecken, sobald 400 m am Stück gehen."
-        )
+    if t_lang_s >= MIN_DAUER_LANG_S and t_kurz_s >= MIN_DAUER_KURZ_S:
+        return None
+
+    def mmss(sek):
+        return f"{int(sek // 60)}:{int(sek % 60):02d}"
+
     return (
-        "Aus 100/50 m gerechnet — die gröbste Variante. Der Wert fällt "
-        "spürbar zu schnell aus und taugt als erster Anhaltspunkt, nicht als "
-        "Schwelle. Wiederhole den Test über längere Strecken, sobald es geht."
+        f"Die Testzeiten sind kurz ({mmss(t_lang_s)} und {mmss(t_kurz_s)}). "
+        f"Die Rechnung setzt Belastungen ab etwa zwei Minuten voraus; darunter "
+        f"schlägt die anaerobe Startreserve durch und der Wert fällt zu schnell "
+        f"aus. Nimm längere Strecken, damit beide Zeiten darüber liegen."
     )
 
 
@@ -151,7 +167,7 @@ def detect_from_session(session: TrainingSession) -> dict | None:
             "t200_s": r_kurz["t"],
             "d_lang_m": d_lang,
             "d_kurz_m": d_kurz,
-            "guete": guete(d_lang),
+            "guete": guete(r_lang["t"], r_kurz["t"]),
             # Der Puls während der längeren Strecke. Er ist das, was der Test
             # an Herzfrequenz hergibt — brauchbar als Schätzung für die
             # Schwelle im Wasser, aber eher zu hoch.

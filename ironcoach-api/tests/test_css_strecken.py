@@ -11,7 +11,10 @@ Einbruchskurve. Der Preis ist Genauigkeit, und der muss sichtbar sein.
 
 import pytest
 
-from services.swim_css import PAARE, css_from_times, detect_from_session, guete
+from services.swim_css import (
+    MIN_DAUER_KURZ_S, MIN_DAUER_LANG_S, PAARE, css_from_times,
+    detect_from_session, guete,
+)
 
 
 class _Einheit:
@@ -54,21 +57,21 @@ def test_erkennung_nimmt_das_laengste_passende_paar():
     treffer = detect_from_session(einheit)
     assert (treffer["d_lang_m"], treffer["d_kurz_m"]) == (400, 200)
     assert treffer["css_pace_s_per_100m"] == 87.5
-    assert treffer["guete"] is None, "400/200 braucht keinen Vorbehalt"
+    assert treffer["guete"] is None, "lange Zeiten brauchen keinen Vorbehalt"
 
 
 def test_erkennung_weicht_auf_kuerzere_paare_aus():
     einheit = _Einheit([_lap(200, 155, hr=170), _lap(100, 73)])
     treffer = detect_from_session(einheit)
     assert (treffer["d_lang_m"], treffer["d_kurz_m"]) == (200, 100)
-    assert "200/100" in treffer["guete"]
+    assert treffer["guete"] is None, "2:35 und 1:13 liegen im gültigen Bereich"
 
 
 def test_kurzestes_paar_traegt_den_deutlichsten_vorbehalt():
     einheit = _Einheit([_lap(100, 73, hr=175), _lap(50, 35)])
     treffer = detect_from_session(einheit)
     assert (treffer["d_lang_m"], treffer["d_kurz_m"]) == (100, 50)
-    assert "gröbste" in treffer["guete"]
+    assert "kurz" in treffer["guete"], "1:13 und 0:35 sind zu kurz für das Modell"
     # Über 100 m maximal liegt der Puls so weit über der Schwelle, dass der
     # übliche Abschlag ihn nicht einfängt — lieber kein Wert als ein falscher.
     assert treffer["hr_400"] is None
@@ -119,4 +122,43 @@ def test_endpunkt_speichert_die_strecken(client, db):
 
 def test_die_erlaubten_paare_stehen_an_einer_stelle():
     assert PAARE == ((400, 200), (200, 100), (100, 50))
-    assert guete(400) is None and guete(200) and guete(100)
+
+
+def test_guete_bewertet_die_dauer_nicht_die_strecke():
+    """Der Kern der Sache.
+
+    Dieselben 100/50 m sind für einen schnellen Schwimmer zu kurz und für
+    einen Anfänger einwandfrei — weil das Modell Belastungen ab etwa zwei
+    Minuten voraussetzt, nicht Strecken ab 400 m. Eine Bewertung nach
+    Metern hätte genau den gewarnt, für den das kurze Paar gedacht ist.
+    """
+    # Schnell: 100 m in 1:15, 50 m in 0:35.
+    assert guete(75, 35) is not None
+    # Anfänger: dieselben Strecken in 2:20 und 1:06.
+    assert guete(140, 66) is None
+
+
+@pytest.mark.parametrize("t_lang, t_kurz, mit_vorbehalt", [
+    (MIN_DAUER_LANG_S, MIN_DAUER_KURZ_S, False),          # genau auf der Grenze
+    (MIN_DAUER_LANG_S - 1, MIN_DAUER_KURZ_S, True),
+    (MIN_DAUER_LANG_S, MIN_DAUER_KURZ_S - 1, True),
+])
+def test_grenzen_des_gueltigkeitsbereichs(t_lang, t_kurz, mit_vorbehalt):
+    assert (guete(t_lang, t_kurz) is not None) is mit_vorbehalt
+
+
+def test_endpunkt_meldet_den_vorbehalt_mit(client, db):
+    from models import AthleteProfile
+
+    profil = db.query(AthleteProfile).first()
+    vorher = (profil.css_pace_s_per_100m, profil.css_dist_lang_m, profil.css_dist_kurz_m)
+    try:
+        # Schneller Schwimmer über 100/50 — zu kurz.
+        antwort = client.post("/api/profile/swim-test",
+                              json={"t400_s": 75, "t200_s": 35,
+                                    "d_lang_m": 100, "d_kurz_m": 50}).json()
+        assert antwort["guete"] is not None
+        assert "zwei Minuten" in antwort["guete"]
+    finally:
+        profil.css_pace_s_per_100m, profil.css_dist_lang_m, profil.css_dist_kurz_m = vorher
+        db.commit()

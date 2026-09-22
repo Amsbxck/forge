@@ -415,7 +415,7 @@ def set_swim_test(
     der automatischen Ableitung nicht mehr überschrieben.
     """
     from fastapi import HTTPException
-    from services.swim_css import css_from_times, format_pace
+    from services.swim_css import css_from_times, format_pace, guete
 
     profile = resolve_profile(db)
     if not profile:
@@ -467,6 +467,11 @@ def set_swim_test(
         "css_pace_s_per_100m": css,
         "css_pace_label": format_pace(css),
         "source": "manual",
+        # Vorbehalt, falls die Zeiten unterhalb des Bereichs liegen, in dem
+        # die Rechnung trägt. Bewertet werden die Zeiten, nicht die
+        # Strecken: Für einen langsamen Schwimmer sind 100/50 m einwandfrei,
+        # für einen schnellen nicht.
+        "guete": guete(body.t400_s, body.t200_s),
     }
 
 

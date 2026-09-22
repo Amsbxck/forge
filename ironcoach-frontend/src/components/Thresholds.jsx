@@ -151,6 +151,11 @@ export default function Thresholds({ profile, ftpBefund, onChanged, sport }) {
     { lang: 200, kurz: 100, label: '200 / 100', platzhalter: ['3:10', '1:28'] },
     { lang: 100, kurz: 50,  label: '100 / 50',  platzhalter: ['1:28', '0:40'] },
   ]
+  // Gültigkeitsbereich des Modells, gespiegelt aus services/swim_css.py.
+  // Bewertet werden die Zeiten, nicht die Strecken — für einen langsamen
+  // Schwimmer sind 100/50 m einwandfrei, für einen schnellen nicht.
+  const MIN_LANG_S = 120
+  const MIN_KURZ_S = 60
   const [schwimm, setSchwimm] = useState({ t400: '', t200: '', hr: '', paar: 0 })
   const paar = CSS_PAARE[schwimm.paar]
 
@@ -302,13 +307,18 @@ export default function Thresholds({ profile, ftpBefund, onChanged, sport }) {
                 Der Puls im Wasser liegt rund zehn Schläge unter dem an Land —
                 deshalb ein eigener Wert.
               </p>
-              {paar.lang < 400 && (
-                <p className="text-[10px] font-mono leading-relaxed" style={{ color: '#f59e0b' }}>
-                  Kürzere Strecken enthalten anteilig mehr Startreserve — der Wert
-                  fällt dadurch eher zu schnell aus. Nimm 400/200 m, sobald du
-                  400 m am Stück maximal schwimmen kannst.
-                </p>
-              )}
+              {(() => {
+                const tl = zuSekunden(schwimm.t400)
+                const tk = zuSekunden(schwimm.t200)
+                if (!tl || !tk || (tl >= MIN_LANG_S && tk >= MIN_KURZ_S)) return null
+                return (
+                  <p className="text-[10px] font-mono leading-relaxed" style={{ color: '#f59e0b' }}>
+                    Diese Zeiten sind kurz. Die Rechnung setzt Belastungen ab etwa
+                    zwei Minuten voraus — darunter schlägt die Startreserve durch und
+                    der Wert fällt zu schnell aus. Nimm die nächstlängeren Strecken.
+                  </p>
+                )
+              })()}
               <button onClick={() => tun(() => setSwimTest({
                         t400_s: zuSekunden(schwimm.t400),
                         t200_s: zuSekunden(schwimm.t200),
