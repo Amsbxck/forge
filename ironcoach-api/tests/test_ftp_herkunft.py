@@ -12,8 +12,8 @@ ersetzen, die der Trainer ausgegeben hat.
 
 import pytest
 
-from services.benchmark import MAX_ANSTIEG_IM_TEST, SCHWELLEN_FAKTOR
-from services.segments import best_effort_power
+from services.benchmark import SCHWELLEN_FAKTOR
+from services.segments import best_effort_power, erkenne_stufentest
 
 
 class _Einheit:
@@ -22,29 +22,54 @@ class _Einheit:
         self.duration_min = duration_min
 
 
-def test_gleichmaessiger_test_gilt_als_gleichmaessig():
-    # 20 Minuten um 250 W, leichte Schwankung wie auf der Strasse.
+def _rampe(start=100, schritt=20, stufen=12, je_minute=1):
+    """Ein Stufenprotokoll, wie Zwift und Co. es fahren."""
+    watts = []
+    for i in range(stufen):
+        watts += [start + i * schritt] * je_minute
+    return _Einheit(watts, len(watts))
+
+
+@pytest.mark.parametrize("bez, einheit, erwartet_min, erwartet_watt", [
+    ("Zwift, 20 W je Minute",      _rampe(),                    1, 20),
+    ("Trainer, 25 W je 2 Minuten", _rampe(120, 25, 10, 2),      2, 25),
+    ("Trainer, 15 W je 3 Minuten", _rampe(150, 15, 9, 3),       3, 15),
+])
+def test_stufentests_werden_erkannt(bez, einheit, erwartet_min, erwartet_watt):
+    treffer = erkenne_stufentest(einheit)
+    assert treffer is not None, bez
+    assert treffer["stufen_minuten"] == erwartet_min
+    assert treffer["zuwachs_watt"] == erwartet_watt
+
+
+def test_erkennung_haengt_am_zuwachs_nicht_am_verhaeltnis():
+    """Der Punkt, an dem eine feste Verhältnisspanne scheitert.
+
+    Bei konstanten 20 Watt je Stufe fällt das Verhältnis von 1,20
+    (100→120) auf 1,07 (300→320). Eine Spanne von 1,1 bis 1,3 verpasste
+    damit die oberen Stufen — und die sind bei einem Abbruch die letzten.
+    """
+    hoch = _rampe(start=280, schritt=20, stufen=8)       # Verhältnisse ~1,07
+    treffer = erkenne_stufentest(hoch)
+    assert treffer is not None
+    assert treffer["zuwachs_watt"] == 20
+
+
+@pytest.mark.parametrize("bez, einheit", [
+    ("gleichmässiger Test", _Einheit([10]*8 + [248, 252, 250, 251, 249]*4 + [10]*8, 36)),
+    ("Test mit Schlussspurt", _Einheit([10]*5 + [240]*8 + [250]*6 + [268]*6 + [10]*5, 30)),
+    ("Intervalle 5x4 Minuten", _Einheit(([300]*4 + [120]*4)*5, 40)),
+    ("zu kurz für ein Muster", _Einheit([150, 170, 190, 210], 4)),
+])
+def test_kein_stufentest(bez, einheit):
+    assert erkenne_stufentest(einheit) is None, bez
+
+
+def test_gleichmaessiger_test_liefert_die_ftp():
     watts = [10] * 10 + [245, 255, 250, 248, 252] * 4 + [10] * 10
     ergebnis = best_effort_power(_Einheit(watts, 40), seconds=1200)
-
     assert ergebnis["avg_watts"] == 250
-    assert ergebnis["anstieg"] <= MAX_ANSTIEG_IM_TEST
-
-
-def test_negativsplit_bleibt_unter_der_grenze():
-    """Wer hinten anzieht, soll nicht als Stufentest gelten."""
-    watts = [10] * 5 + [240] * 10 + [250] * 5 + [262] * 5 + [10] * 5
-    ergebnis = best_effort_power(_Einheit(watts, 30), seconds=1200)
-    assert 1.0 < ergebnis["anstieg"] <= MAX_ANSTIEG_IM_TEST
-
-
-def test_rampe_wird_erkannt():
-    # Stufentest: alle 2 Minuten 20 W mehr, bis zum Abbruch.
-    watts = []
-    for stufe in range(12):
-        watts += [120 + stufe * 20] * 2
-    ergebnis = best_effort_power(_Einheit(watts, 24), seconds=1200)
-    assert ergebnis["anstieg"] > MAX_ANSTIEG_IM_TEST
+    assert round(250 * SCHWELLEN_FAKTOR) == 238
 
 
 def test_aus_einer_rampe_wird_keine_ftp_abgeleitet(client, db):

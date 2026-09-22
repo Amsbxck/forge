@@ -293,6 +293,82 @@ def structure_from_power(session, threshold_w: float) -> dict | None:
     }
 
 
+# Stufenlängen gängiger Rampenprotokolle. Zwift steigert jede Minute,
+# andere Trainer alle zwei oder drei.
+STUFEN_MINUTEN = (1, 2, 3)
+# Wie viel Watt eine Stufe mindestens zulegen muss, damit es eine ist.
+MIN_STUFE_WATT = 8
+# Wie stark die Zuwächse untereinander abweichen dürfen, gemessen am
+# Median. Ein Rampenprotokoll addiert immer denselben Betrag; Schwankungen
+# entstehen nur durch die Trittfrequenz und die Regelung des Trainers.
+MAX_ABWEICHUNG = 0.5
+# So viele Stufen müssen mindestens steigen, damit es ein Muster ist.
+MIN_ANTEIL_STEIGEND = 0.7
+# Und so weit muss es insgesamt hinaufgehen.
+MIN_GESAMTANSTIEG = 1.5
+
+
+def erkenne_stufentest(session) -> dict | None:
+    """Ist das ein Stufentest? Dann die erkannte Stufung, sonst None.
+
+    Ein Rampentest steigert die Leistung in festen Schritten bis zum
+    Abbruch — Zwift etwa um 20 Watt je Minute ab 100 Watt. Am Ende gibt der
+    Trainer die FTP selbst aus; sie aus den besten zwanzig Minuten
+    abzuleiten ergäbe einen viel zu niedrigen Wert, weil darin die leichten
+    Anfangsstufen stecken.
+
+    Erkannt wird am **absoluten** Zuwachs je Stufe, nicht am Verhältnis.
+    Das ist der entscheidende Punkt: Bei konstanten 20 Watt je Stufe fällt
+    das Verhältnis von 1,20 (100→120) auf 1,07 (300→320). Eine feste
+    Verhältnisspanne verpasst damit ausgerechnet die oberen Stufen — und
+    die sind bei einem Abbruch die letzten und wichtigsten.
+
+    Geprüft werden Stufenlängen von einer, zwei und drei Minuten, damit
+    auch Protokolle anderer Trainer erfasst werden.
+    """
+    watts = (session.streams or {}).get("watts") or []
+    if not watts:
+        return None
+    sample_seconds = _sample_seconds(watts, session.duration_min)
+
+    for minuten in STUFEN_MINUTEN:
+        breite = max(1, int(round(minuten * 60 / sample_seconds)))
+        bloecke = [
+            sum(watts[i:i + breite]) / len(watts[i:i + breite])
+            for i in range(0, len(watts) - breite + 1, breite)
+        ]
+        # Unter sechs Stufen ist jedes Muster Zufall.
+        if len(bloecke) < 6:
+            continue
+
+        zuwaechse = [b - a for a, b in zip(bloecke, bloecke[1:])]
+        steigend = [z for z in zuwaechse if z >= MIN_STUFE_WATT]
+        if len(steigend) / len(zuwaechse) < MIN_ANTEIL_STEIGEND:
+            continue
+        if bloecke[0] <= 0 or bloecke[-1] / bloecke[0] < MIN_GESAMTANSTIEG:
+            continue
+
+        # Gleichmässigkeit der Zuwächse: ein Protokoll addiert immer
+        # denselben Betrag, ein Intervalltraining nicht.
+        sortiert = sorted(steigend)
+        median = sortiert[len(sortiert) // 2]
+        if median <= 0:
+            continue
+        abweichung = sum(abs(z - median) for z in steigend) / len(steigend) / median
+        if abweichung > MAX_ABWEICHUNG:
+            continue
+
+        return {
+            "stufen_minuten": minuten,
+            "stufen": len(bloecke),
+            "zuwachs_watt": round(median),
+            "von_watt": round(bloecke[0]),
+            "bis_watt": round(max(bloecke)),
+        }
+
+    return None
+
+
 def best_effort_power(session, seconds: int = 1200) -> dict | None:
     """Höchste Durchschnittsleistung über ein Zeitfenster.
 

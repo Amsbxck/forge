@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta
 from sqlalchemy.orm import Session
 
 from models import AthleteProfile, TrainingSession
-from services.segments import best_effort_pace, best_effort_power
+from services.segments import best_effort_pace, best_effort_power, erkenne_stufentest
 
 logger = logging.getLogger(__name__)
 
@@ -47,13 +47,12 @@ BENCHMARK_PHASE = "Benchmark"
 
 SCHWELLEN_FAKTOR = 0.95
 
-# Ab welchem Anstieg innerhalb der besten zwanzig Minuten die Einheit nicht
-# mehr als gleichmässiger Test durchgeht. Ein Rampentest steigert die
-# Leistung bis zum Abbruch; sein bestes 20-Minuten-Fenster enthält die
-# leichten Anfangsstufen und liegt weit unter der Schwelle. Ein
-# Negativsplit auf der Strasse bleibt darunter — 15 % sind für einen
-# bewusst gleichmässigen Test viel, für eine Rampe wenig.
-MAX_ANSTIEG_IM_TEST = 1.15
+# Notbremse für Rampen, die das Stufenmuster nicht trifft — etwa bei
+# unsauberer Aufzeichnung. Bewusst hoch angesetzt: Ein gleichmässiger Test
+# mit kräftigem Schlussspurt erreicht das nicht, eine Rampe mühelos. Die
+# eigentliche Erkennung macht `erkenne_stufentest`.
+NOTBREMSE_ANSTIEG = 1.5
+MAX_ANSTIEG_IM_TEST = NOTBREMSE_ANSTIEG
 FTP_FACTOR = SCHWELLEN_FAKTOR
 LTHR_FACTOR = SCHWELLEN_FAKTOR
 
@@ -369,23 +368,46 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
         if effort and (best_bike is None or effort["avg_watts"] > best_bike["avg_watts"]):
             best_bike, best_bike_session = effort, session
     if best_bike:
-        # Nur aus einem gleichmässig gefahrenen Fenster. Ein Stufentest am
-        # Smart Trainer ergäbe hier eine viel zu niedrige FTP — und würde
-        # damit die Zahl überschreiben, die der Trainer am Ende selbst
-        # ausgibt und die der Athlet von Hand eingetragen hat.
+        # Erst prüfen, ob das überhaupt ein gleichmässiger Test war.
+        #
+        # Ein Stufentest am Smart Trainer steigert die Leistung bis zum
+        # Abbruch und gibt die FTP am Ende selbst aus. Die besten zwanzig
+        # Minuten daraus enthalten die leichten Anfangsstufen — der
+        # Mittelwert läge weit unter der Schwelle und würde beim Übernehmen
+        # genau die Zahl ersetzen, die der Trainer ausgegeben hat.
+        stufen = erkenne_stufentest(best_bike_session)
         anstieg = best_bike.get("anstieg")
-        if anstieg is not None and anstieg > MAX_ANSTIEG_IM_TEST:
+
+        if stufen:
             result["ftp_hinweis"] = (
-                f"Die Leistung stieg innerhalb der besten zwanzig Minuten um "
-                f"{round((anstieg - 1) * 100)} % an — das sieht nach einem "
-                f"Stufentest aus, nicht nach einem gleichmässigen "
-                f"20-Minuten-Test. Aus einem Rampenprofil lässt sich die FTP "
-                f"nicht so ableiten; trag den Wert ein, den der Trainer am "
-                f"Ende ausgibt."
+                f"Das sieht nach einem Stufentest aus: {stufen['stufen']} Stufen "
+                f"à {stufen['stufen_minuten']} Minute(n), je etwa "
+                f"{stufen['zuwachs_watt']} Watt mehr, von {stufen['von_watt']} "
+                f"bis {stufen['bis_watt']} Watt. Daraus lässt sich die FTP nicht "
+                f"über die besten zwanzig Minuten ableiten — trag den Wert ein, "
+                f"den der Trainer am Ende ausgibt."
             )
             result["sources"]["ftp_uebersprungen"] = {
                 "session_id": best_bike_session.id,
                 "date": str(best_bike_session.session_date),
+                "grund": "Stufentest erkannt",
+                **stufen,
+            }
+        elif anstieg is not None and anstieg > NOTBREMSE_ANSTIEG:
+            # Zweites Netz für Rampen, die das Muster nicht trifft — etwa
+            # bei unsauberer Aufzeichnung. Die Schwelle liegt bewusst hoch:
+            # Ein gleichmässiger Test mit starkem Schlussspurt erreicht sie
+            # nicht, eine Rampe locker.
+            result["ftp_hinweis"] = (
+                f"Die Leistung stieg innerhalb der besten zwanzig Minuten um "
+                f"{round((anstieg - 1) * 100)} % an. Das ist kein gleichmässiger "
+                f"20-Minuten-Test; falls es ein Stufentest war, trag die FTP "
+                f"ein, die der Trainer ausgibt."
+            )
+            result["sources"]["ftp_uebersprungen"] = {
+                "session_id": best_bike_session.id,
+                "date": str(best_bike_session.session_date),
+                "grund": "kein gleichmässiges Fenster",
                 "anstieg": anstieg,
             }
         else:
