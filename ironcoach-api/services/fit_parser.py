@@ -28,10 +28,17 @@ def zones_from_profile(profile) -> dict | None:
     }
 
 
-def calculate_hr_zones(hr_data: list, zones: dict | None = None) -> dict:
-    """Berechnet % Zeit in Z1-Z5."""
+def calculate_hr_zones(hr_data: list, zones: dict | None = None) -> dict | None:
+    """Anteil der Zeit je Herzfrequenzzone.
+
+    Ohne Grenzen wird nicht gerechnet. Bis hierher standen hier feste Werte
+    als Vorgabe — 138/173/189/210, die Zonen eines einzelnen Athleten. Jeder
+    Aufrufer, der keine Grenzen mitgab, verteilte die Zeit eines fremden
+    Athleten auf dessen Bereiche. Die Zahlen sahen dabei plausibel aus, und
+    genau das macht solche Vorgaben gefährlich.
+    """
     if zones is None:
-        zones = {"z1_max": 138, "z2_max": 173, "z3_max": 189, "z4_max": 210}
+        return None
     counts = {"z1": 0, "z2": 0, "z3": 0, "z4": 0, "z5": 0}
     for hr in hr_data:
         if hr <= zones["z1_max"]:
@@ -57,7 +64,10 @@ def sample_stream(data: list, interval: int = 10) -> list:
 
 def parse_fit_file(
     file_path: str,
-    ftp: int = 238,
+    # Kein Vorgabewert: Hier stand die FTP eines einzelnen Athleten. Wer sie
+    # vergisst mitzugeben, bekam dessen Schwelle als Bezugsgrösse und daraus
+    # eine TSS, die mit der eigenen Belastung nichts zu tun hat.
+    ftp: int | None = None,
     max_hr: int | None = None,
     hr_zone_bounds: dict | None = None,
 ) -> dict:
@@ -259,7 +269,7 @@ def parse_fit_file(
     }
 
 
-def parse_gpx_file(file_path: str) -> dict:
+def parse_gpx_file(file_path: str, hr_zone_bounds: dict | None = None) -> dict:
     """Parst GPX Datei (Fallback wenn kein FIT vorhanden)."""
     import gpxpy
 
@@ -314,5 +324,5 @@ def parse_gpx_file(file_path: str) -> dict:
         "normalized_power": None,
         "avg_pace_min_km": None,
         "tss": None,
-        "hr_zones": calculate_hr_zones(hr_data) if hr_data else None,
+        "hr_zones": calculate_hr_zones(hr_data, hr_zone_bounds) if hr_data else None,
     }

@@ -34,10 +34,12 @@ def calculate_run_tss(duration_min: float, avg_hr: int, threshold_hr: int = 173)
     return (duration_min / 60) * (hr_if ** 2) * 100
 
 
-def hrv_status_from_rmssd(rmssd: float) -> str:
-    if rmssd > 80:
-        return "green"
-    elif rmssd >= 70:
-        return "yellow"
-    else:
-        return "red"
+# `hrv_status_from_rmssd` stand hier mit festen Schwellen bei 80 und 70.
+# Sie wurde nirgends aufgerufen — bewertet wird über die eigene Normallage
+# des Athleten (`hrv_green_min`/`hrv_red_below` im Profil, ausgewertet in
+# services/hrv_baseline.py). Feste Schwellen waren genau der Fehler, den
+# diese Spannen beheben: Wer sich normal um 45 bewegt, stünde damit
+# dauerhaft auf Rot, und der Coach striche dauerhaft Intensität.
+#
+# Entfernt statt liegengelassen: Eine unbenutzte Funktion, die der gültigen
+# Logik widerspricht, ist eine Falle für den Nächsten, der sie findet.

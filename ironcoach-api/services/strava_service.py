@@ -5,7 +5,7 @@ from datetime import datetime, date
 import httpx
 
 from core.config import settings
-from services.tss_calculator import calculate_tss, calculate_run_tss, hrv_status_from_rmssd
+from services.tss_calculator import calculate_tss, calculate_run_tss
 
 logger = logging.getLogger(__name__)
 

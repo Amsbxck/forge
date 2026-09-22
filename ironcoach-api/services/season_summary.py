@@ -50,10 +50,24 @@ def _pmc(sessions: list[TrainingSession], bis: date) -> list[dict]:
     atl = ctl = 0.0
     verlauf = []
     while tag <= bis:
+        # Die Form eines Tages ist der Stand von **gestern** — CTL minus ATL
+        # vor dem heutigen Training. So ist sie definiert, und so muss sie
+        # auch sein: Sie beantwortet "wie gehe ich in diesen Tag hinein".
+        #
+        # Vorher wurde sie nach der Aktualisierung gebildet, also
+        # einschliesslich der Einheit dieses Tages. Damit zog jedes Training
+        # die eigene Form herunter: Nach einer harten Einheit stand dort ein
+        # tief negativer Wert, obwohl der Athlet ausgeruht in den Tag
+        # gegangen war. Der Coach liest diese Zahl und hätte auf eine
+        # Ermüdung reagiert, die erst durch das gerade absolvierte Training
+        # entstand.
+        tsb = ctl - atl
+
         tss = tages_tss.get(tag, 0.0)
         atl += (tss - atl) * K_ATL
         ctl += (tss - ctl) * K_CTL
-        verlauf.append({"datum": tag, "ctl": ctl, "atl": atl, "tsb": ctl - atl})
+        # CTL und ATL dagegen als Tagesende-Werte, wie üblich.
+        verlauf.append({"datum": tag, "ctl": ctl, "atl": atl, "tsb": tsb})
         tag += timedelta(days=1)
     return verlauf
 

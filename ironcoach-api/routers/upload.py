@@ -42,14 +42,15 @@ async def upload_file(
     max_hr = profile.max_hr if profile else None
 
     try:
+        from services.fit_parser import zones_from_profile
+
         if ext == ".fit":
-            from services.fit_parser import zones_from_profile
             parsed = parse_fit_file(
                 file_path, ftp=ftp, max_hr=max_hr,
                 hr_zone_bounds=zones_from_profile(profile),
             )
         else:
-            parsed = parse_gpx_file(file_path)
+            parsed = parse_gpx_file(file_path, hr_zone_bounds=zones_from_profile(profile))
     except Exception as e:
         os.remove(file_path)
         raise HTTPException(status_code=422, detail=f"Datei konnte nicht geparst werden: {str(e)}")
