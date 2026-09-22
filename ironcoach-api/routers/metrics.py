@@ -269,6 +269,19 @@ class IntakeIn(BaseModel):
     z4_hr_max: int | None = None
 
 
+@router.get("/metrics/ftp-check")
+def ftp_check(db: Session = Depends(get_db)):
+    """Passt die hinterlegte FTP noch zu dem, was gefahren wird?
+
+    Eigener Endpunkt und nicht Teil von `/metrics/week`: Die Prüfung liest
+    die Leistungsdaten mehrerer Fahrten und ist damit deutlich teurer als
+    der Rest der Kachel. Wer sie nicht braucht, soll sie nicht bezahlen.
+    """
+    from services.ftp_check import ftp_ueberpruefung
+
+    return {"befund": ftp_ueberpruefung(db, resolve_profile(db))}
+
+
 @router.get("/profile/intake")
 def intake_status(
     db: Session = Depends(get_db),

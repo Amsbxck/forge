@@ -4,6 +4,7 @@ import {
 } from '../services/api'
 import SportIcon from './SportIcon'
 import { DISCIPLINE_COLOR } from '../utils/colors'
+import FtpHinweis from './FtpHinweis'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
 const LABEL = 'text-[10px] font-mono tracking-widest text-[var(--text-secondary)] block mb-1'
@@ -135,7 +136,7 @@ const WERTE_JE_SPORT = {
   cycling: ['ftp'],
 }
 
-export default function Thresholds({ profile, onChanged, sport }) {
+export default function Thresholds({ profile, ftpBefund, onChanged, sport }) {
   const [busy, setBusy] = useState(false)
   const [fehler, setFehler] = useState(null)
   const [rad, setRad] = useState({ ftp: '' })
@@ -177,8 +178,9 @@ export default function Thresholds({ profile, onChanged, sport }) {
               </label>
               <p className="text-[10px] font-mono text-[var(--text-muted)] leading-relaxed">
                 Aus dem 20-Minuten-Test × 0,95 — oder direkt aus dem Ergebnis eines
-                Zwift-Ramp-Tests, der die FTP selbst ausgibt.
+                Stufentests, der die FTP selbst ausgibt.
               </p>
+              <FtpHinweis befund={ftpBefund} kompakt />
               <button onClick={() => tun(() => updateProfile({ ftp_watts: Number(rad.ftp) }))}
                       disabled={busy || !rad.ftp}
                       className="px-4 py-2 rounded-lg text-[11px] font-mono font-bold tracking-wide disabled:opacity-30"

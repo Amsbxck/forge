@@ -3,6 +3,7 @@ import {
   getRaceTypes, getActiveGoal, createGoal,
   getRaces, createRace, deleteRace,
   getBenchmarkWeek, createBenchmarkPlan, deriveZones, getUpcomingRaces, deleteGoal,
+  updateProfile,
   uploadRaceImage, deleteRaceImage, fetchRaceImage, updateRace,
 } from '../services/api'
 import SeriesBadge from '../components/SeriesBadge'
@@ -261,6 +262,8 @@ export default function Races() {
   const [showGoalForm, setShowGoalForm] = useState(false)
   const [showRaceForm, setShowRaceForm] = useState(false)
   const [zones, setZones] = useState(null)
+  // FTP aus einem Stufentest, von Hand eingetragen.
+  const [stufenFtp, setStufenFtp] = useState('')
 
   const LEERES_ZIEL = {
     sport: 'triathlon', distance: 'middle', race_date: '', race_name: '',
@@ -888,6 +891,50 @@ export default function Races() {
                   </div>
                 )
               })}
+              {/* Stufentest erkannt: Der Trainer hat die FTP schon ausgerechnet,
+                  sie steht nur nicht in der App. Statt den Athleten ins Profil zu
+                  schicken, kann er sie hier eintragen — an der Stelle, an der er
+                  gerade nach ihr sucht. */}
+              {zones.ftp_hinweis && (
+                <div className="sm:col-span-3 rounded-lg p-3"
+                     style={{ background: '#f59e0b0d', border: '1px solid #f59e0b33' }}>
+                  <div className={LABEL} style={{ color: '#f59e0b' }}>FTP EINTRAGEN</div>
+                  <p className="text-[11px] font-mono text-[var(--text-secondary)] mt-1 leading-relaxed">
+                    {zones.ftp_hinweis}
+                  </p>
+                  <div className="flex gap-2 items-center mt-2 flex-wrap">
+                    <input
+                      type="number" inputMode="numeric"
+                      className={FIELD} style={{ ...FIELD_STYLE, maxWidth: '140px' }}
+                      placeholder="z. B. 264"
+                      value={stufenFtp}
+                      onChange={e => setStufenFtp(e.target.value)}
+                    />
+                    <span className="text-[11px] font-mono text-[var(--text-muted)]">Watt</span>
+                    <button
+                      disabled={!stufenFtp || busy === 'ftp'}
+                      onClick={async () => {
+                        setBusy('ftp'); setError(null)
+                        try {
+                          await updateProfile({ ftp_watts: Number(stufenFtp) })
+                          setStufenFtp('')
+                          await checkZones()
+                        } catch (err) {
+                          setError(err.response?.data?.detail || 'FTP konnte nicht gespeichert werden')
+                        } finally { setBusy(null) }
+                      }}
+                      className="px-3 py-1.5 rounded-lg text-[11px] font-mono tracking-wide disabled:opacity-40"
+                      style={{ background: '#f59e0b20', border: '1px solid #f59e0b44', color: '#f59e0b' }}>
+                      {busy === 'ftp' ? 'SPEICHERT…' : 'FTP SPEICHERN'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] font-mono text-[var(--text-muted)] mt-2 leading-relaxed">
+                    Die Wattzonen ergeben sich daraus von selbst — sie werden aus der
+                    FTP gerechnet, nicht getrennt gespeichert.
+                  </p>
+                </div>
+              )}
+
               <div className="sm:col-span-3 flex items-center gap-3 flex-wrap">
                 {zones.justApplied ? (
                   <span className="text-[11px] font-mono" style={{ color: '#22c55e' }}>

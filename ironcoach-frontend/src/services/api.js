@@ -62,6 +62,9 @@ export const getLatestHrv = () => api.get('/api/hrv/latest')
 export const getWeekMetrics = () => api.get('/api/metrics/week')
 export const getTrends = (weeks = 4) => api.get('/api/metrics/trends', { params: { weeks } })
 export const getPmc = () => api.get('/api/metrics/pmc')
+// Passt die hinterlegte FTP noch zu dem, was gefahren wird? Eigener Aufruf,
+// weil die Prüfung die Leistungsdaten mehrerer Fahrten liest.
+export const getFtpCheck = () => api.get('/api/metrics/ftp-check')
 export const getProfile = () => api.get('/api/profile')
 export const updateProfile = (data) => api.patch('/api/profile', data)
 export const getIntakeStatus = () => api.get('/api/profile/intake')

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getWeekMetrics, getLatestHrv, getHrv, getSessions, getProfile, getIntakeStatus, getMe } from '../services/api'
+import { getWeekMetrics, getLatestHrv, getHrv, getSessions, getProfile, getIntakeStatus, getMe, getFtpCheck } from '../services/api'
 import HRVInput from '../components/HRVInput'
 import HealthStatus from '../components/HealthStatus'
 import HRVHistoryChart from '../components/HRVHistoryChart'
@@ -8,6 +8,7 @@ import HRZoneChart from '../components/HRZoneChart'
 import Onboarding from '../components/Onboarding'
 import IntakeDialog from '../components/IntakeDialog'
 import EmailBestaetigung from '../components/EmailBestaetigung'
+import FtpHinweis from '../components/FtpHinweis'
 import Glossary from '../components/Glossary'
 import TodayCard from '../components/TodayCard'
 import SportIcon from '../components/SportIcon'
@@ -50,6 +51,7 @@ export default function Dashboard() {
   // Konto nur für den Bestätigungshinweis. Getrennt vom Profil, weil die
   // Bestätigung am Konto hängt und nicht am Athletenprofil.
   const [konto, setKonto] = useState(null)
+  const [ftpBefund, setFtpBefund] = useState(null)
 
   const load = async () => {
     setLoading(true)
@@ -67,6 +69,10 @@ export default function Dashboard() {
         .then(({ data }) => setIntakeFaellig(!!data?.faellig))
         .catch(() => setIntakeFaellig(false))
       getMe().then(({ data }) => setKonto(data)).catch(() => setKonto(null))
+      // Eigener Aufruf mit eigenem Fehlerfang: Die Prüfung liest die
+      // Leistungsdaten mehrerer Fahrten; ein Ausfall darf das Dashboard nicht
+      // aufhalten.
+      getFtpCheck().then(({ data }) => setFtpBefund(data?.befund || null)).catch(() => setFtpBefund(null))
       setMetrics(m.data)
       setHrv(h.data)
       setHrvHistory(Array.isArray(hh.data) ? hh.data : [])
@@ -165,6 +171,8 @@ export default function Dashboard() {
       {/* Vor der Checkliste: Solange die Adresse unbestätigt ist, ist der
           erste Schritt nicht das Ziel, sondern das Postfach. */}
       {konto && konto.email_verified === false && <EmailBestaetigung email={konto.email} />}
+
+      <FtpHinweis befund={ftpBefund} onTestwoche={() => navigate('/races')} />
 
       <Onboarding warten={intakeFaellig !== false} />
 

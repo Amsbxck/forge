@@ -101,10 +101,23 @@ def bloecke(db: Session, user=None, fakten: dict | None = None) -> dict:
             return ""
 
     def _zonen():
+        """Zonen samt Hinweis, falls die FTP nicht mehr zur Form passt.
+
+        An den Zonenblock angehängt und nicht als eigener Baustein: Der
+        Hinweis gehört inhaltlich zu den Schwellenwerten, und ein neuer
+        Platzhalter in der Vorlage wäre eine weitere Stelle, an der der
+        archivierte Prompt vom gesendeten abweichen kann.
+        """
+        if not profile:
+            return ""
+        from services.ftp_check import prompt_block as ftp_block
         from services.zones import prompt_block
-        return prompt_block(
-            profile, sport=getattr(goal, "sport", None)
-        ) if profile else ""
+
+        teile = [
+            prompt_block(profile, sport=getattr(goal, "sport", None)),
+            ftp_block(db, profile),
+        ]
+        return "\n\n".join(t for t in teile if t)
 
     def _verlauf():
         from services.season_summary import prompt_block

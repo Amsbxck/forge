@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { getProfile, updateProfile, getStravaStatus, getStravaAuthUrl, getActiveGoal } from '../services/api'
+import { getProfile, updateProfile, getStravaStatus, getStravaAuthUrl, getActiveGoal, getFtpCheck } from '../services/api'
 import PasswordChange from '../components/PasswordChange'
 import AccountSection from '../components/AccountSection'
 import Thresholds from '../components/Thresholds'
@@ -32,6 +32,7 @@ export default function Profile() {
   // Sportart des Saisonziels — entscheidet, welche Schwellenwerte überhaupt
   // gebraucht werden. Ohne Ziel bleibt sie leer und es wird nichts ausgeblendet.
   const [zielSport, setZielSport] = useState(null)
+  const [ftpBefund, setFtpBefund] = useState(null)
 
   const load = useCallback(async () => {
     try {
@@ -44,6 +45,9 @@ export default function Profile() {
       setZielSport(z.data?.sport || null)
       setForm({ ftp_watts: p.data.ftp_watts, max_hr: p.data.max_hr, name: p.data.name, race_goal: p.data.race_goal })
       setStrava(s.data)
+      // Nach den übrigen Daten und mit eigenem Fehlerfang: Die Prüfung liest
+      // Leistungsdaten mehrerer Fahrten und darf die Seite nicht aufhalten.
+      getFtpCheck().then(({ data }) => setFtpBefund(data?.befund || null)).catch(() => setFtpBefund(null))
     } catch (e) { console.error(e) }
   }, [])
 
@@ -170,7 +174,7 @@ export default function Profile() {
       </div>
 
       {/* ── Schwellenwerte zuerst: das ist, wofür man das Profil öffnet ── */}
-      <Thresholds profile={profile} onChanged={load} sport={zielSport} />
+      <Thresholds profile={profile} ftpBefund={ftpBefund} onChanged={load} sport={zielSport} />
 
       <ZoneEditor profile={profile} onSaved={load} />
 
