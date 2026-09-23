@@ -180,7 +180,8 @@ def create_benchmark_plan(db: Session, user=None):
     from services.benchmark_timing import entzerren, naechster_montag, pruefe
 
     ziel_datum = getattr(goal, "race_date", None)
-    lage = pruefe(db, ziel_datum)
+    gemessen = getattr(profile, "zones_updated_at", None)
+    lage = pruefe(db, ziel_datum, gemessen_am=gemessen.date() if gemessen else None)
     if not lage["moeglich"]:
         # Kein stiller Plan zu einem Termin, der schadet: Der Aufrufer bekommt
         # die Gründe und den frühesten sinnvollen Termin zurück.

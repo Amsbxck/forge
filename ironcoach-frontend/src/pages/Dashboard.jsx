@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getWeekMetrics, getLatestHrv, getHrv, getSessions, getProfile, getIntakeStatus, getMe, getFtpCheck, getPmc } from '../services/api'
+import { getWeekMetrics, getLatestHrv, getHrv, getSessions, getProfile, getIntakeStatus, getMe, getFtpCheck, getPmc, getBenchmarkTiming } from '../services/api'
 import HRVInput from '../components/HRVInput'
 import HealthStatus from '../components/HealthStatus'
 import HRVHistoryChart from '../components/HRVHistoryChart'
@@ -53,6 +53,7 @@ export default function Dashboard() {
   const [konto, setKonto] = useState(null)
   const [ftpBefund, setFtpBefund] = useState(null)
   const [pmcServer, setPmcServer] = useState(null)
+  const [testTermin, setTestTermin] = useState(null)
 
   const load = async () => {
     setLoading(true)
@@ -75,6 +76,7 @@ export default function Dashboard() {
       // aufhalten.
       getFtpCheck().then(({ data }) => setFtpBefund(data?.befund || null)).catch(() => setFtpBefund(null))
       getPmc().then(({ data }) => setPmcServer(Array.isArray(data) ? data : null)).catch(() => setPmcServer(null))
+      getBenchmarkTiming().then(({ data }) => setTestTermin(data)).catch(() => setTestTermin(null))
       setMetrics(m.data)
       setHrv(h.data)
       setHrvHistory(Array.isArray(hh.data) ? hh.data : [])
@@ -180,6 +182,27 @@ export default function Dashboard() {
       {konto && konto.email_verified === false && <EmailBestaetigung email={konto.email} />}
 
       <FtpHinweis befund={ftpBefund} onTestwoche={() => navigate('/races')} />
+
+      {/* Vorwarnung auf die nächste Testwoche. Eine Woche vorher, damit die
+          Woche freigehalten werden kann — wer am Montag erfährt, dass diese
+          Woche gemessen wird, hat den Wettkampf am Sonntag schon zugesagt. */}
+      {testTermin?.vorwarnung && (
+        <div className="rounded-xl p-4 flex items-start gap-3 flex-wrap"
+             style={{ background: '#111318', border: '1px solid #1e2228', borderLeft: '3px solid #f59e0b' }}>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-bold text-[#e8eaf0]">Testwoche steht an</div>
+            <p className="text-[13px] text-[var(--text-secondary)] mt-1 leading-relaxed">
+              {testTermin.vorwarnung}
+            </p>
+          </div>
+          <button
+            onClick={() => navigate('/races')}
+            className="px-3 py-1.5 rounded-lg text-[12px] font-mono tracking-wide flex-shrink-0"
+            style={{ background: '#f59e0b20', border: '1px solid #f59e0b44', color: '#f59e0b' }}>
+            ZUR TESTWOCHE
+          </button>
+        </div>
+      )}
 
       <Onboarding warten={intakeFaellig !== false} />
 

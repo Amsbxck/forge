@@ -124,6 +124,8 @@ export const deleteRaceImage = (id) => api.delete(`/api/races/${id}/image`)
 export const fetchRaceImage = (id) =>
   api.get(`/api/races/${id}/image`, { responseType: 'blob' })
 export const getBenchmarkWeek = () => api.get('/api/benchmark/week')
+// Darf die Testwoche jetzt liegen, und wann steht die nächste an?
+export const getBenchmarkTiming = () => api.get('/api/benchmark/timing')
 export const createBenchmarkPlan = () => api.post('/api/benchmark/plan')
 export const getOnboardingStatus = () => api.get('/api/onboarding/status')
 export const deriveZones = (apply = false) =>

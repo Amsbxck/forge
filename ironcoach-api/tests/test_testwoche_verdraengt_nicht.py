@@ -30,11 +30,21 @@ def leere_plaene(db):
 
 @pytest.fixture
 def aufbau_beginnt_spaeter(db):
-    """Der Fall, in dem die Wochennummern zusammenfallen."""
+    """Der Fall, in dem die Wochennummern zusammenfallen.
+
+    `zones_updated_at` wird geleert: Geprüft wird hier die Wochennummer,
+    nicht die Frist bis zum nächsten Test. Mit frisch gemessenen Werten
+    verweigert die Anlage zu Recht, und der Test prüfte dann etwas anderes,
+    als sein Name behauptet.
+    """
     profil = db.query(AthleteProfile).first()
+    vorher = profil.zones_updated_at
     profil.plan_start_date = date.today() + timedelta(days=90)
+    profil.zones_updated_at = None
     db.commit()
-    return profil
+    yield profil
+    profil.zones_updated_at = vorher
+    db.commit()
 
 
 def _plan(db, montag, nummer, phase):

@@ -413,13 +413,29 @@ def benchmark_timing(db: Session = Depends(get_db), user: User | None = Depends(
     from core.deps import get_active_goal
     from services.benchmark_timing import pruefe
 
+    from core.deps import get_profile
+
     goal = get_active_goal(db, user)
-    lage = pruefe(db, getattr(goal, "race_date", None))
+    profil = get_profile(db, user)
+    gemessen = getattr(profil, "zones_updated_at", None)
+    lage = pruefe(
+        db, getattr(goal, "race_date", None),
+        gemessen_am=gemessen.date() if gemessen else None,
+    )
+    from services.benchmark_timing import faelligkeit
+
+    stand = faelligkeit(gemessen.date() if gemessen else None)
     return {
         "moeglich": lage["moeglich"],
         "start": str(lage["start"]) if lage["start"] else None,
         "frueheste": str(lage["frueheste"]) if lage["frueheste"] else None,
         "gruende": lage["gruende"],
+        # Wann der nächste Test ansteht. Die Oberfläche zeigt das an, damit
+        # niemand erst beim Anlegen erfährt, dass es noch zu früh ist — und
+        # damit die Woche vorher freigehalten werden kann.
+        "faellig_am": str(stand["faellig_am"]) if stand["faellig_am"] else None,
+        "tage_bis_faellig": stand["tage_hin"],
+        "vorwarnung": stand["text"] if stand["vorwarnung"] else None,
     }
 
 

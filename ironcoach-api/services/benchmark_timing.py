@@ -39,6 +39,21 @@ SPERRE_NACH_RENNEN = 21
 # Wie nah vor dem Saisonziel kein Test mehr sinnvoll ist.
 SPERRE_VOR_ZIEL = 21
 
+# Wie viele Tage nach einer Messung wieder getestet wird. Dieselbe Zahl, die
+# `services/zones.py` benutzt, um die Werte als überholt zu melden — sie
+# stammt von dort und wird importiert, damit nicht zwei Fristen nebeneinander
+# stehen und auseinanderlaufen.
+#
+# Ein Maximaltest kostet eine Woche Training und zwei bis drei Tage
+# Erholung. Ihn zu wiederholen, solange die Werte frisch sind, bringt keine
+# neue Auskunft und nimmt dem Aufbau eine Woche.
+from services.zones import TAGE_BIS_NEUTEST
+
+# Wie lange vorher angekündigt wird, dass ein Test ansteht. Eine Woche:
+# genug, um die Woche freizuhalten, und nah genug, dass es nicht in
+# Vergessenheit gerät.
+VORWARNUNG_TAGE = 7
+
 
 def naechster_montag(ab: date | None = None) -> date:
     """Der Montag der kommenden Woche.
@@ -63,7 +78,7 @@ def montag_ab(tag: date) -> date:
 
 
 def pruefe(db: Session, ziel_datum: date | None = None,
-           heute: date | None = None) -> dict:
+           heute: date | None = None, gemessen_am: date | None = None) -> dict:
     """Kann die Testwoche in der kommenden Woche liegen?
 
     Gibt immer einen Termin zurück, auch bei einer Sperre — dann den frühesten
@@ -99,6 +114,22 @@ def pruefe(db: Session, ziel_datum: date | None = None,
                 f"{abstand_bei_start} Tage zurück. Ein Maximaltest misst dann vor "
                 f"allem die Restermüdung — und die zu niedrigen Werte würden "
                 f"anschließend monatelang als Vorgabe gelten."
+            )
+
+    # --- Werte noch frisch ---
+    # Der Test misst, was sich seit der letzten Messung verändert hat. Nach
+    # drei Wochen hat sich nichts verändert, was eine Woche Training und
+    # zwei Tage Erholung wert wäre — die Zahlen kämen fast gleich heraus,
+    # und die Woche fehlte im Aufbau.
+    if gemessen_am is not None:
+        faellig = gemessen_am + timedelta(days=TAGE_BIS_NEUTEST)
+        if start < faellig:
+            seit = (heute - gemessen_am).days
+            frueheste = max(frueheste, montag_ab(faellig)) if frueheste else frueheste
+            gruende.append(
+                f"Deine Werte sind erst {seit} Tage alt. Ein neuer Maximaltest "
+                f"misst dann fast dasselbe, kostet aber eine Trainingswoche und "
+                f"zwei Tage Erholung. Fällig wird er am {faellig}."
             )
 
     # --- Laufende Krankheit oder Verletzung ---
@@ -166,3 +197,66 @@ def entzerren(tage: list[dict]) -> list[dict]:
             harte_gesehen = True
         entschaerft.append(tag)
     return entschaerft
+
+
+def faelligkeit(gemessen_am: date | None, heute: date | None = None) -> dict:
+    """Wann die nächste Testwoche ansteht — und ob es Zeit wird, das zu sagen.
+
+    Der Test wiederholt sich alle drei Monate. Ohne Ankündigung fällt er
+    entweder aus oder er fällt in eine Woche, die schon verplant ist: Wer am
+    Montag erfährt, dass diese Woche gemessen wird, hat den Wettkampf am
+    Sonntag bereits zugesagt.
+
+    Eine Woche Vorlauf ist genug, um die Woche freizuhalten, und nah genug,
+    dass es nicht wieder in Vergessenheit gerät.
+    """
+    heute = heute or date.today()
+
+    if gemessen_am is None:
+        # Nie gemessen: Die Testwoche steht aus, nicht an einem Datum,
+        # sondern von Anfang an.
+        return {
+            "faellig_am": None,
+            "tage_hin": None,
+            "faellig": True,
+            "vorwarnung": True,
+            "text": (
+                "Deine Werte wurden noch nie gemessen. Die Testwoche ist der "
+                "erste Schritt — bis dahin plant der Coach mit Schätzungen."
+            ),
+        }
+
+    faellig_am = gemessen_am + timedelta(days=TAGE_BIS_NEUTEST)
+    tage_hin = (faellig_am - heute).days
+    start = montag_ab(faellig_am)
+
+    if tage_hin > VORWARNUNG_TAGE:
+        return {"faellig_am": faellig_am, "tage_hin": tage_hin,
+                "faellig": False, "vorwarnung": False, "text": None}
+
+    if tage_hin > 0:
+        text = (
+            f"In {tage_hin} Tagen steht die nächste Testwoche an — deine Werte "
+            f"sind dann drei Monate alt. Halte dir die Woche ab {start} frei."
+        )
+    else:
+        text = (
+            f"Deine Werte sind {(heute - gemessen_am).days} Tage alt. Die "
+            f"Testwoche ist fällig; lege sie an, sobald die Phase es zulässt."
+        )
+
+    return {"faellig_am": faellig_am, "tage_hin": tage_hin,
+            "faellig": tage_hin <= 0, "vorwarnung": True,
+            "start": start, "text": text}
+
+
+def prompt_block(gemessen_am: date | None, heute: date | None = None) -> str:
+    """Derselbe Befund für den Coach. Leer, solange nichts ansteht."""
+    stand = faelligkeit(gemessen_am, heute)
+    if not stand["vorwarnung"]:
+        return ""
+    return (
+        "## TESTWOCHE\n\n"
+        f"{stand['text']} Plane sie nicht in eine Deload- oder Wettkampfwoche "
+        "und nicht in die drei Wochen nach einem Rennen.\n\n---"
+    )

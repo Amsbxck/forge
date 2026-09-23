@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   getRaceTypes, getActiveGoal, createGoal,
   getRaces, createRace, deleteRace,
-  getBenchmarkWeek, createBenchmarkPlan, deriveZones, getUpcomingRaces, deleteGoal,
+  getBenchmarkWeek, getBenchmarkTiming, createBenchmarkPlan, deriveZones, getUpcomingRaces, deleteGoal,
   updateProfile,
   uploadRaceImage, deleteRaceImage, fetchRaceImage, updateRace,
 } from '../services/api'
@@ -329,6 +329,14 @@ export default function Races() {
 
   useEffect(() => { load() }, [load])
 
+  // Wann die nächste Testwoche ansteht. Eigener Aufruf mit eigenem
+  // Fehlerfang: Die Seite soll auch ohne diese Auskunft benutzbar bleiben.
+  useEffect(() => {
+    getBenchmarkTiming()
+      .then(({ data }) => setTestTermin(data))
+      .catch(() => setTestTermin(null))
+  }, [zones])
+
   const distancesFor = useCallback(
     (sport) => types.find(s => s.key === sport)?.distances || [],
     [types]
@@ -409,6 +417,7 @@ export default function Races() {
   }
 
   const [benchmark, setBenchmark] = useState(null)
+  const [testTermin, setTestTermin] = useState(null)
   const [busy, setBusy] = useState(null)
 
   const checkZones = async () => {
@@ -819,6 +828,20 @@ export default function Races() {
               <p className="text-sm text-[var(--text-secondary)] mt-1">
                 Zonen aus deinen Testeinheiten ableiten statt schätzen.
               </p>
+              {/* Wann der nächste Test ansteht — sonst erfährt man erst beim
+                  Anlegen, dass es noch zu früh ist, und hat die Woche
+                  womöglich schon verplant. */}
+              {testTermin?.vorwarnung ? (
+                <p className="text-[11px] font-mono mt-2 leading-relaxed max-w-md"
+                   style={{ color: '#f59e0b' }}>
+                  {testTermin.vorwarnung}
+                </p>
+              ) : testTermin?.faellig_am ? (
+                <p className="text-[11px] font-mono mt-2 text-[var(--text-muted)]">
+                  Nächste Testwoche ab {testTermin.faellig_am}
+                  {testTermin.tage_bis_faellig != null && ` · in ${testTermin.tage_bis_faellig} Tagen`}
+                </p>
+              ) : null}
             </div>
             <div className="flex gap-2 flex-wrap">
               <button onClick={planBenchmark} disabled={busy === 'plan'}

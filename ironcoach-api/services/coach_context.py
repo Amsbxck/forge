@@ -110,12 +110,15 @@ def bloecke(db: Session, user=None, fakten: dict | None = None) -> dict:
         """
         if not profile:
             return ""
+        from services.benchmark_timing import prompt_block as test_block
         from services.ftp_check import prompt_block as ftp_block
         from services.zones import prompt_block
 
+        gemessen = getattr(profile, "zones_updated_at", None)
         teile = [
             prompt_block(profile, sport=getattr(goal, "sport", None)),
             ftp_block(db, profile),
+            test_block(gemessen.date() if gemessen else None),
         ]
         return "\n\n".join(t for t in teile if t)
 
