@@ -107,3 +107,55 @@ def test_pace_wird_als_ganzes_gerundet(sekunden, erwartet):
     """Minuten aus der ungerundeten Zahl und Sekunden aus dem gerundeten
     Rest ergaben Ausgaben wie "1:60"."""
     assert format_pace(sekunden) == erwartet
+
+
+@pytest.mark.parametrize("pace, erlaubt", [
+    (13.0, False),      # Taminas Fall: Differenz statt Pace eingetragen
+    (44.0, False),
+    (45.0, True),
+    (124.5, True),      # 2:04/100m
+    (300.0, True),
+    (301.0, False),
+])
+def test_direkt_eingetragene_pace_wird_geprueft(client, db, pace, erlaubt):
+    """Sie kam ungefiltert ins Profil.
+
+    Daraus entstehen die Schwimmzonen der nächsten Monate — eine vertippte
+    Zahl fällt erst auf, wenn eine Serie nicht durchzuhalten ist.
+    """
+    from models import AthleteProfile
+
+    profil = db.query(AthleteProfile).first()
+    vorher = profil.css_pace_s_per_100m
+    try:
+        antwort = client.post("/api/profile/swim-test",
+                              json={"css_pace_s_per_100m": pace})
+        assert (antwort.status_code == 200) is erlaubt
+        if not erlaubt:
+            assert "Plausiblen" in antwort.json()["detail"]
+    finally:
+        profil.css_pace_s_per_100m = vorher
+        db.commit()
+
+
+def test_der_gemeldete_fall(client, db):
+    """200 m in 2:09 und 100 m in 1:56 — so eingetragen, so abgelehnt.
+
+    Die 200 m wären mit 1:04/100 m schneller gewesen als die 100 m mit
+    1:56/100 m. Die App rechnete daraus 0:13/100 m: arithmetisch richtig,
+    physikalisch unmöglich. Eine der beiden Zeiten stimmt nicht.
+    """
+    from models import AthleteProfile
+
+    profil = db.query(AthleteProfile).first()
+    vorher = profil.css_pace_s_per_100m
+    try:
+        antwort = client.post("/api/profile/swim-test", json={
+            "t400_s": 129, "t200_s": 116, "d_lang_m": 200, "d_kurz_m": 100,
+        })
+        assert antwort.status_code == 422
+        db.expire_all()
+        assert db.query(AthleteProfile).first().css_pace_s_per_100m == vorher
+    finally:
+        profil.css_pace_s_per_100m = vorher
+        db.commit()

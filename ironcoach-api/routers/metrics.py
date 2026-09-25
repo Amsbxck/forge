@@ -456,9 +456,27 @@ def set_swim_test(
         profile.css_dist_lang_m = d_lang
         profile.css_dist_kurz_m = d_kurz
     elif body.css_pace_s_per_100m:
+        # Auch die direkt eingetragene Pace prüfen. Sie kommt sonst
+        # ungefiltert ins Profil, und daraus entstehen die Schwimmzonen für
+        # die nächsten Monate — eine vertippte Zahl fällt erst auf, wenn eine
+        # Serie nicht durchzuhalten ist.
+        from services.swim_css import MAX_PACE_S_JE_100M, MIN_PACE_S_JE_100M, format_pace
+
         css = round(body.css_pace_s_per_100m, 1)
+        if not MIN_PACE_S_JE_100M <= css <= MAX_PACE_S_JE_100M:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{format_pace(css)} liegt ausserhalb des Plausiblen "
+                    f"({format_pace(MIN_PACE_S_JE_100M)} bis "
+                    f"{format_pace(MAX_PACE_S_JE_100M)}). Die CSS ist eine Pace "
+                    f"je 100 m, nicht die Zeit einer Teststrecke."
+                ),
+            )
         profile.css_t400_s = None
         profile.css_t200_s = None
+        profile.css_dist_lang_m = None
+        profile.css_dist_kurz_m = None
     else:
         raise HTTPException(
             status_code=422,
