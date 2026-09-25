@@ -42,10 +42,20 @@ def wochen_kennung(week_number: int) -> str:
     return f"Woche-{week_number:02d}"
 
 
-def plan_note_path(plan: WeeklyPlan, subdir: str | None = None) -> str:
-    """Eine Note je Trainingswoche, getrennt von den Einheiten."""
+def plan_note_path(
+    plan: WeeklyPlan, subdir: str | None = None, saison: str | None = None
+) -> str:
+    """Eine Note je Trainingswoche, getrennt von den Einheiten.
+
+    Mit Saisonordner, weil die Wochennummer nur innerhalb einer
+    Vorbereitung eindeutig ist: `Woche-12.md` gibt es im 70.3-Aufbau und im
+    Marathonaufbau, und flach in `Plans/` überschreibt der eine den anderen.
+    """
     base = (subdir or settings.OBSIDIAN_VAULT_SUBDIR).strip("/")
-    return f"{base}/Plans/{wochen_kennung(plan.week_number)}.md"
+    teile = [base, "Plans"]
+    if saison:
+        teile.append(saison)
+    return "/".join(teile) + f"/{wochen_kennung(plan.week_number)}.md"
 
 
 def _fmt_pace(seconds: int | None) -> str | None:
@@ -168,9 +178,19 @@ def merge_plan_note(existing: str, plan: WeeklyPlan, rows: list[PlannedSession])
     return f"---\n{frontmatter_text}\n---\n{new_body}"
 
 
-def sync_plan_note(db: Session, plan: WeeklyPlan, client: ObsidianClient | None = None) -> dict:
-    """Wochenplan nach Obsidian schreiben. Wirft nicht."""
+def sync_plan_note(
+    db: Session,
+    plan: WeeklyPlan,
+    client: ObsidianClient | None = None,
+    ziele: list | None = None,
+) -> dict:
+    """Wochenplan nach Obsidian schreiben. Wirft nicht.
+
+    `ziele` sind die A-Rennen, aus denen der Saisonordner folgt — beim
+    Durchlauf über alle Pläne einmal geladen statt je Woche erneut.
+    """
     from core.deps import get_profile
+    from core.saison import saison_name, saison_ziele
     from services.obsidian.client import client_for_profile, vault_subdir_for
 
     profile = get_profile(db)
@@ -178,7 +198,17 @@ def sync_plan_note(db: Session, plan: WeeklyPlan, client: ObsidianClient | None 
     if not client.enabled:
         return {"status": "disabled", "plan_id": plan.id}
 
-    path = plan_note_path(plan, vault_subdir_for(profile))
+    subdir = vault_subdir_for(profile)
+    saison = saison_name(
+        plan.week_start, ziele if ziele is not None else saison_ziele(db)
+    )
+    path = plan_note_path(plan, subdir, saison)
+
+    # Anders als Einheiten tragen Pläne ihren letzten Pfad nicht in der
+    # Datenbank. Der einzige Vorgänger ist deshalb der flache Ort ohne
+    # Saisonordner — von dort wird beim ersten Lauf nach der Umstellung
+    # umgezogen, damit die eigenen Notizen unter dem Plan mitkommen.
+    alt_pfad = plan_note_path(plan, subdir)
     rows = (
         db.query(PlannedSession)
         .filter(PlannedSession.plan_id == plan.id)
@@ -188,19 +218,43 @@ def sync_plan_note(db: Session, plan: WeeklyPlan, client: ObsidianClient | None 
 
     try:
         existing = client.get_note(path)
+        moved_from = None
+        if existing is None and alt_pfad != path:
+            existing = client.get_note(alt_pfad)
+            if existing is not None:
+                moved_from = alt_pfad
+
         if existing is None:
             content = render_plan_note(plan, rows)
         elif note_utils.MARKER_START not in existing:
-            logger.info("Plan-Note %s ohne Managed Block — unangetastet gelassen", path)
-            return {"status": "skipped_block_removed", "path": path, "plan_id": plan.id}
+            # Der Block wurde bewusst entfernt: die Note gehört jetzt dem
+            # Athleten. Dann auch nicht verschieben — sie bleibt, wo sie ist.
+            bleibt = moved_from or path
+            logger.info("Plan-Note %s ohne Managed Block — unangetastet gelassen", bleibt)
+            return {"status": "skipped_block_removed", "path": bleibt, "plan_id": plan.id}
         else:
             content = merge_plan_note(existing, plan, rows)
 
-        if existing is not None and content == existing:
+        if existing is not None and content == existing and not moved_from:
             return {"status": "unchanged", "path": path, "plan_id": plan.id}
 
         client.put_note(path, content)
-        return {"status": "written", "path": path, "plan_id": plan.id, "sessions": len(rows)}
+
+        # Erst nach erfolgreichem Schreiben aufräumen — bricht es dazwischen
+        # ab, bleibt lieber eine Kopie zu viel als gar keine Note.
+        if moved_from:
+            try:
+                client.delete_note(moved_from)
+            except ObsidianError as e:
+                logger.warning("Alte Plan-Note %s nicht entfernt: %s", moved_from, e)
+
+        return {
+            "status": "moved" if moved_from else "written",
+            "path": path,
+            "moved_from": moved_from,
+            "plan_id": plan.id,
+            "sessions": len(rows),
+        }
 
     except ObsidianUnavailable as e:
         logger.warning("Plan-Note %s nicht geschrieben: %s", path, e)

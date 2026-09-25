@@ -6,10 +6,11 @@ Zwei Prinzipien:
    etwas passiert. Schlägt der Sync fehl, bleibt obsidian_synced_at NULL und
    der Reconcile-Job holt es später nach (Outbox-Pattern).
 
-2. **Der Pfad wird eingefroren.** Beim ersten Sync landet er in
-   obsidian_path und gilt ab dann. Ändert sich später der klassifizierte
-   Trainingstyp, wandert die Note NICHT — sonst brechen Obsidian-Links und
-   es bleiben Waisen liegen.
+2. **Der letzte Pfad ist bekannt.** Beim Sync landet er in obsidian_path.
+   Ergibt sich beim nächsten Lauf ein anderer — die Intensität wurde neu
+   klassifiziert, oder der Saisonordner kam hinzu — wird die Note mitsamt
+   Reflexion **verschoben** statt ein zweites Mal geschrieben. Ohne das
+   bliebe die alte Datei als Waise im falschen Ordner liegen.
 """
 
 import logging
@@ -153,11 +154,18 @@ def sync_session(
     session: TrainingSession,
     client: ObsidianClient | None = None,
     commit: bool = True,
+    ziele: list | None = None,
 ) -> dict:
-    """Eine Einheit nach Obsidian schreiben. Wirft nicht — gibt Status zurück."""
+    """Eine Einheit nach Obsidian schreiben. Wirft nicht — gibt Status zurück.
+
+    `ziele` ist die Liste der A-Rennen, aus der der Saisonordner folgt. Wer
+    viele Einheiten in einem Durchgang schreibt, lädt sie einmal und gibt
+    sie herein — sonst steht bei jeder Note dieselbe Abfrage davor.
+    """
     # Profil des Athleten liefert FTP, Zonen und die Vault-Anbindung. Ein
     # globaler Client würde die Notes aller Athleten in denselben Vault
     # schreiben — den der Installation.
+    from core.saison import saison_name, saison_ziele
     from services.obsidian.client import client_for_profile, vault_subdir_for
 
     profile = get_profile(db)
@@ -167,6 +175,9 @@ def sync_session(
 
     ftp = profile.ftp_watts if profile else 238
     subdir = vault_subdir_for(profile)
+    saison = saison_name(
+        session.session_date, ziele if ziele is not None else saison_ziele(db)
+    )
 
     session_data = _session_dict(session, ftp)
 
@@ -180,6 +191,7 @@ def sync_session(
         subdir,
         session_id=session.id,
         intensity=session_data.get("intensity"),
+        saison=saison,
     )
     old_path = session.obsidian_path
     path = target_path

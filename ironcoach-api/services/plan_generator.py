@@ -74,6 +74,12 @@ def build_athlete_dict(profile: AthleteProfile, goal=None) -> dict:
         "z4_hr_max": profile.z4_hr_max,
         "race_date": str(profile.race_date),
         "race_goal": profile.race_goal,
+        # Schwimmwerte, damit der Coach sie im Plan nennen kann. Er plant den
+        # Inhalt der Schwimmeinheit nicht — der kommt aus einem externen
+        # Trainingsplan —, aber ohne CSS und Schwellenpuls im Prompt konnte er
+        # sie dem Athleten auch nicht als Orientierung mitgeben.
+        "css_pace_s_per_100m": profile.css_pace_s_per_100m,
+        "swim_threshold_hr": profile.swim_threshold_hr,
     }
 
 

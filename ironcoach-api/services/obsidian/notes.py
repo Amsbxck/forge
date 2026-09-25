@@ -59,8 +59,9 @@ def note_path(
     subdir: str = "Training",
     session_id=None,
     intensity: str | None = None,
+    saison: str | None = None,
 ) -> str:
-    """Stabiler Pfad: Sportart-Ordner, Datum + eindeutige Kennung im Dateinamen.
+    """Stabiler Pfad: Sportart, Saison, Intensität — Datum im Dateinamen.
 
     Die Kennung verhindert Kollisionen, wenn an einem Tag mehrere Einheiten
     derselben Sportart stattfinden — ein Brick ist in Strava zwei Aktivitäten,
@@ -85,11 +86,25 @@ def note_path(
     # Wanderungen, Ausflüge und Einheiten, die mangels Messwerten nicht
     # eingestuft werden können.
     folder = (discipline or "other").lower()
+    unter = None
     if folder in FUN_DISCIPLINES:
         folder = FUN_FOLDER
     elif folder in INTENSITY_DISCIPLINES:
-        folder = f"{folder}/{intensity}" if intensity else FUN_FOLDER
-    return f"{subdir.strip('/')}/{folder}/{stem}.md"
+        if intensity:
+            unter = intensity
+        else:
+            folder = FUN_FOLDER
+
+    # Die Saison steht zwischen Sportart und Intensität: so liegen die
+    # Läufe einer Vorbereitung zusammen, und `run/` zerfällt nicht in vier
+    # Jahre Bestand ohne erkennbare Zuordnung. Ohne Saison — in Tests und
+    # bei Aufrufern ohne Datenbank — bleibt es beim flachen Aufbau.
+    teile = [subdir.strip("/"), folder]
+    if saison:
+        teile.append(saison)
+    if unter:
+        teile.append(unter)
+    return "/".join(teile) + f"/{stem}.md"
 
 
 # --- YAML (bewusst minimal, keine externe Abhängigkeit) ----------------------

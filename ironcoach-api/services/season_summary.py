@@ -26,6 +26,7 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
+from core.training_types import EXTERN_GEPLANT
 from models import HealthEvent, PlannedSession, TrainingSession, User
 
 logger = logging.getLogger(__name__)
@@ -89,6 +90,10 @@ def _progression(sessions: list[TrainingSession], heute: date) -> dict:
     Einheit belohnt kurze und bestraft lange. Wie schnell jemand ist, steht
     in den Schwellenwerten; ob die Vorgaben zu leicht sind, in der
     Übererfüllung weiter unten.
+
+    Ohne Schwimmen (`EXTERN_GEPLANT`): dessen Aufbau steuert ein externer
+    Plan, und eine Reihe daraus hätte der Coach als Auftrag zum Steigern
+    gelesen.
     """
     reihen: dict[str, list] = {}
     for i in range(BLOECKE):
@@ -97,7 +102,12 @@ def _progression(sessions: list[TrainingSession], heute: date) -> dict:
         start = ende - timedelta(weeks=BLOCK_WOCHEN)
         for s in sessions:
             d = (s.discipline or "").lower()
-            if d in ("rest", "gym") or not (start < s.session_date <= ende):
+            # Schwimmen bleibt draußen: sein Aufbau steht im externen Plan,
+            # und eine Reihe daraus hätte der Coach als Progressionsauftrag
+            # gelesen. Rest und Gym haben keinen Umfang, der sich steigert.
+            if d in ("rest", "gym") or d in EXTERN_GEPLANT:
+                continue
+            if not (start < s.session_date <= ende):
                 continue
             reihe = reihen.setdefault(d, [None] * BLOECKE)
             eintrag = reihe[i] or {"min": 0, "km": 0.0}
@@ -126,6 +136,12 @@ def _belastbarkeit(db: Session, beginn: date, heute: date) -> dict:
         .join(PlannedSession, TrainingSession.planned_session_id == PlannedSession.id)
         .filter(TrainingSession.session_date >= beginn,
                 TrainingSession.session_date <= heute)
+        # Schwimmen zählt nicht: Die Vorgabe ist dort nur ein Termin mit
+        # Dauer, der Inhalt kommt aus dem externen Plan. Wer eine 45-Minuten-
+        # Vorgabe mit einem 70-Minuten-Vereinstraining füllt, hat nichts
+        # übererfüllt — hier wäre daraus "verträgt mehr Umfang" geworden, und
+        # der Coach hätte Rad und Lauf nachgeschärft.
+        .filter(TrainingSession.discipline.notin_(EXTERN_GEPLANT))
         .all()
     )
     mehr, weniger, verworfen, beispiele = 0, 0, 0, []

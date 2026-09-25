@@ -78,20 +78,74 @@ def sync_plan(week_number: int, db: Session = Depends(get_db)):
 @router.post("/obsidian/sync-plans")
 def sync_all_plans(db: Session = Depends(get_db)):
     """Alle aktiven Wochenpläne nachziehen — einmalig nach dem Einbau."""
+    from core.saison import saison_ziele
     from models import WeeklyPlan
     from services.obsidian.plan_note import sync_plan_note
     from services.plan_selection import active_plan_for_week
 
+    ziele = saison_ziele(db)
     weeks = [row[0] for row in db.query(WeeklyPlan.week_number).distinct().all()]
     results = []
     for week in sorted(weeks):
         plan = active_plan_for_week(db, week)
         if plan is not None:
-            results.append(sync_plan_note(db, plan))
+            results.append(sync_plan_note(db, plan, ziele=ziele))
     counts: dict[str, int] = {}
     for r in results:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
     return {"weeks": len(results), "by_status": counts}
+
+
+@router.post("/obsidian/neu-ordnen")
+def neu_ordnen(db: Session = Depends(get_db)):
+    """Bestand in die Saisonordner umziehen — einmalig nach der Umstellung.
+
+    Der Reconcile-Job fasst nur an, was noch nie geschrieben wurde
+    (`obsidian_synced_at IS NULL`). Notes, die vor der Umstellung flach im
+    Vault lagen, wären dadurch für immer dort geblieben. Hier wird jede
+    Einheit einmal erneut synchronisiert; der Umzug samt Reflexion steckt
+    schon in `sync_session`.
+
+    Gibt es keinen Vault, passiert nichts — der Aufruf ist gefahrlos
+    wiederholbar, weil bereits umgezogene Notes als "unchanged" durchlaufen.
+    """
+    from core.saison import saison_ziele
+    from services.obsidian.client import client_for_profile
+    from services.obsidian.sync import sync_session
+    from core.deps import get_profile
+
+    client = client_for_profile(get_profile(db))
+    if not client.enabled:
+        raise HTTPException(status_code=400, detail="Kein Vault verbunden")
+
+    ziele = saison_ziele(db)
+    sessions = (
+        db.query(TrainingSession)
+        .filter(TrainingSession.deleted_at == None)  # noqa: E711
+        .order_by(TrainingSession.session_date.asc())
+        .all()
+    )
+
+    counts: dict[str, int] = {}
+    umgezogen = []
+    for session in sessions:
+        result = sync_session(db, session, client=client, ziele=ziele)
+        counts[result["status"]] = counts.get(result["status"], 0) + 1
+        if result.get("moved_from"):
+            umgezogen.append({"von": result["moved_from"], "nach": result["path"]})
+        # Ist der Vault mitten im Durchgang weg, bringt das Weitermachen
+        # nichts — die restlichen Einheiten bleiben offen und der
+        # Reconcile-Job holt sie nach.
+        if result["status"] == "unavailable":
+            break
+
+    plaene = sync_all_plans(db)
+    return {
+        "einheiten": len(sessions),
+        "by_status": counts,
+        "umgezogen": umgezogen,
+        "plaene": plaene,
+    }
 
 
 @router.post("/obsidian/sync-pending")

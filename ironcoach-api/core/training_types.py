@@ -138,6 +138,16 @@ INTENSITY_DISCIPLINES = ("bike", "run", "brick")
 FUN_FOLDER = "fun"
 FUN_DISCIPLINES = ("hike", "other")
 
+# Disziplinen, deren Inhalt aus einem externen Trainingsplan kommt. Der Coach
+# setzt dafür nur den Termin; wie die Einheit aussieht, steht im Vereins- oder
+# Schwimmtrainerplan. Deshalb darf aus ihnen auch kein Progressionssignal
+# gelesen werden: Ob die lange Schwimmeinheit wächst oder schrumpft, entscheidet
+# nicht dieser Plan — eine schrumpfende Reihe sähe hier nach Rückschritt aus und
+# hätte den Coach dazu gebracht, gegen einen Plan zu steuern, den er nicht kennt.
+# Freiwasser ist die Ausnahme (dafür gibt es keinen externen Plan), aber es hängt
+# an derselben Disziplin und lässt sich an dieser Stelle nicht trennen.
+EXTERN_GEPLANT = ("swim",)
+
 INTENSITIES = ["base", "sweet_spot", "threshold", "vo2max"]
 
 INTENSITY_LABEL = {

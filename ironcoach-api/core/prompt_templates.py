@@ -173,7 +173,7 @@ aus genau dieser Liste:
 |----------|------------------------|
 | bike | recovery, z2_endurance, sweet_spot, threshold, vo2max, race_pace, long_ride |
 | run | recovery, walk_run, z2_endurance, tempo, intervals, threshold, vo2max, brick_run, long_run |
-| swim | technique, endurance, intervals, open_water |
+| swim | endurance (Becken, immer) · open_water (nur ab Peak) |
 | gym | strength, mobility |
 | brick | brick |
 | other | cross_training |
@@ -268,8 +268,13 @@ obwohl sie Teil der Einheit ist.
 }
 ```
 
-**swim / gym:** `{}` (leer, nur duration_min + notes) — bei gym nennt `notes`
-keine Übungen und keine Muskelgruppen
+**swim (Becken) / gym:** `{}` (leer, nur duration_min + notes) — bei gym nennt
+`notes` keine Übungen und keine Muskelgruppen, beim Schwimmen keine Serien und
+keine Technikübungen (der Inhalt kommt aus einem externen Trainingsplan)
+
+**swim mit training_type `open_water`:** `{"struktur": "10 min einschwimmen · 20 min GA · 10 min zügig · 5 min ausschwimmen", "ziel_hr": "Z2"}`
+— die einzige Schwimmeinheit mit Inhalt, weil es für Freiwasser keinen
+externen Plan gibt. Gliederung nach Dauer und Intensität, keine Serien.
 """
 
 
@@ -368,6 +373,14 @@ def build_plan_prompt(
     week_days = [(day_names[i], str(week_start + timedelta(days=i))) for i in range(7)]
     week_days_str = "\n".join(f"- {name}: {d}" for name, d in week_days)
 
+    # Schwimm-Orientierungswerte als fertiger Text. Fehlt einer, steht dort
+    # "unbekannt" — dann darf der Coach ihn weglassen statt einen Wert zu
+    # erfinden, den der Athlet für gemessen halten würde.
+    css_s = athlete_profile.get("css_pace_s_per_100m")
+    css_text = f"{int(css_s) // 60}:{int(css_s) % 60:02d}/100m" if css_s else "unbekannt"
+    swim_hr = athlete_profile.get("swim_threshold_hr")
+    swim_hr_text = f"{swim_hr} bpm" if swim_hr else "unbekannt"
+
     return f"""## Athletenprofil
 - Name: {athlete_profile.get('name') or 'Athlet'}
 - Ziel: {athlete_profile.get('race_name') or athlete_profile.get('goal_label') or 'Triathlon'} am {athlete_profile['race_date']}{f" — {athlete_profile.get('goal_label')}" if athlete_profile.get('race_name') and athlete_profile.get('goal_label') else ''}
@@ -376,6 +389,7 @@ def build_plan_prompt(
 - FTP: {athlete_profile['ftp_watts']}W
 - Max HR: {athlete_profile['max_hr']} bpm
 - HR-Zonen: Z1 0-{athlete_profile['z1_hr_max']} | Z2 {athlete_profile['z2_hr_min']}-{athlete_profile['z2_hr_max']} | Z3 {athlete_profile['z3_hr_min']}-{athlete_profile['z3_hr_max']} | Z4 {athlete_profile['z4_hr_min']}-{athlete_profile['z4_hr_max']} | Z5 >{athlete_profile['max_hr']}
+- Schwimmen: CSS {css_text} | Schwellenpuls {swim_hr_text}
 - Equipment: Wahoo KICKR Core, Zwift, Garmin Forerunner 255, Wahoo Elemnt Bolt v2
 
 {offseason_block}
@@ -513,8 +527,36 @@ Beispiel: 88% FTP = {int(athlete_profile['ftp_watts'] * 0.88)}W, 95% FTP = {int(
 - **HR-Ziel:** Z2 (139-173 bpm)
  
 ### Schwimmen
-- Eigener Plan, 2×/Woche
-- Nur Termin + Dauer, keine Details
+Der Athlet schwimmt nach einem **externen Trainingsplan** — aus dem Verein,
+einer App oder von einem Schwimmtrainer. Dieser Plan kennt Becken, Gruppe und
+Technikstand; du kennst sie nicht. Eine Serie vorzugeben, die neben dem
+externen Plan steht, hieße zwei Pläne gegeneinander laufen zu lassen.
+
+- 2×/Woche, **nur Termin und Dauer**. `training_type` immer `endurance`.
+- **Kein Inhalt.** Keine Serien, keine Strecken, keine Technikübungen, keine
+  Intervallvorgaben — auch nicht in `notes`. `details` bleibt `{{}}`.
+- `notes` sagt, dass Schwimmen ansteht, und nennt die Orientierungswerte:
+  CSS und Schwellenpuls. Mehr nicht. Beispiel:
+  "Schwimmen nach deinem externen Plan. Orientierung: CSS {css_text}, Schwellenpuls {swim_hr_text}."
+- Fehlt ein Wert, lass ihn weg statt zu raten.
+- **Kein Progressionsziel.** Steigere die Schwimmdauer nicht von Woche zu
+  Woche und leite aus vergangenen Schwimmeinheiten keine Vorgabe ab — der
+  Aufbau steckt im externen Plan.
+
+### Freiwasser (ab Peak)
+Ab der **Peak-Phase** ersetzt eine der beiden Schwimmeinheiten das Becken
+durch Freiwasser. Dafür gibt es keinen externen Plan, also planst du sie
+selbst — hier ist Struktur ausdrücklich erwünscht.
+
+- `training_type` `open_water`, `details` mit Dauer und Grobgliederung.
+- Gegliedert nach Dauer und Intensität, z.B. "10 min einschwimmen · 20 min GA
+  · 10 min zügig · 5 min ausschwimmen". Länge an der Wettkampfdistanz
+  orientiert, im Peak bis zur Renndistanz aufgebaut.
+- **Keine Technikübungen und keine Serien.** Ohne Bahn, Wand und Uhr am
+  Beckenrand ist beides im Freiwasser nicht durchführbar.
+- Wettkampfnahe Punkte gehören hierher: Neopren, Sichten/Orientieren,
+  Massenstart, Beschleunigung auf den ersten Metern.
+- Im Taper bleibt Freiwasser, aber kurz und ohne harte Anteile.
  
 ### Ersatztraining (session_type `other`)
 - Für Ausdauer ohne die eigentliche Disziplin: StairMaster, Crosstrainer,
