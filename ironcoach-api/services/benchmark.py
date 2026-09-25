@@ -456,6 +456,13 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
         if session.discipline != "swim":
             continue
         treffer = detect_from_session(session)
+        if treffer and treffer.get("einwand"):
+            # Runden gefunden, aber der Test trägt nicht. Der Grund wird
+            # weitergereicht, damit er in der Oberfläche steht — sonst
+            # meldet die Ableitung nur "keine Daten" und der Athlet sucht
+            # den Fehler an der falschen Stelle.
+            result["css_hinweis"] = treffer["einwand"]
+            continue
         if treffer:
             result["css_pace_s_per_100m"] = treffer["css_pace_s_per_100m"]
             result["css_pace_label"] = format_pace(treffer["css_pace_s_per_100m"])
@@ -553,6 +560,7 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
             "status": "no_usable_data",
             "checked_sessions": len(sessions),
             **({"ftp_hinweis": result["ftp_hinweis"]} if "ftp_hinweis" in result else {}),
+            **({"css_hinweis": result["css_hinweis"]} if "css_hinweis" in result else {}),
             **({"sources": result["sources"]} if result.get("sources") else {}),
         }
 

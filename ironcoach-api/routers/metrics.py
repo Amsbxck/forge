@@ -433,6 +433,15 @@ def set_swim_test(
                 detail=f"Nur diese Streckenpaare sind vorgesehen: {erlaubt}.",
             )
 
+        from services.swim_css import paar_plausibel
+
+        einwand = paar_plausibel(body.t400_s, body.t200_s, d_lang, d_kurz)
+        if einwand:
+            # Ablehnen statt speichern: Eine zu schnelle CSS macht jede
+            # Schwimmeinheit der nächsten Monate zu hart, und der Fehler
+            # zeigt sich erst als Abbruch mitten in der Serie.
+            raise HTTPException(status_code=422, detail=einwand)
+
         css = css_from_times(body.t400_s, body.t200_s, d_lang, d_kurz)
         if css is None:
             raise HTTPException(

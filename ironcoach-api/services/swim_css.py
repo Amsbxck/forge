@@ -70,12 +70,64 @@ def css_from_times(
     return round((t_lang_s - t_kurz_s) / strecke_100m, 1)
 
 
+def pace_je_100m(meter: float, sekunden: float) -> float | None:
+    """Sekunden je 100 m, oder None bei unbrauchbaren Werten."""
+    if not meter or not sekunden or meter <= 0 or sekunden <= 0:
+        return None
+    return sekunden / (meter / 100)
+
+
+def paar_plausibel(
+    t_lang_s: float, t_kurz_s: float, d_lang_m: int, d_kurz_m: int
+) -> str | None:
+    """Beschreibt, was gegen dieses Streckenpaar spricht — oder None.
+
+    Der Test unterstellt **zwei maximale** Versuche. Ist das kürzere Stück
+    nicht deutlich schneller als das längere, war es keiner: Dann steckt in
+    beiden Zeiten derselbe Anteil Ausdauer, die Differenz wird zu klein und
+    die CSS fällt viel zu schnell aus.
+
+    Rechnerisch ist der Zusammenhang unmittelbar. Für 400/200 gilt
+
+        CSS = 2 x Pace(400) - Pace(200)
+
+    Sind beide Pace gleich, ist die CSS gleich der 400-m-Pace — die App
+    behauptete dann, das Renntempo über 400 m sei dauerhaft haltbar.
+    """
+    p_lang = pace_je_100m(d_lang_m, t_lang_s)
+    p_kurz = pace_je_100m(d_kurz_m, t_kurz_s)
+    if p_lang is None or p_kurz is None:
+        return "Zu einer der beiden Strecken fehlen Distanz oder Zeit."
+
+    for name, pace in ((f"{d_lang_m} m", p_lang), (f"{d_kurz_m} m", p_kurz)):
+        if pace < MIN_PACE_S_JE_100M:
+            return f"Die Zeit über {name} ist für Schwimmen unmöglich schnell."
+        if pace > MAX_PACE_S_JE_100M:
+            return f"Die Zeit über {name} ist unplausibel langsam."
+
+    if p_kurz >= p_lang:
+        return (
+            f"Über {d_kurz_m} m warst du je 100 m nicht schneller als über "
+            f"{d_lang_m} m ({format_pace(p_kurz)} gegen {format_pace(p_lang)}). "
+            f"Der Test setzt zwei maximale Versuche voraus — die kürzere "
+            f"Strecke muss deutlich schneller sein. Meist fehlte die Erholung "
+            f"dazwischen. Wiederhole sie mit mehr Pause, oder trag die CSS "
+            f"direkt ein, wenn du sie kennst."
+        )
+    return None
+
+
 def format_pace(sekunden_je_100m: float | None) -> str | None:
+    """Pace als m:ss je 100 m.
+
+    Zuerst auf ganze Sekunden runden, dann teilen. Umgekehrt entsteht bei
+    119,5 Sekunden die Ausgabe "1:60": Die Minuten kommen aus der
+    ungerundeten Zahl, die Sekunden aus dem gerundeten Rest.
+    """
     if not sekunden_je_100m:
         return None
-    minuten = int(sekunden_je_100m // 60)
-    rest = int(round(sekunden_je_100m % 60))
-    return f"{minuten}:{rest:02d}/100m"
+    ganz = int(round(sekunden_je_100m))
+    return f"{ganz // 60}:{ganz % 60:02d}/100m"
 
 
 def _passende_runde(runden: list[dict], meter: int) -> dict | None:
@@ -127,6 +179,17 @@ MIN_DAUER_KURZ_S = 60
 # Lieber kein Wert als einer, der die Schwelle systematisch zu hoch ansetzt.
 MIN_STRECKE_FUER_HR_M = 400
 
+# Grenzen, innerhalb derer eine Runde überhaupt als Schwimmen durchgeht.
+# Der Weltrekord über 100 m Freistil liegt bei rund 46 Sekunden; alles
+# Schnellere ist ein Aufzeichnungsfehler. Nach oben grosszügig, damit
+# Anfänger nicht herausfallen.
+#
+# Anlass: In den Daten steckte eine Runde "600 m in 3 Sekunden" — ein
+# Artefakt aus einer Pause. Als schnellste Runde ihrer Länge wäre sie
+# ausgewählt worden.
+MIN_PACE_S_JE_100M = 45
+MAX_PACE_S_JE_100M = 300
+
 
 def guete(t_lang_s: float | None, t_kurz_s: float | None) -> str | None:
     """Vorbehalt zum Ergebnis, oder None, wenn es keinen gibt.
@@ -163,10 +226,19 @@ def detect_from_session(session: TrainingSession) -> dict | None:
     if not runden:
         return None
 
+    letzter_einwand = None
     for d_lang, d_kurz in PAARE:
         r_lang = _passende_runde(runden, d_lang)
         r_kurz = _passende_runde(runden, d_kurz)
         if not r_lang or not r_kurz:
+            continue
+
+        einwand = paar_plausibel(r_lang["t"], r_kurz["t"], d_lang, d_kurz)
+        if einwand:
+            # Nicht stillschweigend das nächstkürzere Paar nehmen: Das läge
+            # dann ebenso daneben, nur unauffälliger. Der Grund wird
+            # gemeldet, damit er behoben werden kann.
+            letzter_einwand = einwand
             continue
 
         css = css_from_times(r_lang["t"], r_kurz["t"], d_lang, d_kurz)
@@ -194,6 +266,11 @@ def detect_from_session(session: TrainingSession) -> dict | None:
             },
         }
 
+    # Kein brauchbares Paar. Wenn es an der Plausibilität lag, wird der Grund
+    # zurückgegeben statt nur "nichts gefunden" — sonst sucht der Athlet den
+    # Fehler bei der App statt beim Test.
+    if letzter_einwand:
+        return {"einwand": letzter_einwand}
     return None
 
 
@@ -212,6 +289,6 @@ def detect_recent(db: Session, user: User | None = None, days: int = 28) -> dict
 
     for session in query.order_by(TrainingSession.session_date.desc()).all():
         treffer = detect_from_session(session)
-        if treffer:
+        if treffer and not treffer.get("einwand"):
             return treffer
     return None
