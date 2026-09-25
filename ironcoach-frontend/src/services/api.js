@@ -157,11 +157,6 @@ export const getIntegrations = () => api.get('/api/integrations')
 export const updateObsidian = (data) => api.patch('/api/integrations/obsidian', data)
 export const testObsidian = (data = {}) =>
   api.post('/api/integrations/obsidian/test', data, { timeout: 20000 })
-// Zieht den gesamten Bestand in die Saisonordner um. Läuft über alle
-// Einheiten und alle Wochenpläne, jede mit einem Schreibvorgang in den Vault
-// — bei mehreren hundert Notizen dauert das Minuten, nicht Sekunden.
-export const reorganizeVault = () =>
-  api.post('/api/obsidian/neu-ordnen', null, { timeout: 600000 })
 export const getWebhookStatus = () => api.get('/api/integrations/strava/webhook')
 export const registerWebhook = (publicBaseUrl) =>
   api.post('/api/integrations/strava/webhook', { public_base_url: publicBaseUrl || null }, { timeout: 30000 })

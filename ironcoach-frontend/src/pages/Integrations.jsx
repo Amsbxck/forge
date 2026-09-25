@@ -3,7 +3,6 @@ import {
   getIntegrations, updateObsidian, testObsidian,
   getStravaAuthUrl, disconnectStrava,
   getWebhookStatus, registerWebhook, deleteWebhook,
-  reorganizeVault,
 } from '../services/api'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
@@ -32,7 +31,6 @@ export default function Integrations() {
   const [webhook, setWebhook] = useState(null)
   const [publicUrl, setPublicUrl] = useState('')
   const [hookResult, setHookResult] = useState(null)
-  const [ordnung, setOrdnung] = useState(null)
   // Ergebnis der Strava-Freigabe, aus der Adresszeile gelesen.
   const [stravaRueckmeldung, setStravaRueckmeldung] = useState(null)
 
@@ -126,16 +124,6 @@ export default function Integrations() {
       if (data?.base_url) setForm(f => ({ ...f, base_url: data.base_url }))
     } catch (err) {
       setTest({ ok: false, error: err.response?.data?.detail || 'Test fehlgeschlagen' })
-    } finally { setBusy(null) }
-  }
-
-  const ordnen = async () => {
-    setBusy('ordnen'); setOrdnung(null); setError(null)
-    try {
-      const { data } = await reorganizeVault()
-      setOrdnung(data)
-    } catch (err) {
-      setOrdnung({ error: err.response?.data?.detail || 'Umsortieren fehlgeschlagen' })
     } finally { setBusy(null) }
   }
 
@@ -401,65 +389,9 @@ export default function Integrations() {
                   style={{ border: '1px solid #1e2228' }}>
             {busy === 'test' ? 'PRÜFT…' : 'VERBINDUNG TESTEN'}
           </button>
-          {state.obsidian.configured && (
-            <button type="button" onClick={ordnen} disabled={busy === 'ordnen'}
-                    className="px-4 py-2 rounded-lg text-sm font-mono text-[var(--text-secondary)] disabled:opacity-40"
-                    style={{ border: '1px solid #1e2228' }}>
-              {busy === 'ordnen' ? 'SORTIERT…' : 'VAULT NEU ORDNEN'}
-            </button>
-          )}
           {saved && <span className="text-[11px] font-mono" style={{ color: '#22c55e' }}>✓ gespeichert</span>}
         </div>
 
-        {ordnung && (() => {
-          const schiefgegangen = !!ordnung.error || ordnung.abgebrochen
-          const farbe = schiefgegangen ? '#ef4444' : '#22c55e'
-          return (
-            <div className="rounded-lg px-3 py-2 font-mono text-[11px] leading-relaxed"
-                 style={{
-                   background: `${farbe}12`,
-                   border: `1px solid ${farbe}33`,
-                   color: farbe,
-                 }}>
-              {ordnung.error ? `✕ ${ordnung.error}` : schiefgegangen ? (
-                <>
-                  ✕ Abgebrochen nach {ordnung.erreicht} von {ordnung.einheiten} Notizen —
-                  der Vault hat nicht geantwortet.
-                  {ordnung.fehler && (
-                    <div className="mt-1 break-all">{ordnung.fehler}</div>
-                  )}
-                  <div className="text-[var(--text-secondary)] mt-1">
-                    Nichts verloren: „Verbindung testen" erst grün bekommen, dann
-                    hier erneut drücken.
-                  </div>
-                </>
-              ) : (
-                <>
-                  ✓ {ordnung.umgezogen?.length || 0} von {ordnung.einheiten} Notizen umgezogen
-                  {ordnung.plaene?.weeks > 0 && `, ${ordnung.plaene.weeks} Wochenpläne geprüft`}
-                  {ordnung.umgezogen?.length > 0 && (
-                    <div className="text-[var(--text-secondary)] mt-1 break-all">
-                      z.B. {ordnung.umgezogen[0].von} → {ordnung.umgezogen[0].nach}
-                    </div>
-                  )}
-                  {ordnung.verwaiste_plaene?.length > 0 && (
-                    <div className="text-[var(--text-secondary)] mt-1">
-                      {ordnung.verwaiste_plaene.filter(v => v.status === 'verschoben').length} Pläne
-                      früherer Saisons eingeordnet
-                      {ordnung.verwaiste_plaene.some(v => v.status !== 'verschoben') &&
-                        ` · ${ordnung.verwaiste_plaene.filter(v => v.status !== 'verschoben').length} liegengelassen`}
-                    </div>
-                  )}
-                  {ordnung.umgezogen?.length === 0 && (
-                    <div className="text-[var(--text-secondary)] mt-1">
-                      Alle Notizen lagen schon richtig.
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )
-        })()}
 
         {test && (
           <div className="rounded-lg px-3 py-2 font-mono text-[11px] leading-relaxed"

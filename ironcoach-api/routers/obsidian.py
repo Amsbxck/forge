@@ -98,7 +98,14 @@ def sync_all_plans(db: Session = Depends(get_db)):
 
 @router.post("/obsidian/neu-ordnen")
 def neu_ordnen(db: Session = Depends(get_db)):
-    """Bestand in die Saisonordner umziehen — einmalig nach der Umstellung.
+    """Bestand in die Saisonordner umziehen — Wartungsaufruf ohne Knopf.
+
+    Bewusst nicht in der Oberfläche: Amir hat seinen Altbestand von Hand
+    geordnet, und ein Knopf, der einmal im Leben einer Installation gebraucht
+    wird, steht dort nur im Weg. Der Weg hierher ist ein POST von Hand.
+    Gebraucht wird er, wenn jemand einen Vault mit bestehenden Notizen
+    anbindet oder ein Rennen umbenennt — beides ändert die Zielordner für
+    Notizen, die schon geschrieben sind.
 
     Der Reconcile-Job fasst nur an, was noch nie geschrieben wurde
     (`obsidian_synced_at IS NULL`). Notes, die vor der Umstellung flach im
