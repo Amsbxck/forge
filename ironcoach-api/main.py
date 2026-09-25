@@ -183,4 +183,19 @@ async def _budget_exhausted(request, exc: BudgetExhausted):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    """Lebenszeichen — und welcher Stand gerade läuft.
+
+    Der Commit steht hier, weil sonst nicht zu klären ist, ob eine Korrektur
+    schon in Betrieb ist. Genau daran hing eine Fehlersuche fest: Die
+    Fehlermeldung war Zeichen für Zeichen dieselbe wie vor dem Deploy, und es
+    gab keine Möglichkeit zu entscheiden, ob der Fehler noch derselbe war oder
+    der alte Stand noch lief. Railway setzt die Variable selbst.
+    """
+    import os
+
+    sha = os.environ.get("RAILWAY_GIT_COMMIT_SHA") or ""
+    return {
+        "status": "ok",
+        "commit": sha[:7] or "unbekannt",
+        "deployed_at": os.environ.get("RAILWAY_DEPLOYMENT_ID", "")[:8] or None,
+    }
