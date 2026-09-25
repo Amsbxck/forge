@@ -78,11 +78,25 @@ def _breaker_fuer(base_url: str) -> _CircuitBreaker:
 
 
 class ObsidianClient:
-    #: Wie lange "Verbindung testen" auf eine kalte Verbindung warten darf.
-    #: Der Weg geht über den SOCKS5-Tunnel ins Tailnet: erst Pfadsuche zur
-    #: Gegenstelle (anfangs über einen Relay, später direkt), dann ein
-    #: TLS-Handschlag mit vollständiger Zertifikatskette. Die allgemeine
-    #: Grenze von 5 s reicht dafür beim ersten Versuch oft nicht.
+    #: Wie lange der **Aufbau** einer Verbindung dauern darf.
+    #:
+    #: Getrennt von der Lesegrenze, weil beides verschiedene Dinge sind. Der
+    #: Aufbau geht durch den SOCKS5-Tunnel ins Tailnet: erst Pfadsuche zur
+    #: Gegenstelle, dann ein TLS-Handschlag mit vollständiger
+    #: Zertifikatskette. Läuft die Verbindung über einen Relay statt direkt,
+    #: dauert genau dieser Handschlag mehrere Sekunden — und ob direkt oder
+    #: über Relay entscheidet Tailscale allein, das wechselt im Betrieb.
+    #:
+    #: Vorher galt eine einzige Grenze von 5 s für alles. Solange die
+    #: Verbindung direkt stand, lief der Abgleich; sobald Tailscale auf einen
+    #: Relay zurückfiel, scheiterte er reihenweise mit "handshake operation
+    #: timed out" — bei unveränderter, einwandfrei erreichbarer Gegenstelle.
+    #: Der Fehler sah dadurch jedes Mal nach einem Problem im Vault aus.
+    CONNECT_TIMEOUT_S = 20.0
+
+    #: Wie lange "Verbindung testen" insgesamt warten darf. Großzügiger als
+    #: der Abgleich: Wer auf eine Prüfung wartet, wartet lieber zwei Sekunden
+    #: länger als dass er eine falsche Antwort bekommt.
     PING_TIMEOUT_S = 20.0
 
     def __init__(
@@ -146,8 +160,14 @@ class ObsidianClient:
 
         for attempt in range(retries + 1):
             try:
+                grenze = timeout if timeout is not None else self.timeout
                 with httpx.Client(
-                    timeout=timeout if timeout is not None else self.timeout,
+                    # Lesen bleibt kurz — ein hängender Vault darf den
+                    # Strava-Ingest nicht aufhalten. Nur der Aufbau bekommt
+                    # Luft, denn der hängt am Netz, nicht am Plugin.
+                    timeout=httpx.Timeout(
+                        grenze, connect=max(grenze, self.CONNECT_TIMEOUT_S)
+                    ),
                     verify=self.verify,
                     # Ohne Proxy verhält sich der Client wie bisher.
                     proxy=self.proxy or None,

@@ -74,7 +74,8 @@ def test_die_zeitgrenze_der_pruefung_kommt_beim_client_an(monkeypatch):
 
     c = ObsidianClient(base_url="https://x.ts.net:27124", api_key="k")
     c.ping()
-    assert gesehen["timeout"] == c.PING_TIMEOUT_S
+    assert gesehen["timeout"].read == c.PING_TIMEOUT_S
+    assert gesehen["timeout"].connect == c.PING_TIMEOUT_S
 
 
 def test_ein_kaputter_vault_sperrt_nicht_den_anderen(monkeypatch):
@@ -96,3 +97,36 @@ def test_ein_kaputter_vault_sperrt_nicht_den_anderen(monkeypatch):
 
     assert client_mod._breaker_fuer(kaputt.base_url).is_open
     assert not client_mod._breaker_fuer("https://amirs-macbook-air.ts.net:27124").is_open
+
+
+def test_aufbau_bekommt_mehr_zeit_als_das_lesen(monkeypatch):
+    """Der TLS-Handschlag hängt am Netz, nicht am Plugin.
+
+    Beobachtet in Produktion: Solange Tailscale eine direkte Verbindung
+    hatte, lief der Abgleich. Sobald es auf einen Relay zurückfiel, scheiterte
+    er reihenweise mit "handshake operation timed out" — bei unveränderter,
+    einwandfrei erreichbarer Gegenstelle. Die 5-s-Grenze galt für alles,
+    also auch für den Aufbau.
+    """
+    gesehen = {}
+    echt = httpx.Client.__init__
+
+    def fake_init(self, *a, **kw):
+        gesehen["timeout"] = kw.get("timeout")
+        echt(self, *a, **kw)
+
+    class Antwort:
+        status_code = 200
+        text = "inhalt"
+
+    monkeypatch.setattr(httpx.Client, "__init__", fake_init)
+    monkeypatch.setattr(httpx.Client, "request", lambda self, m, u, **k: Antwort())
+
+    c = ObsidianClient(base_url="https://x.ts.net:27124", api_key="k")
+    c.get_note("Training/x.md")
+
+    grenze = gesehen["timeout"]
+    assert grenze.connect == c.CONNECT_TIMEOUT_S
+    # Lesen bleibt kurz: ein hängender Vault darf den Ingest nicht aufhalten.
+    assert grenze.read == c.timeout
+    assert grenze.connect > grenze.read
