@@ -70,9 +70,12 @@ def test_erkennung_liefert_den_grund_statt_stillzuschweigen():
 
 def test_erkennung_nimmt_nicht_ersatzweise_das_kuerzere_paar():
     """Das läge ebenso daneben, nur unauffälliger."""
+    # Durchgehend langsamer, je kürzer die Strecke — kein Paar trägt.
     einheit = _Einheit([
-        _lap(400, 473), _lap(200, 239),     # 200er nicht schneller je 100 m
-        _lap(100, 119), _lap(50, 61),       # 50er ebenfalls nicht (2:02 gegen 1:59)
+        _lap(400, 473),   # 1:58/100m
+        _lap(200, 239),   # 2:00/100m
+        _lap(100, 121),   # 2:01/100m
+        _lap(50, 63),     # 2:06/100m
     ])
     treffer = detect_from_session(einheit)
     assert "css_pace_s_per_100m" not in treffer
