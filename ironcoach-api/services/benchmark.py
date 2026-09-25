@@ -459,12 +459,23 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
         if treffer:
             result["css_pace_s_per_100m"] = treffer["css_pace_s_per_100m"]
             result["css_pace_label"] = format_pace(treffer["css_pace_s_per_100m"])
-            # Der Puls während der 400 m ist das Einzige, was der Test an
-            # Herzfrequenz hergibt. Er liegt über der Schwelle — 400 m
-            # maximal sind kein Dauertempo —, deshalb ein Abschlag von 5 %
-            # und die ausdrückliche Kennzeichnung als Schätzung.
+            # Der Puls der 400-m-Runde, ohne Abschlag.
+            #
+            # Hier stand ein Abschlag von fünf Prozent — ohne Beleg. Die
+            # Literatur beschreibt den Weg anders: Pace **und** Puls der
+            # 400 m ergeben die Schwellenwerte, direkt.
+            #
+            # Der Abschlag wirkte dabei doppelt in dieselbe Richtung. Der
+            # Rundendurchschnitt liegt schon unter dem Plateau, weil der Puls
+            # die ersten Minuten braucht, um anzukommen. Noch einmal fünf
+            # Prozent abzuziehen setzt die Schwelle zu tief — und ein zu
+            # tiefer Bezugswert bläht jede Schwimm-TSS auf, um rund elf
+            # Prozent, weil die Intensität quadratisch eingeht.
+            #
+            # Eine Schätzung bleibt es trotzdem: Sie wird als "auto"
+            # gekennzeichnet und ist im Profil überschreibbar.
             if treffer.get("hr_400"):
-                result["swim_threshold_hr"] = round(treffer["hr_400"] * 0.95)
+                result["swim_threshold_hr"] = treffer["hr_400"]
             result["sources"]["css"] = {
                 "session_id": treffer["session_id"],
                 "date": treffer["date"],

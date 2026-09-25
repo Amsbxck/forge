@@ -115,6 +115,18 @@ def _passende_runde(runden: list[dict], meter: int) -> dict | None:
 MIN_DAUER_LANG_S = 120
 MIN_DAUER_KURZ_S = 60
 
+# Ab welcher Streckenlänge aus dem Test ein Schwellenpuls abgeleitet wird.
+#
+# Nur aus dem 400-m-Protokoll, und das aus zwei Gründen. Es ist das
+# einzige, für das die Literatur diesen Weg beschreibt — Puls der 400 m als
+# Schwelle. Und je kürzer die Strecke, desto weiter liegt der Puls darüber:
+# Ein 200-m-Sprint dauert zweieinhalb Minuten, dort ist der Wert keine
+# Schwelle mehr, sondern fast das Maximum.
+#
+# Bei den kürzeren Paaren bleibt das Feld leer und wird von Hand gesetzt.
+# Lieber kein Wert als einer, der die Schwelle systematisch zu hoch ansetzt.
+MIN_STRECKE_FUER_HR_M = 400
+
 
 def guete(t_lang_s: float | None, t_kurz_s: float | None) -> str | None:
     """Vorbehalt zum Ergebnis, oder None, wenn es keinen gibt.
@@ -172,10 +184,8 @@ def detect_from_session(session: TrainingSession) -> dict | None:
             # an Herzfrequenz hergibt — brauchbar als Schätzung für die
             # Schwelle im Wasser, aber eher zu hoch.
             #
-            # Nur ab 200 m: Über 100 m maximal liegt der Puls so weit über
-            # der Schwelle, dass der übliche Abschlag von fünf Prozent ihn
-            # nicht mehr einfängt. Lieber kein Wert als ein falscher.
-            "hr_400": r_lang.get("hr") if d_lang >= 200 else None,
+            # Siehe MIN_STRECKE_FUER_HR_M — nur aus dem 400-m-Protokoll.
+            "hr_400": r_lang.get("hr") if d_lang >= MIN_STRECKE_FUER_HR_M else None,
             "session_id": session.id,
             "date": str(session.session_date),
             "distanzen": {

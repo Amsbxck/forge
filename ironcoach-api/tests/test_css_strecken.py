@@ -77,9 +77,37 @@ def test_kurzestes_paar_traegt_den_deutlichsten_vorbehalt():
     assert treffer["hr_400"] is None
 
 
-def test_puls_wird_ab_200_m_mitgenommen():
-    einheit = _Einheit([_lap(200, 155, hr=170), _lap(100, 73)])
-    assert detect_from_session(einheit)["hr_400"] == 170
+def test_puls_nur_aus_dem_400er_protokoll():
+    """Je kürzer die Strecke, desto weiter liegt der Puls über der Schwelle.
+
+    Ein 200-m-Sprint dauert zweieinhalb Minuten — dort ist der Wert keine
+    Schwelle mehr, sondern fast das Maximum. Lieber kein Wert als einer,
+    der systematisch zu hoch liegt.
+    """
+    aus_400 = _Einheit([_lap(400, 330, hr=168), _lap(200, 155)])
+    assert detect_from_session(aus_400)["hr_400"] == 168
+
+    aus_200 = _Einheit([_lap(200, 155, hr=178), _lap(100, 73)])
+    assert detect_from_session(aus_200)["hr_400"] is None
+
+
+def test_der_puls_der_400er_gilt_ohne_abschlag():
+    """Die Literatur beschreibt Pace und Puls der 400 m als die Schwellenwerte.
+
+    Ein Abschlag stand hier ohne Beleg — und wirkte doppelt: Der
+    Rundendurchschnitt liegt schon unter dem Plateau, weil der Puls die
+    ersten Minuten braucht. Ein zu tiefer Schwellenpuls bläht jede
+    Schwimm-TSS auf, weil die Intensität quadratisch eingeht.
+    """
+    from datetime import date, timedelta
+
+    from models import AthleteProfile, PlannedSession, TrainingSession, WeeklyPlan
+    from services.benchmark import BENCHMARK_PHASE, derive_zones
+
+    # Wird in der Ableitung geprüft, nicht in der Erkennung — hier genügt
+    # der direkte Vergleich der beiden Zahlen.
+    einheit = _Einheit([_lap(400, 330, hr=168), _lap(200, 155)])
+    assert detect_from_session(einheit)["hr_400"] == 168, "unverändert weitergereicht"
 
 
 def test_kuerzere_strecken_ergeben_eine_schnellere_css():
