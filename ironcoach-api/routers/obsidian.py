@@ -128,6 +128,7 @@ def neu_ordnen(db: Session = Depends(get_db)):
 
     counts: dict[str, int] = {}
     umgezogen = []
+    fehler = None
     for session in sessions:
         result = sync_session(db, session, client=client, ziele=ziele)
         counts[result["status"]] = counts.get(result["status"], 0) + 1
@@ -136,15 +137,32 @@ def neu_ordnen(db: Session = Depends(get_db)):
         # Ist der Vault mitten im Durchgang weg, bringt das Weitermachen
         # nichts — die restlichen Einheiten bleiben offen und der
         # Reconcile-Job holt sie nach.
-        if result["status"] == "unavailable":
+        if result["status"] in ("unavailable", "error"):
+            fehler = result.get("error")
             break
 
-    plaene = sync_all_plans(db)
+    # Nur weitermachen, wenn der Vault überhaupt antwortet. Vorher lief der
+    # Plandurchgang auch dann noch, wenn schon die erste Einheit gescheitert
+    # war — und zählte die geprüften Wochen mit, als wäre etwas geschrieben
+    # worden.
+    plaene = sync_all_plans(db) if fehler is None else None
+
+    # Ein Durchgang, der nichts geschrieben hat, weil der Vault nicht
+    # antwortet, ist kein Erfolg. Vorher stand in der Oberfläche ein grünes
+    # "✓ 0 von 112 Notizen umgezogen" — also gleichzeitig die Meldung, dass
+    # alles geklappt hat, und der Beweis, dass nichts passiert ist.
+    erreicht = sum(
+        n for status, n in counts.items()
+        if status in ("written", "moved", "unchanged", "skipped_block_removed")
+    )
     return {
         "einheiten": len(sessions),
+        "erreicht": erreicht,
         "by_status": counts,
         "umgezogen": umgezogen,
         "plaene": plaene,
+        "abgebrochen": fehler is not None,
+        "fehler": fehler,
     }
 
 

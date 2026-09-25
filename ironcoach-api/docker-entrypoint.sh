@@ -14,14 +14,38 @@ set -euo pipefail
 if [ -n "${TS_AUTHKEY:-}" ]; then
   echo "[start] Tailscale: verbinde …"
 
+  # Wo die Knotenidentität liegt. In diesem Zustand steckt der Node-Key —
+  # geht er verloren, meldet sich der Container beim nächsten Start als
+  # NEUES Gerät an. Tailscale hängt dann eine Ziffer an den Namen
+  # (ironcoach-api-2, -3, …), der alte Eintrag bleibt als Leiche im Tailnet
+  # stehen und belegt weiter einen Geräteplatz. Schlimmer: die frische
+  # Anmeldung braucht Zeit, bis eine Verbindung zu den Gegenstellen steht.
+  # Solange sie fehlt, nimmt der SOCKS5-Server Verbindungen trotzdem an und
+  # leitet sie ins Leere — der Aufrufer sieht keinen Verbindungsfehler,
+  # sondern einen Zeitablauf mitten im TLS-Handschlag.
+  #
+  # Auf Railway ist das Dateisystem flüchtig, /tmp also bei jedem Deploy
+  # leer. Wer ein Volume einbindet, setzt TS_STATE_DIR auf dessen Pfad und
+  # bekommt bei jedem Start denselben Knoten mit derselben Adresse.
+  TS_STATE_DIR="${TS_STATE_DIR:-/tmp/tailscale}"
+  mkdir -p "$TS_STATE_DIR"
+  case "$TS_STATE_DIR" in
+    /tmp/*)
+      echo "[start] Tailscale: Zustand liegt in $TS_STATE_DIR — auf Railway" \
+           "flüchtig. Jeder Deploy erzeugt damit ein neues Gerät im Tailnet." \
+           "Für einen festen Knoten ein Volume einbinden und TS_STATE_DIR" \
+           "auf dessen Pfad setzen." >&2
+      ;;
+  esac
+
   # Userspace-Modus, weil Railway kein /dev/net/tun bereitstellt. Der
   # SOCKS5-Server ist der einzige Weg nach draußen ins Tailnet — ohne ihn
   # kennt der Container die Adressen zwar, erreicht sie aber nicht.
   /usr/sbin/tailscaled \
     --tun=userspace-networking \
     --socks5-server=localhost:1055 \
-    --state=/tmp/tailscaled.state \
-    --statedir=/tmp/tailscale \
+    --state="$TS_STATE_DIR/tailscaled.state" \
+    --statedir="$TS_STATE_DIR" \
     >/tmp/tailscaled.log 2>&1 &
 
   # Auf den Dienst warten, statt blind weiterzulaufen: `tailscale up` gegen
@@ -46,7 +70,13 @@ if [ -n "${TS_AUTHKEY:-}" ]; then
   fi
 
   if /usr/bin/tailscale up "${TS_ARGS[@]}"; then
-    echo "[start] Tailscale: verbunden als ${TS_HOSTNAME:-ironcoach-api}"
+    # Den tatsächlichen Namen ausschreiben, nicht den gewünschten: Bei einer
+    # Neuanmeldung ist es "ironcoach-api-2" statt "ironcoach-api", und genau
+    # daran erkennt man im Log, dass der Zustand verloren gegangen ist.
+    echo "[start] Tailscale: verbunden als" \
+      "$(/usr/bin/tailscale status --json 2>/dev/null \
+         | grep -o '"DNSName":"[^.]*' | head -1 | cut -d'"' -f4 \
+         || echo "${TS_HOSTNAME:-ironcoach-api}")"
     # Ausdrücklich NICHT als ALL_PROXY: Der gesamte ausgehende Verkehr — zu
     # Anthropic, Strava, zum Mailserver — liefe sonst durch den Tunnel. Nur
     # der Obsidian-Client braucht ihn, und der liest diese Variable selbst.

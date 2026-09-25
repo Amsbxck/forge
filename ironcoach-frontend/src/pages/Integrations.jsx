@@ -411,26 +411,47 @@ export default function Integrations() {
           {saved && <span className="text-[11px] font-mono" style={{ color: '#22c55e' }}>✓ gespeichert</span>}
         </div>
 
-        {ordnung && (
-          <div className="rounded-lg px-3 py-2 font-mono text-[11px] leading-relaxed"
-               style={{
-                 background: ordnung.error ? '#ef444412' : '#22c55e12',
-                 border: `1px solid ${ordnung.error ? '#ef444433' : '#22c55e33'}`,
-                 color: ordnung.error ? '#ef4444' : '#22c55e',
-               }}>
-            {ordnung.error ? `✕ ${ordnung.error}` : (
-              <>
-                ✓ {ordnung.umgezogen?.length || 0} von {ordnung.einheiten} Notizen umgezogen
-                {ordnung.plaene?.weeks > 0 && `, ${ordnung.plaene.weeks} Wochenpläne geprüft`}
-                {ordnung.umgezogen?.length > 0 && (
-                  <div className="text-[var(--text-secondary)] mt-1 break-all">
-                    z.B. {ordnung.umgezogen[0].von} → {ordnung.umgezogen[0].nach}
+        {ordnung && (() => {
+          const schiefgegangen = !!ordnung.error || ordnung.abgebrochen
+          const farbe = schiefgegangen ? '#ef4444' : '#22c55e'
+          return (
+            <div className="rounded-lg px-3 py-2 font-mono text-[11px] leading-relaxed"
+                 style={{
+                   background: `${farbe}12`,
+                   border: `1px solid ${farbe}33`,
+                   color: farbe,
+                 }}>
+              {ordnung.error ? `✕ ${ordnung.error}` : schiefgegangen ? (
+                <>
+                  ✕ Abgebrochen nach {ordnung.erreicht} von {ordnung.einheiten} Notizen —
+                  der Vault hat nicht geantwortet.
+                  {ordnung.fehler && (
+                    <div className="mt-1 break-all">{ordnung.fehler}</div>
+                  )}
+                  <div className="text-[var(--text-secondary)] mt-1">
+                    Nichts verloren: „Verbindung testen" erst grün bekommen, dann
+                    hier erneut drücken.
                   </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
+                </>
+              ) : (
+                <>
+                  ✓ {ordnung.umgezogen?.length || 0} von {ordnung.einheiten} Notizen umgezogen
+                  {ordnung.plaene?.weeks > 0 && `, ${ordnung.plaene.weeks} Wochenpläne geprüft`}
+                  {ordnung.umgezogen?.length > 0 && (
+                    <div className="text-[var(--text-secondary)] mt-1 break-all">
+                      z.B. {ordnung.umgezogen[0].von} → {ordnung.umgezogen[0].nach}
+                    </div>
+                  )}
+                  {ordnung.umgezogen?.length === 0 && (
+                    <div className="text-[var(--text-secondary)] mt-1">
+                      Alle Notizen lagen schon richtig.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )
+        })()}
 
         {test && (
           <div className="rounded-lg px-3 py-2 font-mono text-[11px] leading-relaxed"
