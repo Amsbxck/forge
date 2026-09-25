@@ -36,13 +36,30 @@ def test_planbeginn_und_wettkampftag_gehoeren_dazu():
     assert saison_name(date(2026, 8, 31), [ZELL]).startswith("Ironman")
 
 
-def test_tag_ausserhalb_landet_in_der_offseason():
+def test_nach_dem_rennen_ist_offseason():
     assert saison_name(date(2026, 10, 5), [ZELL]) == "Offseason 2026"
-    assert saison_name(date(2025, 11, 3), [ZELL]) == "Offseason 2025"
 
 
-def test_ohne_ziele_immer_offseason():
-    assert saison_name(date(2026, 3, 1), []) == "Offseason 2026"
+def test_vor_dem_ersten_rennen_ist_grundlage_keine_offseason():
+    """Der Fall eines neuen Athleten.
+
+    Tamina hat sich im September angemeldet, ihr Aufbau beginnt im Januar.
+    Ihre ersten vier Monate landeten in "Offseason 2026" — einem Ordner für
+    eine Saison, die sie nie hatte. "Grundlage" ist das Wort, das die App für
+    diese Zeit ohnehin verwendet, im Dashboard wie in der Phasenlogik.
+    """
+    assert saison_name(date(2025, 11, 3), [ZELL]) == "Grundlage 2025"
+
+    tamina = Ziel(date(2027, 8, 29), date(2027, 1, 17), "Ironman 70.3 Zell am See")
+    assert saison_name(date(2026, 9, 26), [tamina]) == "Grundlage 2026"
+    assert saison_name(date(2026, 12, 15), [tamina]) == "Grundlage 2026"
+    # Nach ihrem Rennen ist es dann eine echte Offseason.
+    assert saison_name(date(2027, 9, 5), [tamina]) == "Offseason 2027"
+
+
+def test_ohne_ziele_ist_grundlage():
+    """Wer noch kein Ziel gesetzt hat, war in keiner Saison."""
+    assert saison_name(date(2026, 3, 1), []) == "Grundlage 2026"
 
 
 def test_vorbereitung_ueber_den_jahreswechsel_bleibt_ein_ordner():

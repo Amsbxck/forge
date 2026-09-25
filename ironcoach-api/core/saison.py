@@ -26,6 +26,17 @@ from sqlalchemy.orm import Session
 
 OFFSEASON = "Offseason"
 
+# Vor dem ersten Aufbau überhaupt. "Offseason" wäre hier eine Lüge: Es gab
+# keine Saison, aus der man heraus ist. Tamina hat sich im September angemeldet
+# und beginnt ihren Aufbau im Januar — ihre ersten vier Monate Training landeten
+# in "Offseason 2026", einem Ordner für eine Saison, die sie nie hatte.
+#
+# "Grundlage" ist das Wort, das die App für diese Zeit ohnehin verwendet:
+# `phase_for_week` gibt es für Wochen vor dem Aufbaubeginn zurück, und der
+# Athlet liest es im Dashboard. Zwei Namen für denselben Abschnitt wären
+# schlechter als einer.
+GRUNDLAGE = "Grundlage"
+
 # Zeichen, die in Obsidian-Pfaden nichts Gutes tun: die üblichen
 # Dateisystem-Verbote plus `#`, `[`, `]` und `^`, die dort Links, Tags und
 # Blockverweise einleiten. Ein Rennen namens "Ironman 70.3 #1" hätte sonst
@@ -76,12 +87,19 @@ def saison_ziele(db: Session, user=None) -> list:
 def saison_name(tag: date, ziele: list) -> str:
     """Der Ordnername für diesen Tag.
 
+    Drei Fälle:
+
+      * Im Vorbereitungsfenster eines A-Rennens → dessen Saison
+      * Außerhalb, aber ein A-Rennen liegt schon hinter dem Tag
+        → "Offseason <Jahr>"
+      * Außerhalb und noch kein Rennen gewesen → "Grundlage <Jahr>"
+
     Bei Überschneidung — zwei A-Rennen dicht hintereinander, deren Fenster
     sich berühren — gewinnt das frühere: `ziele` kommt nach Datum sortiert,
     und ein Tag gehört zu der Vorbereitung, die zuerst begonnen hat.
     """
     if tag is None:
-        return f"{OFFSEASON} {date.today().year}"
+        tag = date.today()
     for ziel in ziele:
         beginn, ende = fenster(ziel)
         if beginn <= tag <= ende:
@@ -90,7 +108,13 @@ def saison_name(tag: date, ziele: list) -> str:
             # Vorbereitung, die im Dezember beginnt, gehört zur Saison des
             # Rennens im Juni — sonst lägen ihre Wochen in zwei Ordnern.
             return f"{ordnername(name)} {ende.year}"
-    return f"{OFFSEASON} {tag.year}"
+
+    # Zwischen den Saisons oder davor — und das ist nicht dasselbe. Wer schon
+    # ein Rennen hinter sich hat, ist aus einer Saison heraus; wer noch keins
+    # hatte, baut auf. Beides "Offseason" zu nennen hieße, einem neuen
+    # Athleten ein Jahr zu unterstellen, das er nicht hatte.
+    schon_gelaufen = any(ziel.race_date < tag for ziel in ziele)
+    return f"{OFFSEASON if schon_gelaufen else GRUNDLAGE} {tag.year}"
 
 
 def saison_fuer_tag(db: Session, tag: date, user=None) -> str:
