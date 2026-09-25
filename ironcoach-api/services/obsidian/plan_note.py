@@ -28,10 +28,24 @@ DAY_SHORT = {
 }
 
 
+def wochen_kennung(week_number: int) -> str:
+    """Name einer Woche für Dateiname und Schlagwort.
+
+    Wochen vor dem Beginn der Vorbereitung tragen negative Nummern. Direkt
+    formatiert ergäbe das "Woche--7" — zwei Bindestriche, ohne Auffüllung,
+    und im Vault sähe es nach einem Tippfehler aus. Sie bekommen deshalb
+    ein eigenes Wort und dieselbe zweistellige Schreibweise, damit die
+    Dateien beieinander stehen und sich sortieren lassen.
+    """
+    if week_number < 1:
+        return f"Vorlauf-{abs(week_number):02d}"
+    return f"Woche-{week_number:02d}"
+
+
 def plan_note_path(plan: WeeklyPlan, subdir: str | None = None) -> str:
     """Eine Note je Trainingswoche, getrennt von den Einheiten."""
     base = (subdir or settings.OBSIDIAN_VAULT_SUBDIR).strip("/")
-    return f"{base}/Plans/Woche-{plan.week_number:02d}.md"
+    return f"{base}/Plans/{wochen_kennung(plan.week_number)}.md"
 
 
 def _fmt_pace(seconds: int | None) -> str | None:
@@ -109,7 +123,7 @@ def build_plan_frontmatter(plan: WeeklyPlan) -> dict:
         "week_start": plan.week_start,
         "week_end": plan.week_end,
         "generated_at": plan.generated_at.isoformat() if plan.generated_at else None,
-        "tags": ["plan", f"plan/woche-{plan.week_number:02d}"],
+        "tags": ["plan", f"plan/{wochen_kennung(plan.week_number).lower()}"],
     }
 
 
