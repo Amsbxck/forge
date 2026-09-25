@@ -147,6 +147,24 @@ def neu_ordnen(db: Session = Depends(get_db)):
     # worden.
     plaene = sync_all_plans(db) if fehler is None else None
 
+    # Noten, zu denen es keine Planzeile mehr gibt, ordnen sich aus ihrem
+    # eigenen Frontmatter ein. Ohne das blieben nach einem Umzug auf eine
+    # neue Installation sämtliche Pläne früherer Saisons flach liegen: die
+    # Einheiten werden übernommen, die Wochenpläne nicht.
+    verwaiste = []
+    if fehler is None:
+        from core.deps import get_profile as _profil
+        from services.obsidian.client import vault_subdir_for
+        from services.obsidian.plan_note import verwaiste_plannoten_einordnen
+
+        try:
+            verwaiste = verwaiste_plannoten_einordnen(
+                db, client, vault_subdir_for(_profil(db)), ziele
+            )
+        except (ObsidianError, ObsidianUnavailable) as e:
+            logger.warning("Verwaiste Plan-Noten nicht eingeordnet: %s", e)
+            fehler = str(e)
+
     # Ein Durchgang, der nichts geschrieben hat, weil der Vault nicht
     # antwortet, ist kein Erfolg. Vorher stand in der Oberfläche ein grünes
     # "✓ 0 von 112 Notizen umgezogen" — also gleichzeitig die Meldung, dass
@@ -161,6 +179,7 @@ def neu_ordnen(db: Session = Depends(get_db)):
         "by_status": counts,
         "umgezogen": umgezogen,
         "plaene": plaene,
+        "verwaiste_plaene": verwaiste,
         "abgebrochen": fehler is not None,
         "fehler": fehler,
     }

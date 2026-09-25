@@ -442,6 +442,14 @@ export default function Integrations() {
                       z.B. {ordnung.umgezogen[0].von} → {ordnung.umgezogen[0].nach}
                     </div>
                   )}
+                  {ordnung.verwaiste_plaene?.length > 0 && (
+                    <div className="text-[var(--text-secondary)] mt-1">
+                      {ordnung.verwaiste_plaene.filter(v => v.status === 'verschoben').length} Pläne
+                      früherer Saisons eingeordnet
+                      {ordnung.verwaiste_plaene.some(v => v.status !== 'verschoben') &&
+                        ` · ${ordnung.verwaiste_plaene.filter(v => v.status !== 'verschoben').length} liegengelassen`}
+                    </div>
+                  )}
                   {ordnung.umgezogen?.length === 0 && (
                     <div className="text-[var(--text-secondary)] mt-1">
                       Alle Notizen lagen schon richtig.

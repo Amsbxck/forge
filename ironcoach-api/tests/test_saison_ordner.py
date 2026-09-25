@@ -127,3 +127,102 @@ def test_grundlagenwoche_landet_im_offseason_ordner():
     assert plan_note_path(Plan(), "Training", "Offseason 2026") == (
         "Training/Plans/Offseason 2026/Vorlauf-07.md"
     )
+
+
+# --- Verwaiste Plan-Noten ----------------------------------------------------
+
+class VaultDoppel:
+    """Ein Vault im Speicher, so viel wie die Einordnung davon braucht."""
+
+    def __init__(self, dateien):
+        self.dateien = dict(dateien)
+        self.geloescht = []
+
+    def list_dir(self, path=""):
+        praefix = f"{path.rstrip('/')}/"
+        namen = set()
+        for pfad in self.dateien:
+            if not pfad.startswith(praefix):
+                continue
+            rest = pfad[len(praefix):]
+            namen.add(rest if "/" not in rest else rest.split("/", 1)[0] + "/")
+        return sorted(namen)
+
+    def get_note(self, path):
+        return self.dateien.get(path)
+
+    def put_note(self, path, content):
+        self.dateien[path] = content
+
+    def delete_note(self, path):
+        self.dateien.pop(path, None)
+        self.geloescht.append(path)
+
+
+def _note(week, week_start):
+    return (
+        f"---\nweek: {week}\nphase: Base 3\nweek_start: {week_start}\n"
+        f"week_end: {week_start}\n---\n\n<!-- ironcoach:start -->x<!-- ironcoach:end -->\n"
+    )
+
+
+def test_verwaiste_note_ordnet_sich_aus_dem_frontmatter_ein():
+    """Zu diesen Noten gibt es keine Planzeile mehr — nach einem Umzug auf
+    eine neue Installation ist das der Normalfall, nicht die Ausnahme."""
+    from services.obsidian.plan_note import verwaiste_plannoten_einordnen
+
+    vault = VaultDoppel({
+        "Training/Plans/Woche-11.md": _note(11, "2026-03-30"),
+        "Training/Plans/Woche-32.md": _note(32, "2026-08-24"),
+        "Training/Plans/Offseason 2026/Vorlauf-07.md": _note(-7, "2026-09-21"),
+    })
+
+    ergebnis = verwaiste_plannoten_einordnen(None, vault, "Training", [ZELL])
+
+    assert "Training/Plans/Ironman 70.3 Zell am See 2026/Woche-11.md" in vault.dateien
+    assert "Training/Plans/Ironman 70.3 Zell am See 2026/Woche-32.md" in vault.dateien
+    assert "Training/Plans/Woche-11.md" not in vault.dateien
+    # Was schon in einem Saisonordner liegt, wird nicht angefasst.
+    assert "Training/Plans/Offseason 2026/Vorlauf-07.md" in vault.dateien
+    assert all(e["status"] == "verschoben" for e in ergebnis)
+
+
+def test_inhalt_bleibt_beim_umzug_erhalten():
+    from services.obsidian.plan_note import verwaiste_plannoten_einordnen
+
+    inhalt = _note(11, "2026-03-30") + "\n## Notizen\n\nRippe zwickt wieder.\n"
+    vault = VaultDoppel({"Training/Plans/Woche-11.md": inhalt})
+    verwaiste_plannoten_einordnen(None, vault, "Training", [ZELL])
+    ziel = "Training/Plans/Ironman 70.3 Zell am See 2026/Woche-11.md"
+    assert vault.dateien[ziel] == inhalt
+
+
+def test_belegtes_ziel_wird_nicht_ueberschrieben():
+    """Lieber eine Datei zu viel als eine überschriebene Reflexion."""
+    from services.obsidian.plan_note import verwaiste_plannoten_einordnen
+
+    ziel = "Training/Plans/Ironman 70.3 Zell am See 2026/Woche-11.md"
+    vault = VaultDoppel({
+        "Training/Plans/Woche-11.md": _note(11, "2026-03-30"),
+        ziel: "schon da, mit eigenen Notizen",
+    })
+    ergebnis = verwaiste_plannoten_einordnen(None, vault, "Training", [ZELL])
+
+    assert vault.dateien[ziel] == "schon da, mit eigenen Notizen"
+    assert vault.dateien["Training/Plans/Woche-11.md"] is not None
+    assert ergebnis == [{"pfad": "Training/Plans/Woche-11.md",
+                        "status": "ziel_belegt", "ziel": ziel}]
+
+
+def test_note_ohne_datum_bleibt_liegen():
+    """Raten wäre schlimmer als liegenlassen — im falschen Ordner findet sie
+    niemand wieder."""
+    from services.obsidian.plan_note import verwaiste_plannoten_einordnen
+
+    vault = VaultDoppel({
+        "Training/Plans/Woche-09.md": "---\nweek: 9\nphase: Base\n---\n\nohne Datum\n",
+    })
+    ergebnis = verwaiste_plannoten_einordnen(None, vault, "Training", [ZELL])
+
+    assert "Training/Plans/Woche-09.md" in vault.dateien
+    assert ergebnis == [{"pfad": "Training/Plans/Woche-09.md", "status": "ohne_datum"}]

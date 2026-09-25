@@ -64,10 +64,27 @@ class _CircuitBreaker:
             )
 
 
-_breaker = _CircuitBreaker()
+# Ein Unterbrecher **je Vault**, nicht einer für alle. Vorher war es ein
+# einziger auf Modulebene: Taminas Adresse ist nicht erreichbar, der
+# stündliche Reconcile-Job lief dagegen, und nach drei Fehlversuchen war der
+# Unterbrecher für zwei Minuten offen — auch für Amir, dessen Vault einwandfrei
+# antwortet. Ein Athlet konnte damit die Anbindung aller anderen abschalten,
+# ohne etwas falsch gemacht zu haben.
+_breakers: dict[str, _CircuitBreaker] = {}
+
+
+def _breaker_fuer(base_url: str) -> _CircuitBreaker:
+    return _breakers.setdefault(base_url, _CircuitBreaker())
 
 
 class ObsidianClient:
+    #: Wie lange "Verbindung testen" auf eine kalte Verbindung warten darf.
+    #: Der Weg geht über den SOCKS5-Tunnel ins Tailnet: erst Pfadsuche zur
+    #: Gegenstelle (anfangs über einen Relay, später direkt), dann ein
+    #: TLS-Handschlag mit vollständiger Zertifikatskette. Die allgemeine
+    #: Grenze von 5 s reicht dafür beim ersten Versuch oft nicht.
+    PING_TIMEOUT_S = 20.0
+
     def __init__(
         self,
         base_url: str | None = None,
@@ -104,10 +121,19 @@ class ObsidianClient:
             headers.update(extra)
         return headers
 
-    def _request(self, method: str, path: str, *, retries: int = 2, **kwargs) -> httpx.Response:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        retries: int = 2,
+        timeout: float | None = None,
+        **kwargs,
+    ) -> httpx.Response:
         if not self.enabled:
             raise ObsidianUnavailable("Obsidian ist nicht konfiguriert (BASE_URL/API_KEY fehlen)")
-        if _breaker.is_open:
+        breaker = _breaker_fuer(self.base_url)
+        if breaker.is_open:
             raise ObsidianUnavailable("Obsidian-Circuit offen — Anfrage übersprungen")
 
         url = f"{self.base_url}{path}"
@@ -121,7 +147,7 @@ class ObsidianClient:
         for attempt in range(retries + 1):
             try:
                 with httpx.Client(
-                    timeout=self.timeout,
+                    timeout=timeout if timeout is not None else self.timeout,
                     verify=self.verify,
                     # Ohne Proxy verhält sich der Client wie bisher.
                     proxy=self.proxy or None,
@@ -132,7 +158,7 @@ class ObsidianClient:
                 if attempt < retries:
                     time.sleep(0.4 * (2 ** attempt))
                     continue
-                _breaker.record_failure()
+                breaker.record_failure()
                 raise ObsidianUnavailable(f"{method} {path} fehlgeschlagen: {e}") from e
 
             # 5xx ist ein Infrastrukturproblem und darf erneut versucht werden,
@@ -141,18 +167,29 @@ class ObsidianClient:
                 time.sleep(0.4 * (2 ** attempt))
                 continue
 
-            _breaker.record_success()
+            breaker.record_success()
             return response
 
-        _breaker.record_failure()
+        breaker.record_failure()
         raise ObsidianUnavailable(f"{method} {path} fehlgeschlagen: {last_error}")
 
     # --- Lesen -------------------------------------------------------------
 
     def ping(self) -> dict:
         """Status inkl. authenticated-Flag. Der Root-Endpoint antwortet auch
-        ohne gültigen Key mit 200 — deshalb wird das Flag ausgewertet."""
-        response = self._request("GET", "/", retries=0)
+        ohne gültigen Key mit 200 — deshalb wird das Flag ausgewertet.
+
+        Hier stand `retries=0` bei 5 s Zeitgrenze — ein einziger Versuch, und
+        der kürzeste im ganzen Client. Der Abgleich dagegen versucht es
+        dreimal: sein erster Versuch baut den Pfad auf, der zweite gelingt.
+        Damit meldete ausgerechnet die Funktion, deren einzige Aufgabe es ist
+        Auskunft über die Verbindung zu geben, einen Zeitablauf, während der
+        Abgleich einwandfrei lief — und der Athlet nahm eine richtige Adresse
+        wieder heraus. Deshalb ein Versuch mehr und mehr Zeit: Wer auf eine
+        Prüfung wartet, wartet lieber zwei Sekunden länger als dass er eine
+        falsche Antwort bekommt.
+        """
+        response = self._request("GET", "/", retries=1, timeout=self.PING_TIMEOUT_S)
         data = response.json()
         if not data.get("authenticated"):
             raise ObsidianError("Obsidian erreichbar, aber API-Key wird abgelehnt")

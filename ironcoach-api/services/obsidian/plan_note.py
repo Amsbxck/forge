@@ -265,3 +265,68 @@ def sync_plan_note(
     except Exception as e:  # pragma: no cover
         logger.exception("Unerwarteter Fehler bei Plan-Note %s", path)
         return {"status": "error", "path": path, "error": str(e)}
+
+
+def verwaiste_plannoten_einordnen(
+    db: Session,
+    client: ObsidianClient,
+    subdir: str,
+    ziele: list,
+) -> list[dict]:
+    """Plan-Noten einordnen, zu denen es keine Planzeile mehr gibt.
+
+    `sync_plan_note` kann nur verschieben, was die Datenbank noch kennt. Nach
+    dem Umzug auf eine neue Installation ist das oft wenig: Die Einheiten
+    wurden übernommen, die Wochenpläne nicht. In Amirs Vault lagen dadurch 20
+    Noten der Saison 2026 flach unter `Plans/`, während die Datenbank genau
+    eine Planzeile hatte — der Durchgang meldete "1 Wochenplan geprüft" und
+    ließ die anderen zwanzig liegen.
+
+    Die Noten wissen aber selbst, wohin sie gehören: `week_start` steht in
+    ihrem Frontmatter. Daraus lässt sich die Saison genauso bestimmen wie aus
+    einer Planzeile. Verschoben wird nur, was unmittelbar in `Plans/` liegt,
+    und nie über eine bestehende Datei hinweg — eine Note, die am Ziel schon
+    steht, bleibt unangetastet und wird gemeldet.
+    """
+    from core.saison import saison_name
+
+    wurzel = f"{subdir.strip('/')}/Plans"
+    ergebnis: list[dict] = []
+
+    for eintrag in client.list_dir(wurzel):
+        # Unterordner überspringen — die sind bereits eingeordnet.
+        if not eintrag.endswith(".md"):
+            continue
+
+        quelle = f"{wurzel}/{eintrag}"
+        inhalt = client.get_note(quelle)
+        if inhalt is None:
+            continue
+
+        frontmatter, _ = note_utils._parse_frontmatter(inhalt)
+        rohdatum = (frontmatter.get("week_start") or "").strip().strip('"')
+        try:
+            beginn = datetime.strptime(rohdatum[:10], "%Y-%m-%d").date()
+        except ValueError:
+            # Ohne verlässliches Datum lässt sich keine Saison bestimmen.
+            # Raten wäre hier schlimmer als liegenlassen: die Note landete
+            # in einem falschen Ordner und wäre dort nicht mehr zu finden.
+            ergebnis.append({"pfad": quelle, "status": "ohne_datum"})
+            continue
+
+        ziel = f"{wurzel}/{saison_name(beginn, ziele)}/{eintrag}"
+        if ziel == quelle:
+            continue
+
+        if client.get_note(ziel) is not None:
+            ergebnis.append({"pfad": quelle, "status": "ziel_belegt", "ziel": ziel})
+            continue
+
+        client.put_note(ziel, inhalt)
+        try:
+            client.delete_note(quelle)
+        except ObsidianError as e:
+            logger.warning("Verwaiste Plan-Note %s nicht entfernt: %s", quelle, e)
+        ergebnis.append({"von": quelle, "nach": ziel, "status": "verschoben"})
+
+    return ergebnis
