@@ -86,7 +86,22 @@ def build_athlete_dict(profile: AthleteProfile, goal=None) -> dict:
 async def generate_and_save_plan(
     db: Session,
     special_requests: str = "",
+    montag: date | None = None,
 ) -> WeeklyPlan:
+    """Einen Wochenplan erzeugen und speichern.
+
+    `montag` sagt, für welche Woche. Ohne Angabe die laufende — mit Angabe
+    die, deren Montag übergeben wird.
+
+    Vorher gab es die Wahl nicht: gerechnet wurde immer mit der Woche, in der
+    heute liegt. Am Sonntag bekam man dadurch einen Plan für sechs vergangene
+    Tage, obwohl dann gerade die kommende Woche interessiert. Die Woche fest
+    an den Wochentag zu binden (etwa "ab Freitag die nächste") wäre die
+    bequemere, aber schlechtere Lösung: Sie nimmt einem das Neuerzeugen der
+    laufenden Woche weg, und genau das braucht man, wenn man mittwochs krank
+    wird. Deshalb entscheidet der Aufrufer, und die Oberfläche schreibt das
+    Ziel auf den Knopf.
+    """
     profile = get_profile(db)
     if not profile:
         raise ValueError("Kein Athletenprofil gefunden")
@@ -105,7 +120,21 @@ async def generate_and_save_plan(
     # Registrierung ein Ziel setzt — wies der Plan Wochen im falschen Jahr aus.
     plan_start = getattr(anchor, "plan_start_date", None) or profile.plan_start_date
 
-    current_week = get_current_week(anchor)
+    from core.wochen import montag_von
+
+    if montag is not None:
+        # Auf den Montag ziehen: Die Adresse soll nicht davon abhängen,
+        # welchen Wochentag der Aufrufer geschickt hat.
+        current_week = get_week_for_date(anchor, montag_von(montag))
+    else:
+        current_week = get_current_week(anchor)
+
+    # Wochendaten hier, nicht erst beim Speichern: Der Phasenzustand weiter
+    # unten muss für die **geplante** Woche gelten, nicht für heute. Sonst
+    # bekäme die kommende Woche die Phase der laufenden — bei einem Plan, der
+    # über eine Phasengrenze reicht, also die falsche Vorgabe.
+    target_week = current_week
+    week_start, week_end = get_week_dates(target_week, plan_start)
 
     cutoff = date.today() - timedelta(days=14)
     sessions = db.query(TrainingSession).filter(
@@ -151,7 +180,10 @@ async def generate_and_save_plan(
     from services.offseason import prompt_block as offseason_block_for
 
     ziel_datum = getattr(goal, "race_date", None)
-    lage = "preparation" if goal is None else season_state(ziel_datum, plan_start=plan_start)
+    lage = (
+        "preparation" if goal is None
+        else season_state(ziel_datum, today=week_start, plan_start=plan_start)
+    )
     ist_offseason = goal is None or lage == "off_season"
     offseason_block = offseason_block_for(db, ziel_datum) if ist_offseason else ""
 
@@ -208,9 +240,6 @@ async def generate_and_save_plan(
         quality=quality_block,
         base_period=base_block,
     )
-
-    target_week = current_week
-    week_start, week_end = get_week_dates(target_week, plan_start)
 
     plan_text_lines = [f"Wochenplan {current_week} ({week_start} – {week_end})", ""]
     for day in plan_content.get("days", []):

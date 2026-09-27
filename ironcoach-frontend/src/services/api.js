@@ -80,8 +80,14 @@ export const uploadFile = (file) => {
 }
 
 // Plan — generation can take 90+ seconds with long Claude prompts
-export const generatePlan = (requests = '') =>
-  api.get('/api/plan/generate', { params: { requests }, timeout: 180000 })
+// `montag` sagt, für welche Woche geplant wird. Ohne Angabe die laufende —
+// das war vorher die einzige Möglichkeit, und am Sonntag entstand dadurch ein
+// Plan für sechs vergangene Tage.
+export const generatePlan = (requests = '', montag = null) =>
+  api.get('/api/plan/generate', {
+    params: montag ? { requests, montag } : { requests },
+    timeout: 180000,
+  })
 export const getCurrentPlan = () => api.get('/api/plan/current')
 export const getPlanByWeek = (week) => api.get(`/api/plan/${week}`)
 // Über den Montag statt über die Wochennummer: Die Nummer ist vor dem

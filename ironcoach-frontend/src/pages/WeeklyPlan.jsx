@@ -69,7 +69,11 @@ export default function WeeklyPlan() {
   // ist vor dem Beginn des Aufbaus für jedes Datum 1 — "eine Woche vor"
   // führte dort auf Nummer 2, für die es nie einen Plan gibt, während die
   // kommende Woche unter derselben 1 lag wie die laufende.
-  const [versatz, setVersatz] = useState(0)
+  // Sonntags auf die kommende Woche starten. Am letzten Tag einer Woche will
+  // niemand mehr den Plan für diese Woche sehen oder erzeugen — und der Knopf
+  // plant die Woche, die hier steht. Ohne das müsste man sonntagabends jedes
+  // Mal erst vorblättern.
+  const [versatz, setVersatz] = useState(() => (new Date().getDay() === 0 ? 1 : 0))
   const [currentWeek, setCurrentWeek] = useState(null)
   // Zieldauer statt fester 33: Eine 14-Wochen-Vorbereitung ließ sich bis
   // Woche 33 durchblättern (alles leer), eine 40-Wochen-Saison brach bei 33 ab.
@@ -118,10 +122,14 @@ export default function WeeklyPlan() {
     setGenerating(true)
     setError(null)
     try {
-      const resp = await generatePlan(requests)
+      // Für die Woche, die gerade angezeigt wird — nicht blind für heute.
+      const resp = await generatePlan(requests, zielMontag)
       setPlan(resp.data)
-      setWeek(null)
-      await loadPlanned(null)
+      // Danach die Einheiten derselben Woche nachladen. Vorher stand hier
+      // `loadPlanned(null)`: Der neue Plan erschien in der Kachel, während
+      // darunter noch die Einheiten der vorigen Woche standen — es sah aus,
+      // als wäre der alte Plan verschwunden.
+      await loadPlanned(versatz)
     } catch (e) {
       setError(e.response?.data?.detail || 'Generation failed')
     } finally {
@@ -146,6 +154,16 @@ export default function WeeklyPlan() {
   // Beginn des Aufbaus tragen laufende und kommende Woche dieselbe Nummer,
   // und die Seite hielte die kommende für die laufende.
   const isCurrent = versatz === 0
+
+  // Der Montag der angezeigten Woche — Ziel des Erstellen-Knopfes und
+  // gleichzeitig seine Beschriftung.
+  const zielMontag = montagMitVersatz(versatz)
+  const zielSpanne = (() => {
+    const mo = new Date(zielMontag + 'T00:00:00')
+    const so = new Date(mo); so.setDate(mo.getDate() + 6)
+    const f = d => d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
+    return `${f(mo)}–${f(so)}`
+  })()
 
   // Bevorzugt die normalisierten Einheiten — nur die tragen ids und Zielwerte.
   const calendarDays = useMemo(
@@ -228,10 +246,8 @@ export default function WeeklyPlan() {
           />
           <button
             onClick={generate}
-            disabled={generating || !isCurrent}
-            title={isCurrent
-              ? 'Plan für die aktuelle Woche generieren'
-              : `Generieren erstellt immer für die laufende Woche (WK ${currentWeek})`}
+            disabled={generating}
+            title={`Plan für die Woche ${zielSpanne} erzeugen`}
             className="relative px-4 py-2 rounded-lg text-sm font-mono font-bold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
               background: generating ? '#00d4ff15' : '#00d4ff20',
@@ -254,7 +270,12 @@ export default function WeeklyPlan() {
                 </span>
                 GENERATING
               </span>
-            ) : 'GENERATE PLAN'}
+            ) : (
+              <span className="flex items-center gap-2">
+                PLAN ERSTELLEN
+                <span className="font-normal text-[11px] opacity-70">{zielSpanne}</span>
+              </span>
+            )}
           </button>
           {plan && <PlanExport plan={plan} />}
         </div>

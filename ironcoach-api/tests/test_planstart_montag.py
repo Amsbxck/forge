@@ -103,3 +103,62 @@ def test_taminas_wochennummer_stimmt_jetzt():
     assert get_week_for_date(Anker(start), start) == 1
     assert get_week_for_date(Anker(start), start + timedelta(days=6)) == 1
     assert get_week_for_date(Anker(start), start + timedelta(days=7)) == 2
+
+
+# --- Für welche Woche wird geplant? ------------------------------------------
+
+def test_am_sonntag_zielt_die_vorgabe_auf_die_endende_woche():
+    """Der Grund, warum "Plan erstellen" eine Zielwoche braucht.
+
+    Ohne Angabe rechnet der Generator mit der Woche, in der heute liegt. Am
+    Sonntag ist das die Woche, die heute endet — ein Plan für sechs vergangene
+    Tage. Dass das bei Tamina zuletzt richtig aussah, war ein Zufall: Ihr um
+    einen Tag verdrehtes Raster begann den Sonntag als neue Woche, ein Fehler
+    kaschierte also den anderen.
+    """
+    from core.prompt_templates import get_week_dates
+
+    start = plan_start_for(date(2027, 8, 29), 33)   # 2027-01-11, Montag
+    sonntag = date(2026, 9, 27)
+    assert sonntag.weekday() == 6
+
+    laufend = get_week_for_date(Anker(start), sonntag)
+    beginn, ende = get_week_dates(laufend, start)
+    assert (beginn, ende) == (date(2026, 9, 21), date(2026, 9, 27))
+    assert ende == sonntag, "die Woche endet heute — deshalb ist sie nicht gemeint"
+
+
+def test_mit_zielmontag_kommt_die_kommende_woche():
+    from core.prompt_templates import get_week_dates
+    from core.wochen import montag_von
+
+    start = plan_start_for(date(2027, 8, 29), 33)
+    kommender_montag = date(2026, 9, 28)
+
+    ziel = get_week_for_date(Anker(start), montag_von(kommender_montag))
+    beginn, ende = get_week_dates(ziel, start)
+    assert (beginn, ende) == (date(2026, 9, 28), date(2026, 10, 4))
+    assert ziel == get_week_for_date(Anker(start), date(2026, 9, 27)) + 1
+
+
+@pytest.mark.parametrize("irgendein_tag", [
+    date(2026, 9, 28), date(2026, 9, 30), date(2026, 10, 4),
+])
+def test_jeder_tag_der_woche_fuehrt_auf_dieselbe_zielwoche(irgendein_tag):
+    """Die Adresse darf nicht davon abhängen, welchen Wochentag man schickt."""
+    from core.wochen import montag_von
+
+    start = plan_start_for(date(2027, 8, 29), 33)
+    assert get_week_for_date(Anker(start), montag_von(irgendein_tag)) == \
+        get_week_for_date(Anker(start), date(2026, 9, 28))
+
+
+def test_der_endpunkt_nimmt_eine_zielwoche_an():
+    """Ohne den Parameter wäre die Oberfläche auf "heute" festgelegt."""
+    import inspect
+
+    from routers.plan import generate_plan
+    from services.plan_generator import generate_and_save_plan
+
+    assert "montag" in inspect.signature(generate_plan).parameters
+    assert "montag" in inspect.signature(generate_and_save_plan).parameters

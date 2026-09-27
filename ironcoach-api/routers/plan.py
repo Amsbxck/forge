@@ -26,10 +26,22 @@ router = APIRouter()
 @router.get("/plan/generate", response_model=WeeklyPlanOut)
 async def generate_plan(
     requests: str = Query(default="", description="Besondere Wünsche oder Hinweise"),
+    montag: date | None = Query(
+        default=None,
+        description="Montag der Woche, für die geplant werden soll. Ohne Angabe die laufende.",
+    ),
     db: Session = Depends(get_db),
 ):
+    """Plan erzeugen — für die laufende Woche oder für die angegebene.
+
+    `montag` gibt es, weil sonst immer die Woche geplant wurde, in der heute
+    liegt. Am Sonntag war das ein Plan für sechs vergangene Tage. Die
+    Oberfläche schickt den Montag der Woche, die sie gerade anzeigt, und
+    schreibt dasselbe Datum auf den Knopf — dann ist vor dem Drücken
+    sichtbar, was entsteht.
+    """
     try:
-        plan = await generate_and_save_plan(db, special_requests=requests)
+        plan = await generate_and_save_plan(db, special_requests=requests, montag=montag)
         return plan
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
