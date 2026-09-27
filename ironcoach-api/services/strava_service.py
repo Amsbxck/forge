@@ -386,6 +386,10 @@ class StravaService:
             "avg_pace_min_km": avg_pace_min_km,
             "tss": round(tss, 1) if tss else None,
             "sport_type": sport_raw or None,
+            # Strava führt das Kennzeichen selbst; es wurde bisher nur nicht
+            # ausgelesen. Ohne es ist ein Arbeitsweg von einer Trainingsfahrt
+            # nicht zu unterscheiden.
+            "is_commute": bool(activity.get("commute")),
             "hr_zones": hr_zones,
             "streams": stored_streams or None,
             "strava_activity_id": activity.get("id"),

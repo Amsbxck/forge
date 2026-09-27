@@ -210,6 +210,15 @@ def score_match(planned: PlannedSession, session: TrainingSession) -> float:
 
 
 def find_best_planned(db: Session, session: TrainingSession) -> tuple[PlannedSession | None, float]:
+    # Ein Arbeitsweg erfüllt keine Vorgabe. Er zählt in die Formkurve, aber er
+    # ist nicht die geplante Einheit: Dieselbe Sportart am selben Tag ergibt
+    # 0.8 Punkte, und damit galt eine 20-Minuten-Fahrt zur Arbeit als die
+    # Ausfahrt über 90 Minuten — Tag grün, Vorgabe abgehakt, und die
+    # Belastbarkeitsrechnung meldete einen Rückstand, der den Coach das Volumen
+    # senken lässt.
+    if getattr(session, "is_commute", False):
+        return None, 0.0
+
     candidates = (
         db.query(PlannedSession)
         .filter(

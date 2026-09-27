@@ -291,6 +291,11 @@ class TrainingSession(Base):
     # ohne diese Spalte wäre nach dem Einlesen nicht mehr erkennbar, was es
     # tatsächlich war.
     sport_type: Mapped[str | None] = mapped_column(String)
+    # Arbeitsweg. Zählt in die Formkurve — es ist echtes Radfahren —, gilt aber
+    # nie als die geplante Einheit: Sonst erfüllt eine 20-Minuten-Fahrt zur
+    # Arbeit eine Vorgabe über 90 Minuten, nur weil sie dieselbe Sportart am
+    # selben Tag ist. Strava führt das Kennzeichen an der Aktivität.
+    is_commute: Mapped[bool] = mapped_column(Boolean, default=False)
     duration_min: Mapped[int | None] = mapped_column(Integer)
     distance_km: Mapped[float | None] = mapped_column(Float)
     avg_hr: Mapped[int | None] = mapped_column(Integer)

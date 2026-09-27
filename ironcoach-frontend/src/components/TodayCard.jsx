@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { getPlannedCurrent } from '../services/api'
+import { getPlannedByMonday, getPlannedCurrent } from '../services/api'
 import { disciplineColor, disciplineLabel } from '../utils/colors'
+import { isoTag, montagMitVersatz } from '../utils/dates'
 
 const LABEL = 'text-[10px] font-mono tracking-widest text-[var(--text-secondary)]'
 const DISPLAY = { fontFamily: 'Barlow Condensed, sans-serif' }
@@ -45,19 +46,34 @@ export default function TodayCard({ onOpenPlan }) {
   const [rows, setRows] = useState(null)
 
   useEffect(() => {
-    getPlannedCurrent()
-      .then(({ data }) => setRows(data || []))
-      // 404/503 heißt: kein Plan für diese Woche. Kein Fehler, nur nichts zu zeigen.
+    // Diese **und** die kommende Woche laden. "Morgen" ist am Sonntag der
+    // Montag der nächsten Woche und lag deshalb gar nicht in den Daten — die
+    // Zeile blieb an genau dem Tag leer, an dem man am ehesten vorausschaut.
+    Promise.all([
+      getPlannedCurrent().then(r => r.data || []).catch(() => []),
+      getPlannedByMonday(montagMitVersatz(1)).then(r => r.data || []).catch(() => []),
+    ])
+      // 404/503 heißt: kein Plan für die Woche. Kein Fehler, nur nichts zu zeigen.
+      .then(([diese, naechste]) => setRows([...diese, ...naechste]))
       .catch(() => setRows([]))
   }, [])
 
   if (rows === null) return null
 
-  const heute = new Date().toISOString().slice(0, 10)
-  const morgen = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+  // Lokales Datum, nicht UTC: `toISOString()` liefert den UTC-Tag, und
+  // östlich von Greenwich ist der zwischen Mitternacht und zwei Uhr noch der
+  // vorige. Die Kachel zeigte dann nachts die Einheit von gestern als "heute".
+  const heute = isoTag(new Date())
+  const morgenDatum = new Date()
+  morgenDatum.setDate(morgenDatum.getDate() + 1)
+  const morgen = isoTag(morgenDatum)
+
   const heutige = rows.filter(r => r.planned_date === heute && r.discipline !== 'rest')
   const morgige = rows.filter(r => r.planned_date === morgen && r.discipline !== 'rest')
   const istRuhetag = rows.some(r => r.planned_date === heute) && heutige.length === 0
+  // Ein Ruhetag morgen ist eine Auskunft, kein Nichts: Er unterscheidet sich
+  // davon, dass für morgen noch kein Plan vorliegt.
+  const morgenRuhetag = rows.some(r => r.planned_date === morgen) && morgige.length === 0
 
   const wochentag = new Date().toLocaleDateString('de-DE', { weekday: 'long' })
 
@@ -149,16 +165,31 @@ export default function TodayCard({ onOpenPlan }) {
           </div>
         )}
 
-        {/* Morgen nur als Zeile: es geht um die Vorbereitung, nicht um Details. */}
-        {morgige.length > 0 && (
-          <div className="mt-4 pt-3 border-t border-[#1e2228] flex items-center gap-2 flex-wrap">
+        {/* Morgen als Zeile: es geht um die Vorbereitung, nicht um Details.
+            Die Intensität steht dabei — sie ist der Grund, warum man
+            vorausschaut. Vor einer VO₂max-Einheit legt man sich früher hin. */}
+        {(morgige.length > 0 || morgenRuhetag) && (
+          <div className="mt-4 pt-3 border-t border-[#1e2228] flex items-center gap-x-3 gap-y-1.5 flex-wrap">
             <span className="text-[10px] font-mono tracking-widest text-[var(--text-muted)]">MORGEN</span>
-            {morgige.map(s => (
-              <span key={s.id} className="text-xs font-mono" style={{ color: disciplineColor(s.discipline) }}>
-                {disciplineLabel(s.discipline, s.sport_type)}
-                {s.duration_min ? ` ${s.duration_min}min` : ''}
-              </span>
-            ))}
+            {morgenRuhetag ? (
+              <span className="text-xs font-mono text-[var(--text-secondary)]">Ruhetag</span>
+            ) : morgige.map(s => {
+              const farbe = disciplineColor(s.discipline)
+              return (
+                <span key={s.id} className="flex items-baseline gap-1.5">
+                  <span className="text-xs font-mono" style={{ color: farbe }}>
+                    {disciplineLabel(s.discipline, s.sport_type)}
+                    {s.duration_min ? ` ${s.duration_min}min` : ''}
+                  </span>
+                  {s.intensity && (
+                    <span className="text-[9px] font-mono px-1 py-0.5 rounded"
+                          style={{ background: `${farbe}14`, border: `1px solid ${farbe}33`, color: farbe }}>
+                      {INTENSITY_LABEL[s.intensity] || s.intensity}
+                    </span>
+                  )}
+                </span>
+              )
+            })}
           </div>
         )}
       </div>

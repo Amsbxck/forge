@@ -77,12 +77,22 @@ def update_reflection(session_id: int, body: ReflectionIn, db: Session = Depends
 
 @router.delete("/history/sessions/{session_id}")
 def soft_delete_session(session_id: int, db: Session = Depends(get_db)):
+    """Einheit löschen, wiederherstellbar — und ihre Vorgabe freigeben.
+
+    Das Freigeben ist der Teil, der gefehlt hat. Ohne es blieb der Tag im
+    Wochenplan grün, obwohl die Einheit, die ihn erfüllt hat, gelöscht war; und
+    die später absolvierte, richtige Einheit wurde nicht mehr zugeordnet, weil
+    `matched_session_id` weiter auf die gelöschte zeigte.
+    """
+    from services.planned_link import release_planned
+
     s = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Einheit nicht gefunden")
     s.deleted_at = datetime.utcnow()
+    vorgabe = release_planned(db, s, commit=False)
     db.commit()
-    return {"message": "Einheit gelöscht (wiederherstellbar)"}
+    return {"message": "Einheit gelöscht (wiederherstellbar)", "vorgabe": vorgabe}
 
 
 @router.delete("/history/sessions/{session_id}/hard")
@@ -109,6 +119,12 @@ def hard_delete_session(session_id: int, db: Session = Depends(get_db)):
 
     vault = delete_session_note(db, s)
 
+    from services.planned_link import release_planned
+    # Vor dem Löschen: Danach ist `planned_session_id` nicht mehr zu lesen.
+    # Der Fremdschlüssel setzt zwar `matched_session_id` auf NULL, aber
+    # `status` bliebe auf "completed" — der Tag wäre grün ohne alles.
+    vorgabe = release_planned(db, s, commit=False)
+
     db.delete(s)
     db.commit()
 
@@ -122,17 +138,34 @@ def hard_delete_session(session_id: int, db: Session = Depends(get_db)):
         )
     elif vault["status"] == "behalten_eigene_note":
         meldung += f" — die Notiz {vault.get('path')} bleibt: sie ist von dir überarbeitet"
-    return {"message": meldung, "vault": vault}
+    return {"message": meldung, "vault": vault, "vorgabe": vorgabe}
 
 
 @router.post("/history/sessions/{session_id}/restore")
 def restore_session(session_id: int, db: Session = Depends(get_db)):
+    """Einheit zurückholen — und neu zuordnen.
+
+    Beim Löschen wurde die Verbindung zur Vorgabe gelöst. Sie hier nicht wieder
+    herzustellen hiesse: Die Einheit ist zurück, gilt aber als ungeplant, und
+    der Tag im Wochenplan bleibt grau. Neu zugeordnet statt gemerkt, weil sich
+    der Plan zwischenzeitlich geändert haben kann.
+    """
+    from services.classification import classify_session
+
     s = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Einheit nicht gefunden")
     s.deleted_at = None
     db.commit()
-    return {"message": "Einheit wiederhergestellt"}
+
+    try:
+        zuordnung = classify_session(db, s)
+    except Exception as e:  # pragma: no cover - Wiederherstellen darf nie scheitern
+        import logging
+        logging.getLogger(__name__).warning("Neuzuordnung nach Wiederherstellen fehlgeschlagen: %s", e)
+        zuordnung = None
+
+    return {"message": "Einheit wiederhergestellt", "zuordnung": zuordnung}
 
 
 @router.get("/history/plans", response_model=list[WeeklyPlanOut])
