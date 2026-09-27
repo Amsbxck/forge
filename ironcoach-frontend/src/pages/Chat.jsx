@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { sendChat, clearChat } from '../services/api'
 import axios from 'axios'
 
@@ -63,9 +63,27 @@ export default function Chat() {
   const inputRef = useRef(null)
   const containerRef = useRef(null)
 
-  useEffect(() => {
-    api.get('/api/chat/history').then(r => setMessages(r.data)).catch(() => {})
+  // Der Verlauf lebt auf dem Server, nicht im Browser: Beim Öffnen der Seite
+  // wird er geholt. Hier stand `.catch(() => {})` — scheiterte die Anfrage,
+  // blieb die Seite einfach leer und sah aus, als sei das Gespräch verloren.
+  // Ein stiller Fehler an genau der Stelle, an der man ihn am wenigsten
+  // erkennt: Ein leerer Chat ist ein plausibler Zustand.
+  const [verlaufFehler, setVerlaufFehler] = useState(null)
+  const ladeVerlauf = useCallback(async () => {
+    setVerlaufFehler(null)
+    try {
+      const r = await api.get('/api/chat/history')
+      setMessages(r.data)
+    } catch (e) {
+      setVerlaufFehler(
+        e.response?.status
+          ? `Verlauf nicht geladen (HTTP ${e.response.status}${e.response.data?.detail ? ': ' + e.response.data.detail : ''})`
+          : 'Verlauf nicht geladen — keine Verbindung zum Server'
+      )
+    }
   }, [])
+
+  useEffect(() => { ladeVerlauf() }, [ladeVerlauf])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -161,6 +179,17 @@ export default function Chat() {
           </div>
         )}
 
+        {verlaufFehler && (
+          <div className="rounded-xl px-4 py-3 mb-3 font-mono text-[11px] flex items-center gap-3 flex-wrap"
+               style={{ background: '#ef444412', border: '1px solid #ef444433', color: '#ef4444' }}>
+            <span>{verlaufFehler}</span>
+            <button onClick={ladeVerlauf}
+                    className="px-2 py-1 rounded font-bold"
+                    style={{ border: '1px solid #ef444455' }}>
+              ERNEUT VERSUCHEN
+            </button>
+          </div>
+        )}
         {messages.map((msg, i) => (
           <Message key={msg.id || i} msg={msg} isNew={i === newMsgIndex} />
         ))}

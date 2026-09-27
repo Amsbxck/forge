@@ -2,51 +2,6 @@ from datetime import date, timedelta
 from core.zwift_catalog import get_phase_workouts
 
 
-# Amirs bisheriges Schienbein-Protokoll. Steht ab sofort in seinem
-# Profil (coaching_constraints) statt fest im Prompt — andere Athleten
-# bekommen Regeln, die auf ihre eigene Vorgeschichte zugeschnitten sind.
-DEFAULT_RUN_CONSTRAINTS = """## SCHIENBEIN-PROTOKOLL (KRITISCH — bei JEDEM Plan beachten)
-
-**Status:** Stabil, aktuell kein Schmerz, aber Zwicken/Spannungen bei höherer Pace möglich.
-Die Schienbeine adaptieren sich progressiv an neue Belastungen — sie brauchen kontrollierte Reize um stärker zu werden.
-
-### LAUF-FORMAT (Standard)
-- **Walk-Run Intervalle** sind die Basis: X km joggen + 90sec–2min gehen, wiederholen
-- **Aktuelle Kapazität:** aus den Trainingsdaten der letzten 2 Wochen ableiten
-- **Progression:** Intervall-Distanz erhöhen ODER Gehpause verkürzen — NIE beides gleichzeitig
-- **Steigerung NUR wenn:** Vorwoche war 🟢 (kein Zwicken erwähnt)
-
-### STRIDES (erlaubt!)
-- **Was:** 4–6× 15–20 Sekunden schnell laufen + 60–90 Sekunden gehen
-- **Wann:** Am ENDE eines Laufs (aufgewärmt)
-- **Frequenz:** Max 1× pro Woche, nicht jede Session
-- **Warum:** Progressive Adaptation der Schienbeine an höhere Pace
-- **NICHT in Brick-Sessions!**
-
-### LAUF-TYPEN
-| Typ | Format | Wann |
-|-----|--------|------|
-| Walk-Run Intervalle | 4–5× 2–2.5km jog + 90sec–2min gehen | Standard, 1–2×/Woche |
-| Walk-Run + Strides | Intervalle + 4–6× 20sec schnell am Ende | Max 1×/Woche |
-| Brick-Lauf | 3–4× 800m–1km jog + 2min gehen | Nach Rad, 1×/Woche |
-
-### LAUF-AMPEL (für Feedback-Interpretation aus letzten Sessions)
-| Gefühl | Bedeutung | Nächste Woche |
-|--------|-----------|---------------|
-| 🟢 Nichts spürbar | Voll adaptiert | Progression möglich |
-| 🟡 Zwicken bei neuer Pace | Adaptation läuft | Level halten, Strides OK |
-| 🟠 Zwicken bei alter Pace | Überlastung beginnt | −20% Volumen, keine Strides |
-| 🔴 Schmerz >3/10 | Stopp! | Session abbrechen, Woche pausieren |
-
-### LAUF — VERBOTEN
-- Hill Sprints, Bergläufe
-- Track-Intervalle (400m Repeats mit kurzer Pause)
-- Läufe >12km in einer Session
-- Strides in Brick-Sessions
-- Standalone-Lauf am Tag NACH einem Brick (Brick enthält bereits Lauf)
-- Dauerlauf ohne Gehpausen (noch nicht stabil genug)
-
----"""
 
 
 def get_phase(week: int, total_weeks: int = 33) -> str:
@@ -222,18 +177,24 @@ Leistung stellen — in der Auswertung bleibt dort sonst eine Lücke. Dasselbe
 gilt für Erholungsblöcke: jeder Block braucht `watt`.
 
 **run (Intervalle):** — gleiche Blockstruktur wie beim Rad, nur mit `pace`
+
+Die Werte hier sind **Platzhalter für die Form**, keine Vorgabe. Setze die
+Bereiche dieses Athleten ein, aus "Trainingsbereiche" und den HR-Zonen oben.
+Hier standen echte Zahlen eines einzelnen Athleten — und sie wurden wörtlich
+in die Pläne aller anderen übernommen.
+
 ```json
 {
-  "typ": "Walk-Run Intervalle",
-  "struktur": "4×2km joggen + 90sec-2min gehen",
-  "warmup": {"dauer": "1 km", "pace": "6:30-7:00/km"},
+  "typ": "Intervalle",
+  "struktur": "4×2km + Pause",
+  "warmup": {"dauer": "1 km", "pace": "<Z1-Pace>/km"},
   "blocks": [
-    {"block": "1", "pace": "6:00-6:50/km", "dauer": "2 km", "zone": "Z2"},
-    {"block": "Trabpause", "pace": "8:00-9:00/km", "dauer": "90 sec", "zone": "Z1"},
-    {"block": "2", "pace": "6:00-6:50/km", "dauer": "2 km", "zone": "Z2"}
+    {"block": "1", "pace": "<Z2-Pace>/km", "dauer": "2 km", "zone": "Z2"},
+    {"block": "Trabpause", "pace": "<Z1-Pace>/km", "dauer": "90 sec", "zone": "Z1"},
+    {"block": "2", "pace": "<Z2-Pace>/km", "dauer": "2 km", "zone": "Z2"}
   ],
-  "cooldown": {"dauer": "1 km", "pace": "6:30-7:00/km"},
-  "ziel_hr": "139-173 bpm",
+  "cooldown": {"dauer": "1 km", "pace": "<Z1-Pace>/km"},
+  "ziel_hr": "<Z2-Bereich des Athleten> bpm",
   "distanz_richtwert": "~8-10km"
 }
 ```
@@ -244,10 +205,13 @@ lässt sich später nicht bewerten — die Pause bleibt in der Auswertung leer,
 obwohl sie Teil der Einheit ist.
 
 **WICHTIG zur Lauf-Pace:**
-- Amir laeuft seine Walk-Run Intervalle aktuell in **6:00-6:50/km** (nicht mehr 7:00-7:30)
-- Bei gutem Gefuehl koennen einzelne Intervalle in **5:30-6:00/km** gelaufen werden
-- Plane Pace-Bereich entsprechend, nicht zu konservativ
-- 5:xx-Pace nur als optionale "wenn Gefuehl gut"-Erlaubnis, nicht als Vorgabe
+- Die Bereiche stehen im Abschnitt "Trainingsbereiche", abgeleitet aus der
+  **gemessenen Schwellenpace** dieses Athleten. Nimm sie von dort.
+- Fehlt dort eine Schwellenpace, ist keine gemessen. Dann nach Puls planen und
+  **keine Pace erfinden** — eine geratene Zahl sieht in der Auswertung aus wie
+  eine gemessene.
+- Hier standen feste Pacebereiche eines einzelnen Athleten. Jeder andere bekam
+  damit dessen Tempo vorgeschrieben.
 
 **run (Dauerlauf):**
 ```json
@@ -255,7 +219,7 @@ obwohl sie Teil der Einheit ist.
   "typ": "Dauerlauf Z2",
   "dauer": "30 min",
   "pace": "nach Gefühl",
-  "ziel_hr": "139-173 bpm"
+  "ziel_hr": "<Z2-Bereich des Athleten> bpm"
 }
 ```
 
@@ -358,7 +322,7 @@ def build_plan_prompt(
     if reflections:
         reflections_block = (
             "\n## Reflexionen des Athleten (subjektiv, selbst notiert)\n"
-            "Diese Notizen stammen von Amir selbst, nicht aus Messdaten. "
+            "Diese Notizen stammen vom Athleten selbst, nicht aus Messdaten. "
             "Nutze sie zur Einordnung — behandle sie nicht als gemessene Werte.\n\n"
             f"{reflections}\n"
         )
@@ -402,7 +366,8 @@ def build_plan_prompt(
 
 ### REGELN
 - Nur **Bike → Run** (Swim → Bike erst ab Peak Phase W25+)
-- **Laufanteil IMMER als Walk-Run Intervalle**, nicht kontinuierlich
+- Laufanteil durchgehend, **es sei denn**, die Athletenvorgaben oder der
+  Gesundheitsabschnitt verlangen Gehpausen — oder der Athlet hat darum gebeten
 - IMMER kürzer als Standalone-Lauf der gleichen Woche
 - KEINE Strides in Brick-Läufen
 - Ziel: Umgewöhnung der Beine, NICHT Pace
@@ -440,7 +405,7 @@ Hier nur die übergeordneten Regeln:
 
 ### TYPISCHE BUILD 2 WOCHE (HRV 🟢)
 - 3× Rad (1× Sweet Spot, 1× Threshold ODER VO2max, 1× Z2/Feel)
-- 2× Lauf (1× Walk-Run + Strides, 1× im Brick)
+- 2× Lauf (1× mit Tempoanteil, 1× im Brick)
 - 2× Schwimmen
 - 1× Brick (Sa)
 - 0–1× Gym
@@ -507,12 +472,6 @@ Beispiel: 88% FTP = {int(athlete_profile['ftp_watts'] * 0.88)}W, 95% FTP = {int(
  
 ## TRAININGSREGELN (WICHTIG!)
  
-### Schienbein-Protokoll
-- **Stopp-Regel:** Schmerz >3/10 → SOFORT stoppen, nur gehen
-- **TENS:** 20 min täglich, Innenseite Schienbein
-- **Progression:** Nur steigern wenn 100% schmerzfrei
-- **Aktuell:** 4×1.5km Intervalle + 5km Dauerlauf möglich
- 
 ### Rad
 - **Kadenz:** 75-85 rpm (natürlich), NICHT höher!
 - **Warm-up/Cool-down:** 70-75 rpm
@@ -522,9 +481,13 @@ Beispiel: 88% FTP = {int(athlete_profile['ftp_watts'] * 0.88)}W, 95% FTP = {int(
 - **Zwift ERG-Modus** kompatibel
  
 ### Lauf
-- **Base Phase:** Intervalle mit Gehpausen (z.B. 4×1.5km + 2min gehen)
 - **Brick-Läufe:** Kürzer und konservativer als Standalone
-- **HR-Ziel:** Z2 (139-173 bpm)
+- **HR-Ziel:** Z2 — die Grenzen stehen oben im Athletenprofil
+- **Gehpausen** sind ein Werkzeug, keine Grundeinstellung: Sie kommen in den
+  Plan, wenn die Athletenvorgaben oder der Gesundheitsabschnitt sie verlangen,
+  oder wenn der Athlet danach fragt. Hier standen sie als Vorgabe für die
+  Grundlagenphase, dazu die Pulsgrenzen eines einzelnen Athleten — beides
+  bekam jeder andere mit.
  
 ### Schwimmen
 Der Athlet schwimmt nach einem **externen Trainingsplan** — aus dem Verein,
