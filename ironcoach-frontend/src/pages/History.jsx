@@ -4,7 +4,7 @@ import {
 } from 'recharts'
 import {
   getSessions, getHistoryPlans,
-  softDeleteSession, hardDeleteSession, restoreSession
+  softDeleteSession, hardDeleteSession, restoreSession, setSessionCommute
 } from '../services/api'
 import SessionDetail from '../components/SessionDetail'
 
@@ -282,7 +282,7 @@ function ProgressTab({ sessions }) {
 
 // ─── Sessions Timeline ─────────────────────────────────────────────────────────
 
-function SessionRow({ session: s, onDelete, onHardDelete, onRestore, onClick }) {
+function SessionRow({ session: s, onDelete, onHardDelete, onRestore, onCommute, onClick }) {
   const disc = s.discipline?.toLowerCase()
   const cfg = DISC_CONFIG[disc] || { key: disc, color: 'var(--text-secondary)' }
   const intensity = INTENSITY_META[s.intensity]
@@ -314,6 +314,15 @@ function SessionRow({ session: s, onDelete, onHardDelete, onRestore, onClick }) 
             title={`Intensität ${intensity.short} (${intensity.zone})`}
           >
             {intensity.short}
+          </span>
+        )}
+        {s.is_commute && (
+          <span
+            className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded leading-none whitespace-nowrap"
+            style={{ color: '#7b8496', background: '#7b849618', border: '1px solid #7b849644' }}
+            title="Arbeitsweg — zählt in die Formkurve, gilt aber nicht als geplante Einheit"
+          >
+            WEG
           </span>
         )}
         {s.actual_type && (
@@ -357,6 +366,17 @@ function SessionRow({ session: s, onDelete, onHardDelete, onRestore, onClick }) 
         className="flex gap-2 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
         onClick={e => e.stopPropagation()}
       >
+        {!s.deleted_at && s.discipline === 'bike' && (
+          <button
+            onClick={onCommute}
+            className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[#e8eaf0] whitespace-nowrap"
+            title={s.is_commute
+              ? 'Markierung aufheben — die Einheit wird wieder dem Plan zugeordnet'
+              : 'Als Arbeitsweg markieren — bleibt in der Formkurve, erfüllt aber keine Vorgabe'}
+          >
+            {s.is_commute ? 'KEIN WEG' : 'ARBEITSWEG'}
+          </button>
+        )}
         {s.deleted_at ? (
           <>
             <button onClick={onRestore} className="text-xs text-green-500 hover:text-green-400 font-mono">↩</button>
@@ -432,6 +452,7 @@ function SessionsTab({ sessions, showDeleted, onToggleDeleted, onRefresh }) {
     onRefresh()
   }
   const handleRestore = async (id) => { await restoreSession(id); onRefresh() }
+  const handleCommute = async (id, wert) => { await setSessionCommute(id, wert); onRefresh() }
 
   return (
     <div className="space-y-4">
@@ -535,6 +556,7 @@ function SessionsTab({ sessions, showDeleted, onToggleDeleted, onRefresh }) {
                     onDelete={() => handleSoftDelete(s.id)}
                     onHardDelete={() => handleHardDelete(s.id)}
                     onRestore={() => handleRestore(s.id)}
+                    onCommute={() => handleCommute(s.id, !s.is_commute)}
                   />
                 ))}
               </div>

@@ -141,6 +141,43 @@ def hard_delete_session(session_id: int, db: Session = Depends(get_db)):
     return {"message": meldung, "vault": vault, "vorgabe": vorgabe}
 
 
+@router.patch("/history/sessions/{session_id}/commute")
+def set_commute(session_id: int, is_commute: bool, db: Session = Depends(get_db)):
+    """Eine Einheit als Arbeitsweg markieren — oder die Markierung aufheben.
+
+    Der Rückfall, wenn Strava das Kennzeichen nicht mitliefert. Garmin setzt es
+    beim Aktivitätstyp "Bike Commute", aber nicht bei jedem Gerät und nicht,
+    wenn die Fahrt als normale Radausfahrt gespeichert wurde.
+
+    Der Sinn gegenüber dem Löschen: Ein Arbeitsweg ist echtes Radfahren und
+    gehört in die Formkurve. Er soll nur nicht als die geplante Einheit gelten.
+    Wer ihn löscht, verliert die Last; wer ihn markiert, behält sie.
+
+    Beides zieht eine Neuzuordnung nach sich: Beim Markieren wird die Vorgabe
+    freigegeben (sonst bliebe der Tag grün), beim Aufheben neu gematcht.
+    """
+    from services.classification import classify_session
+    from services.planned_link import release_planned
+
+    s = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Einheit nicht gefunden")
+
+    s.is_commute = is_commute
+    if is_commute:
+        vorgabe = release_planned(db, s, commit=False)
+        db.commit()
+    else:
+        db.commit()
+        vorgabe = classify_session(db, s)
+
+    return {
+        "message": "Als Arbeitsweg markiert" if is_commute else "Markierung aufgehoben",
+        "is_commute": is_commute,
+        "vorgabe": vorgabe,
+    }
+
+
 @router.post("/history/sessions/{session_id}/restore")
 def restore_session(session_id: int, db: Session = Depends(get_db)):
     """Einheit zurückholen — und neu zuordnen.

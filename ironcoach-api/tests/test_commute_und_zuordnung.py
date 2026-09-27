@@ -187,3 +187,58 @@ def test_wiederherstellen_ordnet_neu_zu(client, vorgabe, db):
     db.refresh(vorgabe)
     assert vorgabe.status == "completed"
     assert vorgabe.matched_session_id == echt.id
+
+
+# --- Der Rückfall: von Hand markieren ---------------------------------------
+
+def test_strava_kennzeichen_kommt_durch():
+    """Die Kette von der Strava-Nutzlast bis zum Feld.
+
+    Garmins Aktivitätstyp "Bike Commute" erreicht Strava als `sport_type: Ride`
+    mit gesetztem `commute` — das Kennzeichen steckt im eigenen Feld, nicht im
+    Sporttyp. Fehlt das Feld, gilt die Fahrt als Training: Ein Arbeitsweg, der
+    versehentlich als Training zählt, ist harmloser als eine Trainingsfahrt,
+    die stillschweigend aus der Zuordnung fällt.
+    """
+    from services.strava_service import StravaService
+
+    svc = StravaService.__new__(StravaService)
+    basis = {"id": 1, "sport_type": "Ride", "start_date_local": "2026-10-07T07:40:00Z",
+             "moving_time": 1260, "distance": 8200}
+
+    assert svc.map_strava_to_session({**basis, "commute": True}, {}, 238, 40, None)["is_commute"] is True
+    assert svc.map_strava_to_session({**basis, "commute": False}, {}, 238, 40, None)["is_commute"] is False
+    assert svc.map_strava_to_session(basis, {}, 238, 40, None)["is_commute"] is False
+
+
+def test_von_hand_markieren_gibt_die_vorgabe_frei(client, vorgabe, db):
+    """Gebraucht, wenn Strava das Kennzeichen nicht mitliefert.
+
+    Besser als löschen: Der Arbeitsweg ist echtes Radfahren und bleibt in der
+    Formkurve — er gilt nur nicht mehr als die geplante Einheit.
+    """
+    weg = _fahrt(db, 21)
+    classify_session(db, weg)
+    assert vorgabe.status == "completed"
+
+    antwort = client.patch(f"/api/history/sessions/{weg.id}/commute?is_commute=true")
+    assert antwort.status_code == 200
+    assert antwort.json()["vorgabe"]["status"] == "freigegeben"
+
+    db.expire_all(); db.refresh(vorgabe); db.refresh(weg)
+    assert weg.is_commute is True
+    assert weg.deleted_at is None, "die Einheit bleibt bestehen und trägt weiter Last"
+    assert vorgabe.status == "planned"
+
+
+def test_markierung_aufheben_ordnet_neu_zu(client, vorgabe, db):
+    weg = _fahrt(db, 88, commute=True)
+    classify_session(db, weg)
+    assert vorgabe.status == "planned"
+
+    antwort = client.patch(f"/api/history/sessions/{weg.id}/commute?is_commute=false")
+    assert antwort.status_code == 200
+
+    db.expire_all(); db.refresh(vorgabe)
+    assert vorgabe.status == "completed"
+    assert vorgabe.matched_session_id == weg.id

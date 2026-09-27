@@ -145,6 +145,11 @@ export const clearChat = () => api.delete('/api/chat')
 export const getSessions = (params = {}) => api.get('/api/history/sessions', { params })
 export const softDeleteSession = (id) => api.delete(`/api/history/sessions/${id}`)
 export const hardDeleteSession = (id) => api.delete(`/api/history/sessions/${id}/hard`)
+// Rückfall, wenn Strava das Commute-Kennzeichen nicht mitliefert. Markieren ist
+// besser als löschen: Der Arbeitsweg ist echtes Radfahren und bleibt damit in
+// der Formkurve — er gilt nur nicht mehr als die geplante Einheit.
+export const setSessionCommute = (id, isCommute) =>
+  api.patch(`/api/history/sessions/${id}/commute`, null, { params: { is_commute: isCommute } })
 export const restoreSession = (id) => api.post(`/api/history/sessions/${id}/restore`)
 export const updateReflection = (id, reflection) =>
   api.patch(`/api/history/sessions/${id}`, { reflection })

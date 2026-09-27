@@ -90,6 +90,7 @@ class TrainingSessionOut(BaseModel):
     # Ursprüngliche Bezeichnung, wenn die Sportart keiner Kategorie entspricht
     # (StairStepper, Rowing, Elliptical …).
     sport_type: str | None = None
+    is_commute: bool = False
     duration_min: int | None
     distance_km: float | None
     avg_hr: int | None
