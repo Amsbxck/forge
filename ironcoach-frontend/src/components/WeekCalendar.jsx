@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { clearPlannedReplacement, setPlannedReplacement, swapPlannedSessions } from '../services/api'
 import Modal from './Modal'
-import { DISCIPLINE_COLOR } from '../utils/colors'
+import { DISCIPLINE_COLOR, DONE_COLOR } from '../utils/colors'
 
 // Aus der gemeinsamen Farbtabelle abgeleitet — Rahmen, Fläche und Schrift
 // derselben Farbe, nur in unterschiedlicher Deckkraft.
@@ -466,6 +466,11 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
           // Der heutige Tag bekommt einen Schein statt nur einer Kante: in
           // sieben gleich aussehenden Karten sucht man ihn sonst jedes Mal.
           const istHeute = day.date === heute
+          // Absolviert: Die Projektion setzt `completed`, sobald eine echte
+          // Einheit der geplanten zugeordnet wurde. Ein Ruhetag gilt nicht als
+          // Leistung — er bekommt kein Häkchen, sonst wäre "erledigt" beim
+          // Nichtstun dasselbe Signal wie nach drei Stunden auf dem Rad.
+          const istErledigt = day.status === 'completed' && day.session_type !== 'rest'
           const isDragging = dragIndex === i
           const isOver = overIndex === i && dragIndex !== i
           const isSaving = day.id != null && savingIds.includes(day.id)
@@ -481,8 +486,15 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
               onDragEnd={onDragEnd}
               className="day-card rounded-xl border p-3 transition-all select-none relative"
               style={{
-                borderColor: isOver ? '#00d4ff' : (isFlashing ? '#00d4ff' : (istHeute ? `${colors.text}99` : colors.border)),
-                background: isOver ? '#00d4ff0d' : colors.bg,
+                borderColor: isOver ? '#00d4ff'
+                  : (isFlashing ? '#00d4ff'
+                    : (istErledigt ? `${DONE_COLOR}66`
+                      : (istHeute ? `${colors.text}99` : colors.border))),
+                // Erledigt schlägt die Disziplinfarbe im Grund, nicht in der
+                // Kante: Die Sportart bleibt an Kante und Typmarke ablesbar,
+                // der Grund sagt "gemacht".
+                background: isOver ? '#00d4ff0d'
+                  : (istErledigt ? `${DONE_COLOR}1c` : colors.bg),
                 opacity: isDragging ? 0.4 : (isSaving ? 0.6 : 1),
                 cursor: isSaving ? 'progress' : 'grab',
                 boxShadow: isOver
@@ -499,14 +511,23 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
                 <span className="font-bold text-sm text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
                   {day.day?.slice(0, 2).toUpperCase()}
                 </span>
-                {istHeute ? (
-                  <span className="text-[9px] font-mono tracking-widest px-1.5 py-0.5 rounded"
-                        style={{ background: `${colors.text}1e`, border: `1px solid ${colors.text}55`, color: colors.text }}>
-                    HEUTE
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-mono text-[var(--text-muted)]">{day.date?.slice(5)}</span>
-                )}
+                <span className="flex items-center gap-1.5">
+                  {istErledigt && (
+                    <span className="text-[9px] font-mono font-bold tracking-widest px-1.5 py-0.5 rounded"
+                          style={{ background: `${DONE_COLOR}22`, border: `1px solid ${DONE_COLOR}66`, color: DONE_COLOR }}
+                          title="Absolviert und dem Plan zugeordnet">
+                      ✓
+                    </span>
+                  )}
+                  {istHeute ? (
+                    <span className="text-[9px] font-mono tracking-widest px-1.5 py-0.5 rounded"
+                          style={{ background: `${colors.text}1e`, border: `1px solid ${colors.text}55`, color: colors.text }}>
+                      HEUTE
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-mono text-[var(--text-muted)]">{day.date?.slice(5)}</span>
+                  )}
+                </span>
               </div>
 
               <div className="text-[10px] font-mono font-bold uppercase tracking-widest" style={{ color: colors.text }}>

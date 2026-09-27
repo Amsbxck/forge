@@ -533,6 +533,12 @@ class HealthEvent(Base):
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date | None] = mapped_column(Date)
 
+    # Wo es weh tut. Nur bei Verletzungen gesetzt — eine Erkältung hat keine
+    # Körperstelle. Daran hängt, welche Disziplin der Plan drosselt: Schienbein
+    # heisst Gehpausen im Lauf und lässt Rad und Schwimmen in Ruhe, Schulter
+    # umgekehrt. Ohne die Angabe blieb nur, alles zu drosseln oder nichts.
+    body_part: Mapped[str | None] = mapped_column(String)
+
     note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

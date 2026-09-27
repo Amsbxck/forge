@@ -83,6 +83,20 @@ export const HR_ZONE_LABEL = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5']
 
 export const ACCENT = '#00d4ff'
 
+// --- Erledigt ----------------------------------------------------------------
+/** Ein absolvierter Tag im Wochenplan.
+ *
+ *  Bewusst **nicht** das Grün der Zonenskala (`#22c55e` = Z2): Das steht für
+ *  eine Intensität und färbt in der Grundlagenphase auch die Phasenmarke. Eine
+ *  Karte mit grünem Grund und grüner Intensitätsleiste wäre nicht mehr zu
+ *  lesen — man wüsste nicht, ob das Grün „Z2" oder „gemacht" heißt.
+ *
+ *  Dieses Grün zieht ins Smaragd, liegt damit neben der Skala statt darauf.
+ *  Und es trägt die Aussage nicht allein: Die Karte bekommt zusätzlich ein
+ *  Häkchen. Wer Farben schlecht unterscheidet, liest es trotzdem.
+ */
+export const DONE_COLOR = '#10b981'
+
 // --- Trainingsphasen ---------------------------------------------------------
 /** Farbe einer Trainingsphase, abgeleitet aus der Zonenskala.
  *

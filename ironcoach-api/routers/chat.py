@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import ChatMessage, AthleteProfile, WeeklyPlan, TrainingSession, HrvMeasurement
+from models import ChatMessage, AthleteProfile, PlannedSession, WeeklyPlan, TrainingSession, HrvMeasurement
 from schemas import ChatMessageIn, ChatMessageOut, ChatResponse
 from services.claude_service import chat_with_coach
 from services.plan_generator import get_current_week
@@ -12,6 +12,18 @@ from core.prompt_templates import get_phase, format_hrv, get_week_dates
 from core.deps import get_profile
 
 router = APIRouter()
+
+
+def _tag(wert):
+    """Datum aus dem Werkzeugaufruf lesen — dort kommt es als Zeichenkette."""
+    from datetime import date as _d
+
+    if isinstance(wert, _d):
+        return wert
+    try:
+        return _d.fromisoformat(str(wert)[:10])
+    except (TypeError, ValueError):
+        return None
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -101,7 +113,7 @@ async def chat(body: ChatMessageIn, db: Session = Depends(get_db)):
     }
 
     try:
-        reply, updated_plan = await chat_with_coach(body.message, history, context)
+        reply, updated_plan, tagesaenderung = await chat_with_coach(body.message, history, context)
     except NoBillingContext:
         # Kein Serverfehler im üblichen Sinn: Die Anfrage war in Ordnung, nur
         # ließ sich kein Konto zuordnen. Als 500 wäre das im Log von echten
@@ -159,6 +171,67 @@ async def chat(body: ChatMessageIn, db: Session = Depends(get_db)):
             adjustments_applied=updated_plan.get("adjustments", []),
         )
         db.add(db_plan)
+
+    # Teiländerung: nur die gelieferten Tage ersetzen, der Rest bleibt
+    # wortgleich stehen. Das ist der Normalfall für Umstellungen innerhalb der
+    # laufenden Woche — und es spart nicht nur Token, sondern schützt die
+    # unberührten Tage davor, beim Neuschreiben versehentlich anders auszufallen.
+    if db_plan is None and tagesaenderung and profile and profile.user_id:
+        from core.wochen import kalenderwoche
+        from services.plan_merge import merge_days
+        from services.plan_selection import pick_plan
+
+        neue_tage = tagesaenderung.get("days") or []
+        # Die Woche folgt aus den geänderten Daten, nicht aus "heute": Wer am
+        # Sonntag die kommende Woche umstellt, meint nicht die laufende.
+        daten = sorted(
+            d for d in (
+                _tag(t.get("date")) for t in neue_tage
+            ) if d is not None
+        )
+        basis = None
+        if daten:
+            montag, _ = kalenderwoche(daten[0])
+            basis = pick_plan(db.query(WeeklyPlan).filter(WeeklyPlan.week_start == montag))
+
+        if basis is None:
+            reply += (
+                "\n\nFür diese Woche gibt es noch keinen Plan, an dem sich einzelne "
+                "Tage ändern ließen — erstelle sie zuerst über \u201ePlan erstellen\u201c."
+            )
+        else:
+            # Absolvierte Tage sperren: Ihre Vorgabe nachträglich auf das zu
+            # setzen, was gemacht wurde, ergäbe eine Planerfüllung, die nie
+            # stattgefunden hat.
+            gesperrt = {
+                p.planned_date for p in db.query(PlannedSession)
+                .filter(PlannedSession.plan_id == basis.id,
+                        PlannedSession.status == "completed").all()
+            }
+            inhalt, uebernommen, abgewiesen = merge_days(
+                basis.plan_content or {}, neue_tage, gesperrte_daten=gesperrt
+            )
+            if uebernommen:
+                # Als neue Zeile, nicht als Änderung der alten: Der Verlauf der
+                # Woche bleibt nachvollziehbar, und `pick_plan` nimmt ohnehin
+                # die jüngste Fassung.
+                grund = tagesaenderung.get("reason") or "Einzelne Tage im Chat angepasst"
+                db_plan = WeeklyPlan(
+                    user_id=profile.user_id,
+                    week_number=basis.week_number,
+                    week_start=basis.week_start,
+                    week_end=basis.week_end,
+                    plan_phase=basis.plan_phase,
+                    plan_content=inhalt,
+                    plan_text=basis.plan_text,
+                    adjustments_applied=(basis.adjustments_applied or []) + [grund],
+                )
+                db.add(db_plan)
+            if abgewiesen:
+                reply += (
+                    "\n\nNicht geändert: " + ", ".join(abgewiesen)
+                    + ". Vergangene und bereits absolvierte Tage bleiben stehen."
+                )
 
     chat_user_id = profile.user_id if profile else None
     db.add(ChatMessage(user_id=chat_user_id, role="user", content=body.message, context_week=current_week))

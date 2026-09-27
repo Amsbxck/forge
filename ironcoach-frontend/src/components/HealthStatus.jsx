@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getHealthStatus, reportIllness, reportRecovered } from '../services/api'
 import HealthIcon from './HealthIcon'
 import Modal from './Modal'
+import BodyMap from './BodyMap'
 
 const LABEL = 'text-[10px] font-mono tracking-widest text-[var(--text-secondary)]'
 const FIELD_STYLE = { background: '#0d0f17', border: '1px solid #1e2228' }
@@ -33,7 +34,7 @@ const STATUS = {
   returning: { color: '#f59e0b', text: 'WIEDEREINSTIEG', sub: 'Nur locker' },
 }
 
-const LEER_FORM = { kind: 'illness', severity: 'mild', fever: false, start_date: '', note: '' }
+const LEER_FORM = { kind: 'illness', severity: 'mild', fever: false, body_part: null, start_date: '', note: '' }
 
 /** Meldeformular als Overlay.
  *
@@ -52,6 +53,9 @@ function ReportDialog({ onClose, onDone }) {
         kind: form.kind,
         severity: form.severity,
         fever: form.severity === 'severe' ? form.fever : false,
+        // Nur bei einer Verletzung: Eine Erkältung hat keine Körperstelle,
+        // und der Endpunkt würde sie ohnehin verwerfen.
+        body_part: form.kind === 'injury' ? form.body_part : null,
         start_date: form.start_date || null,
         note: form.note || null,
       })
@@ -75,7 +79,7 @@ function ReportDialog({ onClose, onDone }) {
           ].map(t => (
             <button
               key={t.key} type="button"
-              onClick={() => setForm(f => ({ ...f, kind: t.key }))}
+              onClick={() => setForm(f => ({ ...f, kind: t.key, body_part: t.key === 'injury' ? f.body_part : null }))}
               className="flex-1 py-1.5 rounded-md text-[11px] font-mono tracking-wide transition-all"
               style={{
                 background: form.kind === t.key ? '#00d4ff20' : 'transparent',
@@ -109,6 +113,17 @@ function ReportDialog({ onClose, onDone }) {
             ))}
           </div>
         </div>
+
+        {/* Wo es weh tut. Nur bei einer Verletzung — und ohne Zwang: Wer
+            nicht zeigen kann, wo genau, meldet trotzdem. Die Vorgabe fällt
+            dann allgemeiner aus, das ist besser als eine geratene Stelle. */}
+        {form.kind === 'injury' && (
+          <div>
+            <span className={`${LABEL} block mb-2`}>WO? (OPTIONAL)</span>
+            <BodyMap value={form.body_part}
+                     onChange={stelle => setForm(f => ({ ...f, body_part: stelle }))} />
+          </div>
+        )}
 
         {/* Fieber wird getrennt abgefragt, nicht aus dem Schweregrad
             geraten: es ist die einzige Angabe, die Training vollständig

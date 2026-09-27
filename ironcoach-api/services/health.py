@@ -52,6 +52,159 @@ SEVERITY_LABEL = {
 }
 
 
+# Welche Körperstelle welche Disziplin trifft — und was daraus folgt.
+#
+# Der Sinn der Angabe ist die Umverteilung: Ein Schienbein verlangt Gehpausen
+# im Lauf und lässt Rad und Schwimmen unberührt, eine Schulter genau umgekehrt.
+# Ohne die Stelle blieb der Vorgabe nur "die betroffene Struktur" — ein Satz,
+# aus dem das Modell selbst raten musste, welche Einheiten gemeint sind.
+#
+# `betroffen` sind die Disziplinen, die geschont werden. Alles andere trägt
+# weiter: Wer nicht laufen kann, soll nicht auch aufhören zu radeln.
+KOERPERSTELLEN: dict[str, dict] = {
+    "schienbein": {
+        "label": "Schienbein",
+        "betroffen": ("run",),
+        "vorgabe": (
+            "Laufumfang in Gehpausen aufteilen (Walk-Run: joggen, 90 s–2 min gehen, "
+            "wiederholen). Keine Steigerungsläufe, kein Bergtraining, keine harte "
+            "Oberfläche. Steigerung nur über Intervalldistanz ODER kürzere Gehpause, "
+            "nie beides zugleich."
+        ),
+    },
+    "wade": {
+        "label": "Wade",
+        "betroffen": ("run",),
+        "vorgabe": (
+            "Keine Steigerungsläufe, kein Bergtraining, keine Sprünge. Lauf flach "
+            "und in Z1/Z2; Gehpausen erlaubt, wenn es zieht."
+        ),
+    },
+    "achillessehne": {
+        "label": "Achillessehne",
+        "betroffen": ("run",),
+        "vorgabe": (
+            "Kein Bergtraining, keine Sprünge, keine Steigerungsläufe. Sehnen "
+            "brauchen Belastung, aber gleichmäßige: flacher Dauerlauf oder "
+            "Walk-Run statt Tempowechsel."
+        ),
+    },
+    "fuss": {
+        "label": "Fuß",
+        "betroffen": ("run",),
+        "vorgabe": (
+            "Laufen auf das Nötigste, Gehpausen erlaubt. Beim Rad auf Druck durch "
+            "die Schuhplatte achten — bei Beschwerden kürzer und locker."
+        ),
+    },
+    "knie": {
+        "label": "Knie",
+        "betroffen": ("run", "bike"),
+        "vorgabe": (
+            "Laufen flach und kurz, Gehpausen erlaubt. Auf dem Rad hohe Trittfrequenz "
+            "bei kleiner Kraft (keine Kraftausdauer, keine Anstiege im Wiegetritt). "
+            "Schwimmen ohne Brustbeinschlag."
+        ),
+    },
+    "oberschenkel": {
+        "label": "Oberschenkel",
+        "betroffen": ("run", "bike"),
+        "vorgabe": (
+            "Keine Intervalle, keine Sprints, kein Bergtraining. Rad in Z1/Z2 bei "
+            "runder Trittfrequenz, Lauf nur locker."
+        ),
+    },
+    "huefte": {
+        "label": "Hüfte",
+        "betroffen": ("run", "bike"),
+        "vorgabe": (
+            "Lauf kurz und flach, Rad mit aufrechter Sitzposition statt aerodynamisch. "
+            "Keine langen Einheiten in einer Position."
+        ),
+    },
+    "ruecken": {
+        "label": "Rücken",
+        "betroffen": ("bike", "run"),
+        "vorgabe": (
+            "Aufrechte Sitzposition, keine Aeroposition, keine langen Ausfahrten. "
+            "Lauf nur locker. Mobilität statt Krafteinheiten mit Rumpfbelastung."
+        ),
+    },
+    "schulter": {
+        "label": "Schulter",
+        "betroffen": ("swim",),
+        "vorgabe": (
+            "Schwimmen aussetzen oder auf Beinarbeit beschränken (Brett, keine Paddles, "
+            "kein Kraulzug unter Last). Rad ohne Aeroposition."
+        ),
+    },
+    "arm": {
+        "label": "Arm / Ellbogen",
+        "betroffen": ("swim",),
+        "vorgabe": (
+            "Schwimmen aussetzen oder nur Beinarbeit. Rad nur, wenn das Abstützen "
+            "schmerzfrei ist."
+        ),
+    },
+    "nacken": {
+        "label": "Nacken",
+        "betroffen": ("swim", "bike"),
+        "vorgabe": (
+            "Keine Aeroposition, keine langen Ausfahrten. Schwimmen nur mit "
+            "Atmung zu beiden Seiten und ohne Sichtübungen."
+        ),
+    },
+    "brust": {
+        "label": "Brust / Rippen",
+        "betroffen": ("swim", "bike", "run"),
+        "vorgabe": (
+            "Alles, was die Atmung fordert, zurücknehmen: nur Z1, keine Intervalle. "
+            "Schwimmen erst wieder, wenn tiefes Einatmen schmerzfrei ist."
+        ),
+    },
+    "kopf": {
+        "label": "Kopf",
+        "betroffen": ("swim", "bike", "run"),
+        "vorgabe": (
+            "Kein Training, bis Beschwerdefreiheit gemeldet ist. Bei Kopfverletzungen "
+            "entscheidet nicht das Gefühl, sondern die Zeit — und im Wasser besteht "
+            "zusätzlich Ertrinkungsgefahr."
+        ),
+    },
+}
+
+DISZIPLIN_LABEL = {"run": "Laufen", "bike": "Radfahren", "swim": "Schwimmen"}
+
+
+def koerperstelle_label(stelle: str | None) -> str | None:
+    eintrag = KOERPERSTELLEN.get((stelle or "").lower())
+    return eintrag["label"] if eintrag else None
+
+
+def koerperstelle_vorgabe(stelle: str | None) -> str | None:
+    """Die Vorgabe zu einer Körperstelle, als Prompt-Zeile.
+
+    Nennt ausdrücklich auch, was **nicht** betroffen ist. Ohne diesen Teil
+    strich das Modell erfahrungsgemäß den ganzen Umfang statt ihn umzulegen —
+    aus "Schienbein" wurde eine Woche ohne Rad.
+    """
+    eintrag = KOERPERSTELLEN.get((stelle or "").lower())
+    if eintrag is None:
+        return None
+
+    frei = [
+        DISZIPLIN_LABEL[d] for d in ("swim", "bike", "run")
+        if d not in eintrag["betroffen"]
+    ]
+    satz = f"Betroffene Stelle: {eintrag['label']}. {eintrag['vorgabe']}"
+    if frei:
+        satz += (
+            f" {' und '.join(frei)} {'ist' if len(frei) == 1 else 'sind'} nicht betroffen "
+            "und tragen den Umfang weiter — nicht mitkürzen."
+        )
+    return satz
+
+
 def severity_label(kind: str, severity: str) -> str:
     tabelle = SEVERITY_LABEL.get(kind) or SEVERITY_LABEL["illness"]
     return tabelle.get(severity, severity)
@@ -124,6 +277,8 @@ def event_to_dict(event: HealthEvent) -> dict:
         "severity": event.severity,
         "severity_label": severity_label(event.kind, event.severity),
         "fever": bool(event.fever),
+        "body_part": event.body_part,
+        "body_part_label": koerperstelle_label(event.body_part),
         "start_date": str(event.start_date),
         "end_date": str(event.end_date) if event.end_date else None,
         "days": event.days,
@@ -225,6 +380,12 @@ def guidance(db: Session, user: User | None = None, today: date | None = None) -
                     "Umfang etwa 60 % der Norm."
                 )
                 result.lines.append(ERSATZ_HINWEIS)
+            # Die Stelle zuerst: Sie entscheidet, welche Disziplin geschont
+            # wird und welche den Umfang trägt. Ohne sie bleibt es bei
+            # "die betroffene Struktur", und das Modell muss raten.
+            stelle = koerperstelle_vorgabe(getattr(laufend, "body_part", None))
+            if stelle:
+                result.lines.insert(0, stelle)
             result.lines.append(
                 "Regel für jede Einheit: Sie wird abgebrochen, sobald der Schmerz "
                 "während der Belastung zunimmt. Schmerzfreiheit geht vor Umfang."

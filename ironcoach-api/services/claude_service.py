@@ -265,13 +265,56 @@ UPDATE_PLAN_TOOL = {
 }
 
 
+# Einzelne Tage ändern, statt die ganze Woche neu zu schreiben.
+#
+# `update_training_plan` verlangt alle sieben Tage mit vollständigen Blocks,
+# Watt- und Pacewerten — rund 3000 Token Ausgabe. Wer am Mittwoch Donnerstag
+# bis Sonntag umstellen will, bezahlt damit drei unveränderte Tage mit, und das
+# Modell schreibt sie neu ab: Jede Wiederholung ist eine Gelegenheit, eine Zahl
+# zu verändern, die niemand ändern wollte.
+#
+# Dieses Werkzeug nimmt nur die Tage, die sich ändern. Der Rest bleibt
+# wortgleich stehen, weil er gar nicht durch das Modell läuft.
+ADJUST_DAYS_TOOL = {
+    "name": "adjust_training_days",
+    "description": (
+        "Ändert einzelne Tage des bestehenden Wochenplans. Nur die Tage liefern, "
+        "die sich tatsächlich ändern — alle übrigen bleiben unberührt. "
+        "Das ist der Normalfall für Umstellungen innerhalb einer laufenden Woche. "
+        "Für eine komplett neue Woche `update_training_plan` nutzen."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "days": {
+                "type": "array",
+                "description": (
+                    "Nur die geänderten Tage, jeder vollständig beschrieben. "
+                    "Ein Tag, der hier steht, ersetzt den bisherigen dieses Datums."
+                ),
+                "items": DAY_SCHEMA,
+            },
+            "reason": {
+                "type": "string",
+                "description": "Ein Satz, warum geändert wurde — kommt in die Anpassungsliste.",
+            },
+        },
+        "required": ["days"],
+    },
+}
+
+
 async def chat_with_coach(
     message: str,
     chat_history: list,
     current_week_context: dict,
-) -> tuple[str, dict | None]:
+) -> tuple[str, dict | None, dict | None]:
     """
-    Returns (reply_text, updated_plan_or_None)
+    Returns (reply_text, updated_plan_or_None, day_adjustment_or_None)
+
+    Die dritte Rückgabe ist eine **Teiländerung**: nur die Tage, die sich
+    ändern. Sie und der vollständige Plan schließen sich aus — das Modell
+    greift zu einem der beiden Werkzeuge.
     """
     import json
     from datetime import date as _date
@@ -373,8 +416,21 @@ Athletenkontext: {positions_text}, Phase: {current_week_context.get('phase', 'Ba
    - Wenn eine geplante Session NICHT in den Sessions auftaucht: sie wurde nicht gemacht — frag was passiert ist, erfinde keinen Grund
    - Wochentage aus dem Plan EXAKT übernehmen, nicht raten
 
-5. **Plan ändern:** Nutze update_training_plan Tool nur wenn der Athlet explizit eine Änderung will.
-   Wenn du es nutzt, gilt STRIKT:
+5. **Plan ändern:** Nur wenn der Athlet ausdrücklich eine Änderung will. Es gibt
+   zwei Werkzeuge, und die Wahl ist wichtig:
+
+   **`adjust_training_days` — der Normalfall.** Einzelne Tage innerhalb der
+   laufenden Woche umstellen ("mach Donnerstag bis Sonntag anders", "Samstag
+   statt Rad lieber Lauf"). Liefere **nur die Tage, die sich ändern**. Alles
+   andere bleibt unberührt und muss nicht wiederholt werden.
+   - Tage, die bereits absolviert sind, und Tage in der Vergangenheit werden
+     abgewiesen. Ändere nur, was noch vor dem Athleten liegt.
+   - Jeder gelieferte Tag braucht `date`, `session_type`, `training_type`,
+     `targets` und ausgefüllte `details` — er ersetzt den bisherigen komplett.
+
+   **`update_training_plan` — nur für eine ganze Woche.** Wenn es für die Woche
+   noch keinen Plan gibt oder die Woche vollständig neu aufgebaut werden soll.
+   Dann gilt STRIKT:
    - **Alle 7 Tage** (Montag bis Sonntag) mit `day`, `date` (YYYY-MM-DD) und `session_type`
      (`rest|bike|run|swim|gym|brick`) — auch unveränderte Tage komplett wiederholen.
    - **Jeder Trainingstag braucht ausgefüllte `details`** im Format unten (Rad mit `blocks`
@@ -413,7 +469,7 @@ Athletenkontext: {positions_text}, Phase: {current_week_context.get('phase', 'Ba
         # im JSON ab und "days" fehlt komplett.
         max_tokens=8192,
         system=system,
-        tools=[UPDATE_PLAN_TOOL],
+        tools=[ADJUST_DAYS_TOOL, UPDATE_PLAN_TOOL],
         messages=messages,
     )
 
@@ -432,11 +488,23 @@ Athletenkontext: {positions_text}, Phase: {current_week_context.get('phase', 'Ba
         abrechnung.close()
 
     updated_plan = None
+    tagesaenderung = None
     reply_parts = []
 
     for block in response.content:
         if block.type == "text":
             reply_parts.append(block.text)
+        elif block.type == "tool_use" and block.name == "adjust_training_days":
+            tage = (block.input or {}).get("days") or []
+            if not tage:
+                logger.warning(
+                    "adjust_training_days ohne days verworfen (stop_reason=%s)",
+                    response.stop_reason,
+                )
+                continue
+            tagesaenderung = block.input
+            namen = ", ".join(str(t.get("day") or t.get("date")) for t in tage)
+            reply_parts.append(f"Angepasst: {namen}.")
         elif block.type == "tool_use" and block.name == "update_training_plan":
             candidate = block.input
             if not candidate.get("days"):
@@ -461,4 +529,8 @@ Athletenkontext: {positions_text}, Phase: {current_week_context.get('phase', 'Ba
             )
 
     reply = "\n".join(reply_parts) if reply_parts else "Ich habe keine Antwort erhalten."
-    return reply, updated_plan
+    # Ein vollständiger Plan schlägt eine Teiländerung: Hätte das Modell beides
+    # geliefert, wäre die Teiländerung darin schon enthalten.
+    if updated_plan is not None:
+        tagesaenderung = None
+    return reply, updated_plan, tagesaenderung

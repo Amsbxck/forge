@@ -25,6 +25,9 @@ class IllnessIn(BaseModel):
     kind: str = Field(default="illness", description="illness | injury | other")
     severity: str = Field(default="mild", description="mild | moderate | severe")
     fever: bool = False
+    # Wo es weh tut. Nur bei Verletzungen sinnvoll; entscheidet, welche
+    # Disziplin geschont wird und welche den Umfang weiter trägt.
+    body_part: str | None = None
     start_date: date | None = None
     note: str | None = None
     # Standardmäßig wird der Wochenplan sofort neu erstellt — genau dafür
@@ -38,11 +41,20 @@ class RecoveredIn(BaseModel):
     adjust_plan: bool = True
 
 
-def _validate(kind: str, severity: str) -> None:
+def _validate(kind: str, severity: str, body_part: str | None = None) -> None:
     if kind not in health_service.KINDS:
         raise HTTPException(status_code=422, detail=f"Unbekannte Art {kind!r}")
     if severity not in health_service.SEVERITIES:
         raise HTTPException(status_code=422, detail=f"Unbekannter Schweregrad {severity!r}")
+    # Eine unbekannte Stelle wird abgewiesen statt stillschweigend verworfen:
+    # Sonst meldet jemand eine Verletzung, die Oberfläche bestätigt sie, und
+    # der Plan ändert nichts — weil die Vorgabe zu der Stelle nie gefunden wurde.
+    if body_part and body_part.lower() not in health_service.KOERPERSTELLEN:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unbekannte Körperstelle {body_part!r}. "
+                   f"Erlaubt: {', '.join(sorted(health_service.KOERPERSTELLEN))}",
+        )
 
 
 async def _regenerate(user_id: int | None, reason: str) -> None:
@@ -100,7 +112,7 @@ async def report_illness(
     user: User | None = Depends(get_current_user),
 ):
     """Krank oder verletzt melden."""
-    _validate(body.kind, body.severity)
+    _validate(body.kind, body.severity, body.body_part)
 
     beginn = body.start_date or date.today()
     if beginn > date.today():
@@ -114,6 +126,9 @@ async def report_illness(
         event.kind = body.kind
         event.severity = body.severity
         event.fever = body.fever and body.kind == "illness"
+        # Nur bei einer Verletzung: Wer von "Verletzung Schienbein" auf
+        # "Erkältung" wechselt, soll die Stelle nicht mitschleppen.
+        event.body_part = body.body_part.lower() if (body.body_part and body.kind == "injury") else None
         event.start_date = min(event.start_date, beginn)
         if body.note:
             event.note = body.note
@@ -124,6 +139,7 @@ async def report_illness(
             kind=body.kind,
             severity=body.severity,
             fever=body.fever and body.kind == "illness",
+            body_part=body.body_part.lower() if (body.body_part and body.kind == "injury") else None,
             start_date=beginn,
             note=body.note,
         )
