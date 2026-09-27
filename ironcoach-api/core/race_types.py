@@ -184,8 +184,21 @@ def phase_for_week(week: int, total_weeks: int = 33) -> str:
 
 
 def plan_start_for(race_date: date, total_weeks: int) -> date:
-    """Beginn der Vorbereitung, sodass der Renntag in die letzte Woche fällt."""
-    return race_date - timedelta(weeks=total_weeks - 1)
+    """Beginn der Vorbereitung, sodass der Renntag in die letzte Woche fällt.
+
+    Gerechnet wird ab dem **Montag der Rennwoche**, nicht ab dem Renntag.
+    Vorher stand hier `race_date - timedelta(weeks=total_weeks - 1)`, was den
+    Wochentag des Rennens übernahm: Ein Rennen am Sonntag ergab einen
+    Planstart am Sonntag und damit Planwochen von Sonntag bis Samstag. Die
+    Wochenansicht sucht ihren Plan aber über den Montag der Kalenderwoche und
+    fand deshalb keinen einzigen.
+
+    So fällt der Renntag weiterhin in die letzte Woche — bei einem Rennen am
+    Sonntag sogar auf deren letzten Tag.
+    """
+    from core.wochen import montag_von
+
+    return montag_von(race_date) - timedelta(weeks=total_weeks - 1)
 
 
 def weeks_until_race(race_date: date, today: date | None = None) -> int:

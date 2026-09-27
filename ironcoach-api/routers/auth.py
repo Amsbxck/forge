@@ -13,6 +13,7 @@ from core.security import (
     create_access_token, hash_action_token, hash_password, lock_duration,
     new_action_token, verify_password,
 )
+from core.wochen import montag_von
 from database import get_db
 from models import AthleteProfile, AuthAction, User
 from services.account_mail import (
@@ -105,11 +106,16 @@ def register(
     # Planstart auf heute, sonst landet ein frisch angelegtes Konto in
     # Woche 33 eines fremden Saisonplans. Das Renndatum ist ein Platzhalter,
     # bis ein echtes Ziel gesetzt wird.
+    # Auf den Montag dieser Woche, nicht auf den Tag der Registrierung: Aus
+    # dem Planstart entstehen alle `week_start`-Daten, und die Wochenansicht
+    # sucht ihren Plan über den Montag der Kalenderwoche. Wer sich an einem
+    # Mittwoch anmeldet, bekäme Planwochen von Mittwoch bis Dienstag — und
+    # für keine einzige davon einen sichtbaren Plan.
     today = date.today()
     db.add(AthleteProfile(
         user_id=user.id,
         name=body.name,
-        plan_start_date=today,
+        plan_start_date=montag_von(today),
         race_date=today + timedelta(days=180),
         zones_source="default",
     ))

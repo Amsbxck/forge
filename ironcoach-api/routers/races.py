@@ -11,9 +11,24 @@ from sqlalchemy.orm import Session
 from core.config import settings
 from core.deps import get_current_user
 from core.race_types import RACE_TYPES, SPORT_LABEL, default_weeks, plan_start_for
+from core.wochen import montag_von
 from database import get_db
 from models import RaceGoal, RaceResult, User
 from schemas import RaceGoalIn, RaceGoalOut, RaceResultIn, RaceResultOut
+
+
+def _als_datum(wert):
+    """Ein Datum aus dem PATCH-Rumpf lesen.
+
+    `update_goal` nimmt ein rohes dict, kein Schema — aus JSON kommt das Datum
+    deshalb als Zeichenkette an. Ohne diese Umwandlung wäre `montag_von`
+    darauf gelaufen und hätte mit einem AttributeError abgebrochen.
+    """
+    from datetime import date, datetime
+
+    if isinstance(wert, date):
+        return wert
+    return datetime.strptime(str(wert)[:10], "%Y-%m-%d").date()
 
 router = APIRouter()
 
@@ -129,7 +144,14 @@ def create_goal(
     weeks = body.plan_weeks or default_weeks(body.sport, body.distance)
 
     if prioritaet == "A":
-        start = body.plan_start_date or plan_start_for(body.race_date, weeks)
+        # Auch ein selbst gewählter Start wird auf seinen Montag gezogen. Die
+        # Wochenansicht sucht über `week_start == Montag der Kalenderwoche`;
+        # ein Start an einem Dienstag legt jede Planwoche daneben, und der
+        # Athlet sieht für keine Woche einen Plan.
+        start = (
+            montag_von(body.plan_start_date) if body.plan_start_date
+            else plan_start_for(body.race_date, weeks)
+        )
         # Nur ein aktives Saisonziel: sonst wäre unklar, worauf sich die
         # Wochenzählung und die Phasenlogik beziehen. B- und C-Rennen bleiben
         # unangetastet — sie gehören zur selben Saison.
@@ -172,7 +194,12 @@ def update_goal(goal_id: int, body: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Ziel nicht gefunden")
     for key in ("race_name", "goal_time", "race_date", "plan_weeks", "plan_start_date", "is_active"):
         if key in body:
-            setattr(goal, key, body[key])
+            wert = body[key]
+            # Derselbe Zwang wie beim Anlegen: sonst konnte ein späteres
+            # Nachbessern des Datums die Planwochen wieder vom Montag lösen.
+            if key == "plan_start_date" and wert:
+                wert = montag_von(_als_datum(wert))
+            setattr(goal, key, wert)
     if "sport" in body or "distance" in body:
         sport = body.get("sport", goal.sport)
         distance = body.get("distance", goal.distance)
