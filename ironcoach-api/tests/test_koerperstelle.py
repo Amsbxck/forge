@@ -137,3 +137,76 @@ def test_krankheit_traegt_keine_koerperstelle(client, db):
 
     db.query(HealthEvent).delete()
     db.commit()
+
+
+# --- Ersatztraining ----------------------------------------------------------
+
+def test_schienbein_meidet_den_stairmaster():
+    """Das Gerät, das den Unterschenkel unter Körpergewicht abdrückt."""
+    from services.health import ersatz_vorgabe
+
+    text = ersatz_vorgabe("schienbein")
+    assert "NICHT geeignet" in text
+    assert "StairMaster" in text.split("NICHT geeignet")[1]
+    # Was den Reiz ohne Unterschenkellast erzeugt, bleibt übrig.
+    geeignet = text.split("NICHT geeignet")[0]
+    assert "Aquajogging" in geeignet
+    assert "Ski Erg" in geeignet
+
+
+def test_schulter_meidet_rudern_und_ski_erg():
+    """Die Lücke der alten Prosaregel.
+
+    Sie kannte nur Beinverletzungen und liess bei einer Schulter ausgerechnet
+    das Ruderergometer übrig — das Gerät, das am Schulterzug hängt. Ski Erg
+    kam gar nicht vor.
+    """
+    from services.health import ersatz_vorgabe
+
+    text = ersatz_vorgabe("schulter")
+    gemieden = text.split("NICHT geeignet")[1]
+    assert "Ruderergometer" in gemieden
+    assert "Ski Erg" in gemieden
+    assert "Pull-Buoy" in gemieden
+
+    geeignet = text.split("NICHT geeignet")[0]
+    assert "StairMaster" in geeignet
+    assert "Radergometer" in geeignet
+
+
+def test_kein_gerät_wird_auf_beiden_listen_stehen():
+    from services.health import STELLE_REGION, ersatz_vorgabe
+
+    for stelle in STELLE_REGION:
+        text = ersatz_vorgabe(stelle)
+        geeignet, _, gemieden = text.partition("NICHT geeignet")
+        for gerät in ("StairMaster", "Ruderergometer", "Ski Erg", "Radergometer"):
+            assert not (gerät in geeignet and gerät in gemieden), f"{stelle}/{gerät}"
+
+
+def test_kopfverletzung_bekommt_keine_geraeteliste(db):
+    """Sonst stünde in der Vorgabe beides: "kein Training" und Ersatzgeräte."""
+    from services.health import ersatz_vorgabe, guidance
+
+    assert ersatz_vorgabe("kopf") == ""
+
+    ereignis = _melde(db, "kopf", severity="moderate")
+    zeilen = guidance(db, db.query(User).first()).lines
+    assert any("Kein Training" in z for z in zeilen)
+    assert not any("ERSATZTRAINING" in z for z in zeilen)
+
+    db.delete(ereignis)
+    db.commit()
+
+
+def test_ohne_stelle_bleibt_der_allgemeine_ersatzhinweis(db):
+    from services.health import ersatz_vorgabe, guidance
+
+    assert ersatz_vorgabe(None) is None
+
+    ereignis = _melde(db, None, severity="moderate")
+    zeilen = guidance(db, db.query(User).first()).lines
+    assert any("ERSATZTRAINING" in z for z in zeilen)
+
+    db.delete(ereignis)
+    db.commit()

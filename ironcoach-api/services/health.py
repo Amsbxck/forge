@@ -175,6 +175,87 @@ KOERPERSTELLEN: dict[str, dict] = {
 
 DISZIPLIN_LABEL = {"run": "Laufen", "bike": "Radfahren", "swim": "Schwimmen"}
 
+# Ersatzgeräte, beschrieben über das, was sie **belasten**.
+#
+# Absichtlich mechanisch statt medizinisch: Welches Gerät bei welcher
+# Verletzung erlaubt ist, entscheidet am Ende der Schmerz — aber welche Region
+# ein Gerät überhaupt fordert, ist eine Frage der Bewegung und lässt sich
+# festschreiben. Aus beidem folgt die Auswahl von selbst.
+#
+# Vorher stand die Auswahl als Prosa im Prompt und kannte nur Beinverletzungen
+# ("bei Problemen durch Aufprall … bleiben Ruderergometer oder Schwimmen").
+# Bei einer Schulter griff die Regel nicht, und übrig blieb ausgerechnet das
+# Ruderergometer — das Gerät, das am Schulterzug hängt.
+UNTERSCHENKEL, BEIN, OBERKOERPER = "unterschenkel", "bein", "oberkoerper"
+
+ERSATZGERAETE = (
+    ("StairMaster", (UNTERSCHENKEL, BEIN)),
+    ("Crosstrainer", (BEIN,)),
+    ("Radergometer", (BEIN,)),
+    ("Ruderergometer", (BEIN, OBERKOERPER)),
+    ("Ski Erg", (OBERKOERPER,)),
+    ("Armergometer / Handbike", (OBERKOERPER,)),
+    ("Schwimmen mit Pull-Buoy (nur Armzug)", (OBERKOERPER,)),
+    ("Schwimmen nur Beinarbeit (Brett)", (BEIN,)),
+    # Trägt im Wasser, also ohne Stoß und ohne Gelenkdruck — das einzige
+    # Gerät, das bei einer Unterschenkelverletzung die Laufbewegung erhält.
+    ("Aquajogging", ()),
+)
+
+# Welche Region eine Stelle schont.
+STELLE_REGION = {
+    "schienbein": UNTERSCHENKEL,
+    "wade": UNTERSCHENKEL,
+    "achillessehne": UNTERSCHENKEL,
+    "fuss": UNTERSCHENKEL,
+    "knie": BEIN,
+    "oberschenkel": BEIN,
+    "huefte": BEIN,
+    "ruecken": OBERKOERPER,
+    "schulter": OBERKOERPER,
+    "arm": OBERKOERPER,
+    "nacken": OBERKOERPER,
+}
+
+
+# Stellen, bei denen jeder Gerätevorschlag falsch wäre. Bei einer
+# Kopfverletzung entscheidet nicht das Gefühl, sondern die Zeit — und ein
+# Ersatzgerät daneben zu stellen hebelt genau das aus. Ohne diese Ausnahme
+# stand in der Vorgabe beides: "kein Training" und eine Geräteliste.
+KEIN_ERSATZ = ("kopf", "brust")
+
+
+def ersatz_vorgabe(stelle: str | None) -> str | None:
+    """Welche Ersatzgeräte zu dieser Stelle passen — und welche nicht.
+
+    Die ungeeigneten mitzunennen ist der wichtigere Teil: Eine Liste mit
+    Vorschlägen lässt offen, was fehlt, und das Modell greift dann zum
+    naheliegenden Gerät. Bei einer Schulter ist das Rudern.
+    """
+    schluessel = (stelle or "").lower()
+    if schluessel in KEIN_ERSATZ:
+        return ""
+    region = STELLE_REGION.get(schluessel)
+    if region is None:
+        return None
+
+    geeignet = [name for name, belastet in ERSATZGERAETE if region not in belastet]
+    meiden = [name for name, belastet in ERSATZGERAETE if region in belastet]
+
+    text = (
+        "ERSATZTRAINING STATT AUSFALL: Plane die weggefallene Einheit als "
+        "`session_type: other` mit `training_type: cross_training` und nenne das "
+        f"Gerät ausdrücklich. Geeignet hier: {', '.join(geeignet)}."
+    )
+    if meiden:
+        text += f" NICHT geeignet, weil sie die betroffene Stelle belasten: {', '.join(meiden)}."
+    text += (
+        " Steuerung ausschließlich über Herzfrequenz, keine Watt- oder "
+        "Pacevorgaben — die Geräte messen unterschiedlich. Jede Ersatzeinheit "
+        "gilt nur, solange sie schmerzfrei bleibt."
+    )
+    return text
+
 
 def koerperstelle_label(stelle: str | None) -> str | None:
     eintrag = KOERPERSTELLEN.get((stelle or "").lower())
@@ -372,14 +453,25 @@ def guidance(db: Session, user: User | None = None, today: date | None = None) -
                     "ersatzlos gestrichen — Umfang etwa 40 % der Norm. "
                     "Keine Intervalle, keine Sprünge, keine Bergläufe."
                 )
-                result.lines.append(ERSATZ_HINWEIS)
+                ersatz = ersatz_vorgabe(getattr(laufend, "body_part", None))
+                # Unterschied zwischen "" und None: Leer heisst, dass zu dieser
+                # Stelle bewusst kein Gerät vorgeschlagen wird. None heisst, es
+                # wurde keine Stelle gemeldet — dann gilt der allgemeine Hinweis.
+                if ersatz is None:
+                    result.lines.append(ERSATZ_HINWEIS)
+                elif ersatz:
+                    result.lines.append(ersatz)
             else:
                 result.lines.append(
                     "Der Athlet ist leicht verletzt, aber schmerzfrei belastbar. "
                     "Nur Z1/Z2, keine Intervalle, keine Steigerungsläufe, kein Bergtraining. "
                     "Umfang etwa 60 % der Norm."
                 )
-                result.lines.append(ERSATZ_HINWEIS)
+                ersatz = ersatz_vorgabe(getattr(laufend, "body_part", None))
+                if ersatz is None:
+                    result.lines.append(ERSATZ_HINWEIS)
+                elif ersatz:
+                    result.lines.append(ersatz)
             # Die Stelle zuerst: Sie entscheidet, welche Disziplin geschont
             # wird und welche den Umfang trägt. Ohne sie bleibt es bei
             # "die betroffene Struktur", und das Modell muss raten.
