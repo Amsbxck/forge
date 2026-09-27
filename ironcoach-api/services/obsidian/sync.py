@@ -402,3 +402,57 @@ def sync_pending(db: Session, days: int = 30, limit: int = 50) -> dict:
         "by_status": counts,
         "pending_remaining": len(pending_sessions(db, days=days, limit=limit)),
     }
+
+
+def delete_session_note(
+    db: Session,
+    session: TrainingSession,
+    client: ObsidianClient | None = None,
+) -> dict:
+    """Die Note einer Einheit aus dem Vault entfernen. Wirft nicht.
+
+    Gedacht für das endgültige Löschen einer Einheit. Der typische Anlass ist
+    eine Doppelaufnahme: Wer eine Ausfahrt gleichzeitig mit Garmin und Wahoo
+    aufzeichnet, bekommt zwei Strava-Aktivitäten mit verschiedenen IDs — die
+    Entdopplung greift dort nicht, und im Vault stehen zwei Notizen derselben
+    Fahrt. Wird die Einheit dann in FORGE endgültig gelöscht, blieb die Notiz
+    bisher liegen; der Vault behielt den Fehler, den man gerade beseitigt hat.
+
+    Eine Notiz ohne Managed Block wird **nicht** gelöscht. Dasselbe Prinzip wie
+    beim Sync: Hat der Athlet den Block entfernt, gehört die Notiz ihm, und
+    dann ist sie mehr als die Abschrift einer Datenbankzeile.
+    """
+    from services.obsidian.client import client_for_profile
+
+    pfad = session.obsidian_path
+    if not pfad:
+        return {"status": "keine_note", "session_id": session.id}
+
+    client = client or client_for_profile(get_profile(db))
+    if not client.enabled:
+        # Kein Vault verbunden: Die Notiz existiert dort nicht, oder sie ist
+        # gerade nicht erreichbar. In beiden Fällen ist Schweigen falsch —
+        # der Aufrufer soll es dem Athleten sagen können.
+        return {"status": "disabled", "path": pfad, "session_id": session.id}
+
+    try:
+        vorhanden = client.get_note(pfad)
+        if vorhanden is not None and notes.MARKER_START not in vorhanden:
+            logger.info("Note %s ohne Managed Block — beim Löschen stehengelassen", pfad)
+            return {"status": "behalten_eigene_note", "path": pfad, "session_id": session.id}
+
+        entfernt = client.delete_note(pfad)
+        return {
+            "status": "gelöscht" if entfernt else "war_nicht_da",
+            "path": pfad,
+            "session_id": session.id,
+        }
+    except ObsidianUnavailable as e:
+        logger.warning("Note %s nicht gelöscht, Vault nicht erreichbar: %s", pfad, e)
+        return {"status": "unavailable", "path": pfad, "error": str(e)}
+    except ObsidianError as e:
+        logger.error("Note %s konnte nicht gelöscht werden: %s", pfad, e)
+        return {"status": "error", "path": pfad, "error": str(e)}
+    except Exception as e:  # pragma: no cover - Löschen darf den Aufrufer nie reißen
+        logger.exception("Unerwarteter Fehler beim Löschen von %s", pfad)
+        return {"status": "error", "path": pfad, "error": str(e)}

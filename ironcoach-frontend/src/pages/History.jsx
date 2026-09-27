@@ -406,16 +406,48 @@ function SessionsTab({ sessions, showDeleted, onToggleDeleted, onRefresh }) {
     })
   }
 
+  const [vaultHinweis, setVaultHinweis] = useState(null)
+
   const handleSoftDelete = async (id) => { await softDeleteSession(id); onRefresh() }
   const handleHardDelete = async (id) => {
-    if (!confirm('Permanently delete? This cannot be undone.')) return
-    await hardDeleteSession(id); onRefresh()
+    if (!confirm('Endgültig löschen? Auch die Notiz im Obsidian-Vault wird entfernt. Das ist nicht umkehrbar.')) return
+    const { data } = await hardDeleteSession(id)
+    // Was mit der Notiz passiert ist, gehört gesagt: Ist der Vault gerade
+    // nicht erreichbar, bleibt sie dort liegen — und niemand sucht später
+    // eine Notiz, von der er glaubt, sie sei gelöscht.
+    const stand = data?.vault?.status
+    if (stand === 'unavailable' || stand === 'error') {
+      setVaultHinweis({
+        ok: false,
+        text: `Einheit gelöscht, aber die Notiz ${data.vault.path} liegt noch im Vault — er war nicht erreichbar. Bitte dort von Hand löschen.`,
+      })
+    } else if (stand === 'behalten_eigene_note') {
+      setVaultHinweis({
+        ok: true,
+        text: `Einheit gelöscht. Die Notiz ${data.vault.path} bleibt stehen: du hast sie überarbeitet.`,
+      })
+    } else if (stand === 'gelöscht') {
+      setVaultHinweis({ ok: true, text: 'Einheit und Notiz im Vault gelöscht.' })
+    }
+    onRefresh()
   }
   const handleRestore = async (id) => { await restoreSession(id); onRefresh() }
 
   return (
     <div className="space-y-4">
       {selectedSession && <SessionDetail session={selectedSession} onClose={() => setSelectedSession(null)} />}
+
+      {vaultHinweis && (
+        <div className="rounded-xl px-4 py-3 font-mono text-[11px] flex items-start gap-3"
+             style={{
+               background: vaultHinweis.ok ? '#10b98112' : '#f59e0b14',
+               border: `1px solid ${vaultHinweis.ok ? '#10b98133' : '#f59e0b40'}`,
+               color: vaultHinweis.ok ? '#10b981' : '#f59e0b',
+             }}>
+          <span className="flex-1 break-all">{vaultHinweis.text}</span>
+          <button onClick={() => setVaultHinweis(null)} className="opacity-60 hover:opacity-100">✕</button>
+        </div>
+      )}
 
       {/* Filter bar */}
       <div className="flex gap-2 flex-wrap items-center justify-between">

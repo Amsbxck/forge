@@ -87,12 +87,42 @@ def soft_delete_session(session_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/history/sessions/{session_id}/hard")
 def hard_delete_session(session_id: int, db: Session = Depends(get_db)):
+    """Einheit endgültig löschen — samt ihrer Notiz im Vault.
+
+    Der häufigste Anlass ist eine Doppelaufnahme: Wer eine Ausfahrt zugleich mit
+    Garmin und Wahoo aufzeichnet, bekommt zwei Strava-Aktivitäten mit
+    verschiedenen IDs. Die Entdopplung läuft über `strava_activity_id` und greift
+    dort nicht. Blieb die Notiz liegen, behielt der Vault genau den Fehler, den
+    man in FORGE gerade beseitigt hat.
+
+    Die Notiz wird **vor** dem Löschen der Zeile entfernt, weil `obsidian_path`
+    nur an ihr hängt. Das Ergebnis geht mit in die Antwort: Ist der Vault gerade
+    nicht erreichbar, wäre eine stille Zusage schlimmer als der Hinweis, dass
+    dort noch etwas liegt — niemand sucht später eine Notiz, von der er glaubt,
+    sie sei gelöscht.
+    """
+    from services.obsidian.sync import delete_session_note
+
     s = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Einheit nicht gefunden")
+
+    vault = delete_session_note(db, s)
+
     db.delete(s)
     db.commit()
-    return {"message": "Einheit permanent gelöscht"}
+
+    meldung = "Einheit permanent gelöscht"
+    if vault["status"] == "gelöscht":
+        meldung += " — Notiz im Vault entfernt"
+    elif vault["status"] in ("unavailable", "error"):
+        meldung += (
+            f" — die Notiz {vault.get('path')} konnte nicht entfernt werden "
+            "(Vault nicht erreichbar). Bitte dort von Hand löschen."
+        )
+    elif vault["status"] == "behalten_eigene_note":
+        meldung += f" — die Notiz {vault.get('path')} bleibt: sie ist von dir überarbeitet"
+    return {"message": meldung, "vault": vault}
 
 
 @router.post("/history/sessions/{session_id}/restore")
