@@ -54,17 +54,26 @@ def classify_bike(session: TrainingSession, ftp: int) -> str | None:
 
     if np and ftp:
         intensity = np / ftp
-        if intensity < IF_RECOVERY:
+        # Dieselbe Gegenprobe wie bei der Intensitätsstufe: Stand die FTP zu
+        # tief, wurde aus einer Grundlagenausfahrt ein "threshold". Widerspricht
+        # der Puls, fällt die Rechnung auf die Pulsverteilung darunter zurück.
+        harte_stufe = "vo2max" if intensity >= IF_THRESHOLD else (
+            "threshold" if intensity >= IF_SWEET_SPOT else None
+        )
+        if harte_stufe and _hf_widerspricht(session.hr_zones, harte_stufe):
+            pass  # weiter unten über die Pulsverteilung
+        elif intensity < IF_RECOVERY:
             return "recovery"
-        if intensity < IF_ENDURANCE:
+        elif intensity < IF_ENDURANCE:
             return "long_ride" if duration >= LONG_RIDE_MIN else "z2_endurance"
-        if intensity < IF_SWEET_SPOT:
+        elif intensity < IF_SWEET_SPOT:
             # Lange Einheit in diesem Band ist eher Renntempo als ein
             # klassischer Sweet-Spot-Block.
             return "race_pace" if duration >= LONG_RIDE_MIN else "sweet_spot"
-        if intensity < IF_THRESHOLD:
+        elif intensity < IF_THRESHOLD:
             return "threshold"
-        return "vo2max"
+        else:
+            return "vo2max"
 
     # Ohne Leistungsmesser über die HF-Verteilung
     zones = session.hr_zones
@@ -136,6 +145,35 @@ def classify_actual_type(session: TrainingSession, ftp: int = 238) -> str | None
 
 # --- Intensitätsstufe --------------------------------------------------------
 
+# Ab wie viel Zeit in den harten Zonen eine harte Einstufung gedeckt ist, und
+# ab wie viel Zeit unten sie widerlegt ist.
+HART_MIN_ANTEIL = 8.0     # Prozent der Einheit in Z4+Z5
+LOCKER_WIDERSPRUCH = 60.0  # Prozent in Z1+Z2
+
+
+def _hf_widerspricht(zones: dict | None, stufe: str) -> bool:
+    """Sagt die Pulsverteilung das Gegenteil der Leistungsrechnung?
+
+    Die Einstufung über NP/FTP ist nur so gut wie die FTP. Stand sie zu tief,
+    wurde aus einer Grundlagenausfahrt eine Schwelleneinheit — genau das ist
+    passiert: NP 158 gegen eine FTP von 175 ergab 90 %, also "threshold", während
+    der Puls 68 % der Zeit in Z1 und 0,8 % in Z3 lag.
+
+    Der Puls ist hier das unabhängige Zeugnis. Eine Schwelleneinheit hat Zeit in
+    Z4; hat sie die nicht und liegt gleichzeitig das Gros unten, dann war sie
+    keine — egal was die Wattrechnung sagt.
+
+    Nur in dieser Richtung: Der Puls kann eine harte Einstufung widerlegen, aber
+    keine weiche verschärfen. Hitze, Koffein und Erschöpfung treiben ihn hoch,
+    ohne dass mehr Leistung dahintersteht.
+    """
+    if stufe not in ("threshold", "vo2max") or not zones:
+        return False
+    hart = _z(zones, "z4", "z5")
+    locker = _z(zones, "z1", "z2")
+    return hart < HART_MIN_ANTEIL and locker > LOCKER_WIDERSPRUCH
+
+
 def intensity_from_session(session: TrainingSession, ftp: int = 238) -> str | None:
     """Intensität aus den Ist-Daten — nur Rad und Lauf.
 
@@ -153,12 +191,16 @@ def intensity_from_session(session: TrainingSession, ftp: int = 238) -> str | No
         if np and ftp:
             intensity = np / ftp
             if intensity < IF_ENDURANCE:
-                return "base"
-            if intensity < IF_SWEET_SPOT:
-                return "sweet_spot"
-            if intensity < IF_THRESHOLD:
-                return "threshold"
-            return "vo2max"
+                stufe = "base"
+            elif intensity < IF_SWEET_SPOT:
+                stufe = "sweet_spot"
+            elif intensity < IF_THRESHOLD:
+                stufe = "threshold"
+            else:
+                stufe = "vo2max"
+            # Gegenprobe am Puls, bevor die Wattrechnung das letzte Wort hat.
+            if not _hf_widerspricht(session.hr_zones, stufe):
+                return stufe
 
     # Sonst über die Zeit in den harten Zonen. Die Schwellen sind bewusst
     # niedrig: 5 Minuten echtes Z5 in einer Stunde machen die Einheit zur
