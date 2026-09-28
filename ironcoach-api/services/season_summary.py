@@ -249,19 +249,26 @@ def build(db: Session, user: User | None = None, heute: date | None = None) -> d
     letzter_montag = heute - timedelta(days=heute.weekday())
     m = erster_montag
     while m <= letzter_montag:
-        wochen[m] = {"tss": 0.0, "min": 0, "anzahl": 0, "disziplinen": defaultdict(int)}
+        wochen[m] = {"tss": 0.0, "min": 0, "anzahl": 0, "wege": 0, "wege_min": 0, "disziplinen": defaultdict(int)}
         m += timedelta(days=7)
 
     for s in alle:
         if s.session_date < beginn:
             continue
         montag = s.session_date - timedelta(days=s.session_date.weekday())
-        w = wochen.setdefault(montag, {"tss": 0.0, "min": 0, "anzahl": 0, "disziplinen": defaultdict(int)})
+        w = wochen.setdefault(montag, {"tss": 0.0, "min": 0, "anzahl": 0, "wege": 0, "wege_min": 0, "disziplinen": defaultdict(int)})
 
         w["tss"] += s.tss or 0
         w["min"] += s.duration_min or 0
         w["anzahl"] += 1
         w["disziplinen"][(s.discipline or "?").lower()] += 1
+        # Arbeitswege getrennt mitzählen. Sie bleiben in TSS und Stunden — es
+        # ist echte Last —, dürfen aber nicht als Trainingseinheiten gelten.
+        # Der Grund steht in `prompt_block`: Dort entscheidet die Anzahl, ob
+        # dem Coach "Umfang erreicht" gemeldet wird.
+        if getattr(s, "is_commute", False):
+            w["wege"] += 1
+            w["wege_min"] += s.duration_min or 0
 
     # Gesundheitsereignisse — und ihre Zuordnung zu den Wochen.
     hquery = db.query(HealthEvent).filter(
@@ -302,6 +309,8 @@ def build(db: Session, user: User | None = None, heute: date | None = None) -> d
                 "tss": round(w["tss"]),
                 "stunden": round(w["min"] / 60, 1),
                 "anzahl": w["anzahl"],
+                "wege": w["wege"],
+                "wege_stunden": round(w["wege_min"] / 60, 1),
                 "disziplinen": dict(w["disziplinen"]),
                 "grund": grund_je_woche.get(montag),
                 "einhaltung": einhaltung.get(montag),
@@ -340,7 +349,15 @@ def prompt_block(db: Session, user: User | None = None, heute: date | None = Non
             # Einheiten absolviert hat als geplant waren, hat nicht ausgelassen
             # — ohne diesen Zusatz läse der Coach genau das und würde einen
             # Athleten zurückfahren, der zu viel statt zu wenig gemacht hat.
-            if w["anzahl"] >= e["geplant"] and e["erledigt"] < e["geplant"]:
+            #
+            # Ohne Arbeitswege gerechnet. Sie zählten mit, und der Satz feuerte
+            # dann nach Wochen, in denen die Hälfte des Plans liegen geblieben
+            # war: vier geplant, zwei absolviert, drei Fahrten zur Arbeit — fünf
+            # Einheiten, also "Umfang erreicht". Ausgerechnet der Zusatz, der
+            # den Coach vom Zurückfahren abhalten soll, hielt ihn davon ab,
+            # nachdem wirklich etwas gefehlt hatte.
+            trainingseinheiten = w["anzahl"] - w.get("wege", 0)
+            if trainingseinheiten >= e["geplant"] and e["erledigt"] < e["geplant"]:
                 quote += " — Umfang erreicht, Ausführung abweichend"
         else:
             quote = "–"
@@ -351,8 +368,16 @@ def prompt_block(db: Session, user: User | None = None, heute: date | None = Non
             continue
         disz = " ".join(f"{k}×{v}" for k, v in sorted(w["disziplinen"].items()))
         anmerkung = w["grund"] or disz
+        # Den Anteil der Arbeitswege ausschreiben: Die Last gehört in die
+        # Summe, aber der Coach soll sehen, wie viel davon Pendeln war.
+        wege = w.get("wege") or 0
+        einheiten = f"{w['anzahl']} (davon {wege} Wege)" if wege else str(w["anzahl"])
+        stunden = (
+            f"{w['stunden']} ({w['wege_stunden']} Wege)"
+            if wege and w.get("wege_stunden") else str(w["stunden"])
+        )
         tabelle.append(
-            f"| {w['start']} | {w['anzahl']} | {w['stunden']} | {quote} | {anmerkung} |"
+            f"| {w['start']} | {einheiten} | {stunden} | {quote} | {anmerkung} |"
         )
 
     # Verlaufsreihe je Disziplin: drei Vierwochenblöcke, ältester zuerst.
