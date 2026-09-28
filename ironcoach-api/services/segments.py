@@ -408,10 +408,18 @@ def best_effort_power(session, seconds: int = 1200) -> dict | None:
     mittel = lambda xs: sum(xs) / len(xs) if xs else 0
     m_anfang, m_ende = mittel(anfang), mittel(ende)
 
+    # Puls im Fenster: das einzige Signal dafür, ob die Anstrengung überhaupt
+    # maximal war. Ohne ihn liess sich ein 20-Minuten-Test nicht von den
+    # stärksten zwanzig Minuten einer langen Grundlagenausfahrt unterscheiden —
+    # und genau das ist passiert.
+    hr = (session.streams or {}).get("hr") or []
+    fenster_hr = [x for x in hr[best_start:best_start + window] if x]
+
     return {
         "seconds": int(window * sample_seconds),
         "avg_watts": round(best / window),
         "start_s": int(best_start * sample_seconds),
+        "avg_hr": round(sum(fenster_hr) / len(fenster_hr)) if fenster_hr else None,
         # > 1 heisst: hinten härter als vorn.
         "anstieg": round(m_ende / m_anfang, 2) if m_anfang else None,
     }

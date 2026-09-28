@@ -52,6 +52,27 @@ SCHWELLEN_FAKTOR = 0.95
 # mit kräftigem Schlussspurt erreicht das nicht, eine Rampe mühelos. Die
 # eigentliche Erkennung macht `erkenne_stufentest`.
 NOTBREMSE_ANSTIEG = 1.5
+
+# --- Wann sind zwanzig Minuten ein Test und wann nur die stärkste Stelle? ---
+#
+# Aus Amirs Fall: Die besten zwanzig Minuten seiner 327-minütigen
+# Grundlagenausfahrt ergaben 184 W, daraus eine FTP von 175 — bei einer echten
+# FTP von 264. Das Fenster begann nach 3 h 51 min, der Puls darin lag bei
+# 166 bpm gegen einen Schwellenpuls von 188. Die Rampenerkennung griff nicht,
+# weil eine gleichmässige Ausfahrt nun einmal gleichmässig ist.
+#
+# Die Folge war nicht nur eine falsche Zahl: Jede Wattvorgabe lag ein Drittel
+# zu tief, die TSS wurde gegen die zu kleine Schwelle gerechnet (eine Fahrt kam
+# auf 598 Punkte, also IF 1,05 über fünfeinhalb Stunden), und die Einstufung
+# machte aus 60 % FTP ein "threshold".
+#
+# Vier Prüfungen, jede für sich hinreichend. Überspringen ist sicher, ein
+# falsch angenommener Test ist es nicht: Wer übersprungen wird, trägt die Zahl
+# selbst ein — wer falsch übernommen wird, merkt es wochenlang nicht.
+MAX_TESTDAUER_MIN = 150      # in einer längeren Einheit wird kein Test gefahren
+MAX_TESTSTART_MIN = 90       # ein Test kommt nach dem Einfahren, nicht nach Stunden
+MIN_HR_ANTEIL = 0.92         # Puls im Fenster gegen den Schwellenpuls
+MAX_FTP_ABFALL = 0.15        # so viel darf eine gemessene FTP automatisch sinken
 MAX_ANSTIEG_IM_TEST = NOTBREMSE_ANSTIEG
 FTP_FACTOR = SCHWELLEN_FAKTOR
 LTHR_FACTOR = SCHWELLEN_FAKTOR
@@ -316,6 +337,77 @@ def _benchmark_sessions(db: Session, days: int = 21) -> list[TrainingSession]:
     )
 
 
+def _kein_test(effort: dict, session, profil) -> dict | None:
+    """Gründe, aus denen diese zwanzig Minuten kein FTP-Test sind.
+
+    Gibt None zurück, wenn nichts dagegen spricht. Die Prüfungen sind
+    unabhängig; die erste, die greift, entscheidet — und nennt ihren Grund, damit
+    aus einem übersprungenen Test keine unerklärte Nichtänderung wird.
+    """
+    dauer = session.duration_min or 0
+    start_min = round((effort.get("start_s") or 0) / 60)
+    fenster_hr = effort.get("avg_hr")
+    schwellenpuls = getattr(profil, "threshold_hr", None)
+
+    if dauer > MAX_TESTDAUER_MIN:
+        return {
+            "hinweis": (
+                f"Die stärksten zwanzig Minuten stammen aus einer Einheit über "
+                f"{dauer} Minuten. In einer so langen Ausfahrt wird kein "
+                f"FTP-Test gefahren — das sind die stärksten zwanzig Minuten "
+                f"einer Grundlagenfahrt, nicht deine Schwelle. Für einen Test "
+                f"eine eigene Einheit aufzeichnen, oder die FTP von Hand eintragen."
+            ),
+            "daten": {"grund": "Einheit zu lang", "dauer_min": dauer},
+        }
+
+    if start_min > MAX_TESTSTART_MIN:
+        return {
+            "hinweis": (
+                f"Das beste Fenster beginnt erst nach {start_min} Minuten. Ein "
+                f"20-Minuten-Test kommt nach dem Einfahren, nicht Stunden später "
+                f"— das sieht nach einem harten Abschnitt mitten in einer langen "
+                f"Einheit aus."
+            ),
+            "daten": {"grund": "Fenster liegt zu spät", "start_min": start_min},
+        }
+
+    if fenster_hr and schwellenpuls:
+        anteil = fenster_hr / schwellenpuls
+        if anteil < MIN_HR_ANTEIL:
+            return {
+                "hinweis": (
+                    f"Im besten Fenster lag der Puls bei {fenster_hr} bpm, also "
+                    f"{round(anteil * 100)} % deines Schwellenpulses von "
+                    f"{schwellenpuls}. Ein maximaler 20-Minuten-Test läuft nahe "
+                    f"am Schwellenpuls — diese zwanzig Minuten waren nicht "
+                    f"maximal, und die daraus gerechnete FTP läge zu tief."
+                ),
+                "daten": {"grund": "Puls zu niedrig für einen Test",
+                          "fenster_hr": fenster_hr, "anteil": round(anteil, 2)},
+            }
+
+    # Letztes Netz, unabhängig von allen Messungen: Eine gemessene FTP darf
+    # nicht in einem Schritt tief fallen. Formverlust geht langsam; ein Absturz
+    # heisst fast immer, dass die Grundlage der Rechnung nicht stimmte.
+    neu = round(effort["avg_watts"] * FTP_FACTOR)
+    alt = getattr(profil, "ftp_watts", None)
+    quelle = getattr(profil, "ftp_source", None)
+    if alt and quelle in ("manual", "benchmark") and neu < alt * (1 - MAX_FTP_ABFALL):
+        return {
+            "hinweis": (
+                f"Daraus ergäbe sich eine FTP von {neu} W — gegenüber deinen "
+                f"{alt} W ein Rückgang um {round((1 - neu / alt) * 100)} %. So "
+                f"schnell verliert niemand seine Schwelle; wahrscheinlich war "
+                f"diese Einheit kein Test. Die {alt} W bleiben stehen. Wenn der "
+                f"Rückgang stimmt, trag ihn von Hand ein."
+            ),
+            "daten": {"grund": "Rückgang zu gross", "neu": neu, "alt": alt},
+        }
+
+    return None
+
+
 def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
     """FTP, Schwellen-HF, Pace und Zonen aus den Testeinheiten ableiten.
 
@@ -411,6 +503,13 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
                 "grund": "kein gleichmässiges Fenster",
                 "anstieg": anstieg,
             }
+        elif (grund := _kein_test(best_bike, best_bike_session, aktuell)) is not None:
+            result["ftp_hinweis"] = grund["hinweis"]
+            result["sources"]["ftp_uebersprungen"] = {
+                "session_id": best_bike_session.id,
+                "date": str(best_bike_session.session_date),
+                **grund["daten"],
+            }
         else:
             result["ftp_watts"] = round(best_bike["avg_watts"] * FTP_FACTOR)
             result["sources"]["ftp"] = {
@@ -418,6 +517,7 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
                 "date": str(best_bike_session.session_date),
                 "best_20min_watts": best_bike["avg_watts"],
                 "anstieg": anstieg,
+                "fenster_hr": best_bike.get("avg_hr"),
                 "basis": f"beste 20 Minuten x {FTP_FACTOR}",
             }
 
