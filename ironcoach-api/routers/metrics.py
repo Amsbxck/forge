@@ -162,6 +162,24 @@ def _profile_out(db: Session, profile):
     return out
 
 
+@router.post("/metrics/tss-neu-rechnen")
+def tss_neu_rechnen(apply: bool = False, db: Session = Depends(get_db)):
+    """TSS aller Einheiten gegen die heutigen Schwellenwerte neu rechnen.
+
+    Ohne `apply` nur ein Bericht. Zweistufig wie das Ableiten der Zonen: Das
+    Ergebnis verschiebt die Formkurve rückwirkend, und wer es auslöst, soll
+    vorher sehen, um wie viel.
+
+    Gebraucht, weil die TSS beim Import einmal gerechnet und danach nie wieder
+    angefasst wird. Ändert sich die Schwelle, stehen alte und neue Einheiten auf
+    verschiedenen Bezugsgrössen — und daraus wird die Kurve gebildet, die über
+    jede Planung entscheidet.
+    """
+    from services.tss_neu import neu_rechnen
+
+    return neu_rechnen(db, apply=apply)
+
+
 @router.get("/metrics/pmc")
 def pmc_series(db: Session = Depends(get_db)):
     """Fitness, Ermüdung und Form je Tag.
