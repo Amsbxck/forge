@@ -296,18 +296,45 @@ def maybe_autoderive(db: Session) -> dict | None:
     # Woche -20 ist auch "nicht grösser als 2". Bei einem Athleten, dessen
     # Aufbau erst in Monaten beginnt, lief die automatische Übernahme dadurch
     # nach **jedem** Import — genau das, was der Kommentar ausschliessen wollte.
-    anchor = get_plan_anchor(db)
-    if anchor is None:
-        return None
-    woche = get_current_week(anchor)
-    if not 1 <= woche <= 2:
-        return None
+    # Eine Testwoche ist der Anlass, aus dem Schwellenwerte hervorgehen — dann
+    # darf der Import sie übernehmen. Zusätzlich die ersten zwei Aufbauwochen,
+    # damit ein neuer Athlet ohne Testwoche nicht ohne Zonen dasteht.
+    #
+    # Hier stand `get_current_week(anchor) > 2` als einzige Schranke. Seit die
+    # Wochen vorzeichenbehaftet zählen, ist das wirkungslos: Woche -6 ist auch
+    # "nicht grösser als 2", ebenso Woche -20. Bei einem Athleten, dessen Aufbau
+    # erst in Monaten beginnt, lief die Übernahme dadurch nach jedem Import.
+    if not ist_benchmark_woche(db):
+        anchor = get_plan_anchor(db)
+        if anchor is None or not 1 <= get_current_week(anchor) <= 2:
+            return None
 
     result = derive_zones(db, days=21, apply=True)
     if result.get("status") == "ok" and result.get("applied"):
         logger.info("Zonen automatisch aus Benchmark übernommen: %s", result["applied"])
         return result
     return None
+
+
+def ist_benchmark_woche(db: Session, tag: date | None = None) -> bool:
+    """Steht für die laufende Kalenderwoche ein Plan mit Benchmark-Phase?
+
+    Die Schranke für das automatische Schreiben der FTP. Sie ist enger als die
+    Auswahl der Einheiten: `_benchmark_sessions` nimmt Tests der letzten drei
+    Wochen, damit ein Nachtrag nicht verfällt. Geschrieben werden soll aber nur,
+    solange gerade getestet wird — in einer Testwoche ist eine neue Schwelle
+    erwartet, in jeder anderen Woche wäre sie eine Überraschung.
+
+    Genau daran fehlte es: Der Wert wurde nach jedem Import geschrieben, auch
+    Monate vor dem Aufbau, und eine Grundlagenausfahrt konnte ihn ersetzen.
+    """
+    from core.wochen import kalenderwoche
+    from models import WeeklyPlan
+    from services.plan_selection import pick_plan
+
+    montag, _ = kalenderwoche(tag)
+    plan = pick_plan(db.query(WeeklyPlan).filter(WeeklyPlan.week_start == montag))
+    return bool(plan and plan.plan_phase == BENCHMARK_PHASE)
 
 
 def _benchmark_sessions(db: Session, days: int = 21) -> list[TrainingSession]:
@@ -686,9 +713,24 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
         if profile is None:
             return {**result, "status": "no_profile"}
         applied = []
-        # FTP wird bewusst **nicht** übernommen — weder hier noch über
-        # `maybe_autoderive`. Sie steht als `ftp_vorschlag` im Ergebnis und wird
-        # von Hand eingetragen. Begründung oben bei der Ableitung.
+        # FTP nur in einer Testwoche. Der Vorschlag entsteht auch sonst — als
+        # Gegenprobe zum Trainerwert —, geschrieben wird er nur, solange gerade
+        # getestet wird. Ausserhalb einer Testwoche wäre eine neue Schwelle eine
+        # Überraschung, und genau so kamen einmal 175 W statt 264 ins Profil:
+        # aus den stärksten zwanzig Minuten einer Grundlagenausfahrt, Monate vor
+        # dem Aufbau, nach einem ganz normalen Strava-Import.
+        if result.get("ftp_vorschlag"):
+            if ist_benchmark_woche(db):
+                profile.ftp_watts = result["ftp_vorschlag"]
+                profile.ftp_source = "benchmark"
+                applied.append("ftp_watts")
+            else:
+                result["ftp_hinweis"] = (
+                    f"Aus den besten zwanzig Minuten ergäbe sich eine FTP von "
+                    f"{result['ftp_vorschlag']} W. Übernommen wird sie nur in einer "
+                    f"Testwoche — diese Woche ist keine. Wenn der Wert stimmt, trag "
+                    f"ihn hier ein."
+                )
         # Ohne Rücksicht auf "manual": Das Übernehmen ist eine bewusste
         # Handlung nach einem Vergleich alt gegen neu. Eine Sperre hier hieße,
         # dass ein frischer Test die alten Zahlen nicht korrigieren darf.
