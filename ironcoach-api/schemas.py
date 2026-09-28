@@ -181,6 +181,8 @@ class PlannedSessionOut(BaseModel):
     status: str
     replacement: str | None = None
     replacement_min: int | None = None
+    replacement_discipline: str | None = None
+    replacement_intensity: str | None = None
     moved_from_date: date | None
     matched_session_id: int | None
     day_index: int
@@ -209,6 +211,11 @@ class PlannedReplacementIn(BaseModel):
     """
     text: str
     duration_min: int | None = None
+    # Strukturiert statt nur beschrieben: Daran hängt, was die Planung aus dem
+    # Ersatz ableiten kann. Beide optional — ein alter Ersatz hatte sie nicht,
+    # und wer sie nicht angibt, bekommt trotzdem einen gültigen Eintrag.
+    discipline: str | None = None
+    intensity: str | None = None
 
 
 class PlannedSwapIn(BaseModel):

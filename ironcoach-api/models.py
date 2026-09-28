@@ -450,6 +450,11 @@ class PlannedSession(Base):
     status: Mapped[str] = mapped_column(String, default="planned")
     replacement: Mapped[str | None] = mapped_column(Text)
     replacement_min: Mapped[int | None] = mapped_column(Integer)
+    # Sportart und Intensität des Ersatzes. Aus einem Satz wie "war schwimmen"
+    # liest die Planung nicht, ob das eine Stunde locker oder zwanzig Minuten
+    # hart war — und beides bedeutet für die Folgewoche etwas anderes.
+    replacement_discipline: Mapped[str | None] = mapped_column(String)
+    replacement_intensity: Mapped[str | None] = mapped_column(String)
     moved_from_date: Mapped[date | None] = mapped_column(Date)
     # use_alter: training_sessions verweist zurück auf planned_sessions —
     # ohne das kann create_all() den Zyklus nicht auflösen.

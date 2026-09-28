@@ -83,6 +83,14 @@ export const uploadFile = (file) => {
 // `montag` sagt, für welche Woche geplant wird. Ohne Angabe die laufende —
 // das war vorher die einzige Möglichkeit, und am Sonntag entstand dadurch ein
 // Plan für sechs vergangene Tage.
+// Ändert nur die gemeinten Tage eines bestehenden Plans. Das Gegenstück zu
+// generatePlan im selben Fenster: Dort entsteht eine ganze Woche, hier bleiben
+// die übrigen Tage wortgleich stehen — und laufen gar nicht durch das Modell.
+export const adjustPlanDays = (wunsch, montag = null) =>
+  api.post('/api/plan/anpassen', null, {
+    params: montag ? { wunsch, montag } : { wunsch },
+    timeout: 120000,
+  })
 export const generatePlan = (requests = '', montag = null) =>
   api.get('/api/plan/generate', {
     params: montag ? { requests, montag } : { requests },
@@ -101,8 +109,13 @@ export const getPlannedCurrent = () => api.get('/api/planned/current')
 export const getPlannedWeek = (week) => api.get(`/api/planned/week/${week}`)
 export const getPlannedByMonday = (montag) => api.get(`/api/planned/am/${montag}`)
 export const patchPlannedSession = (id, data) => api.patch(`/api/planned/${id}`, data)
-export const setPlannedReplacement = (id, text, durationMin) =>
-  api.post(`/api/planned/${id}/replacement`, { text, duration_min: durationMin ?? null })
+export const setPlannedReplacement = (id, { text, durationMin, discipline, intensity }) =>
+  api.post(`/api/planned/${id}/replacement`, {
+    text: text || '',
+    duration_min: durationMin ?? null,
+    discipline: discipline ?? null,
+    intensity: intensity ?? null,
+  })
 export const clearPlannedReplacement = (id) =>
   api.delete(`/api/planned/${id}/replacement`)
 export const swapPlannedSessions = (aId, bId) =>

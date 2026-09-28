@@ -1,7 +1,33 @@
 import { useEffect, useRef, useState } from 'react'
 import { clearPlannedReplacement, setPlannedReplacement, swapPlannedSessions } from '../services/api'
 import Modal from './Modal'
-import { DISCIPLINE_COLOR, DONE_COLOR } from '../utils/colors'
+import { DISCIPLINE_COLOR, DONE_COLOR, HR_ZONE_COLOR } from '../utils/colors'
+
+// Die Farbe für "ersetzt". Bernstein, also aus der Ampelfamilie: Es ist eine
+// Aussage über den Tag, keine Sportart — und sie schlägt deshalb die
+// Disziplinfarbe, sonst sieht ein ersetzter Radtag wie ein gefahrener aus.
+const ERSETZT_COLOR = '#f59e0b'
+
+// Als Ersatz sinnvoll. `rest` und `brick` fehlen mit Absicht: Ein Ruhetag ist
+// kein Ersatz, und ein Koppeltraining plant man, es passiert nicht spontan.
+const ERSATZ_SPORTARTEN = [
+  { key: 'swim', label: 'SCHWIMMEN' },
+  { key: 'bike', label: 'RAD' },
+  { key: 'run', label: 'LAUF' },
+  { key: 'gym', label: 'KRAFT' },
+  { key: 'hike', label: 'WANDERN' },
+  { key: 'other', label: 'SONSTIGES' },
+]
+
+// Dieselben vier Stufen wie überall in der Anwendung, in denselben Farben der
+// Zonenskala. `sweet_spot` heisst beim Laufen "Tempo" — der Schlüssel bleibt,
+// damit Plan, Verlauf und Auswertung dieselbe Sprache sprechen.
+const ERSATZ_STUFEN = [
+  { key: 'base', label: 'BASE / ENDURANCE', color: HR_ZONE_COLOR[1] },
+  { key: 'sweet_spot', label: 'TEMPO / SWEETSPOT', color: HR_ZONE_COLOR[2] },
+  { key: 'threshold', label: 'THRESHOLD', color: HR_ZONE_COLOR[3] },
+  { key: 'vo2max', label: 'VO₂MAX', color: HR_ZONE_COLOR[4] },
+]
 
 // Aus der gemeinsamen Farbtabelle abgeleitet — Rahmen, Fläche und Schrift
 // derselben Farbe, nur in unterschiedlicher Deckkraft.
@@ -262,13 +288,27 @@ function heutigesDatum() {
  *  Hier soll nichts entschuldigt, sondern erfasst werden.
  */
 function ErsatzDialog({ einheit, onClose, onSpeichern }) {
-  const [text, setText] = useState('')
+  const [disziplin, setDisziplin] = useState('')
   const [dauer, setDauer] = useState('')
+  const [stufe, setStufe] = useState('')
+  const [text, setText] = useState('')
 
-  useEffect(() => { setText(''); setDauer('') }, [einheit?.id])
+  useEffect(() => {
+    setDisziplin(''); setDauer(''); setStufe(''); setText('')
+  }, [einheit?.id])
   if (!einheit) return null
 
-  const gueltig = text.trim().length > 0
+  // Sportart genügt. Eine Beschreibung darf dazu, muss aber nicht — vorher war
+  // sie das Einzige, und aus "war schwimmen" liess sich für die Planung nichts
+  // ableiten.
+  const gueltig = disziplin !== '' || text.trim().length > 0
+
+  const speichern = () => onSpeichern(einheit.id, {
+    discipline: disziplin || null,
+    durationMin: dauer ? Number(dauer) : null,
+    intensity: stufe || null,
+    text: text.trim(),
+  })
 
   return (
     <Modal
@@ -282,34 +322,87 @@ function ErsatzDialog({ einheit, onClose, onSpeichern }) {
           <label className="block text-[10px] font-mono tracking-widest text-[var(--text-secondary)] mb-1.5">
             WAS STATTDESSEN?
           </label>
-          <input
-            autoFocus
-            value={text}
-            onChange={e => setText(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && gueltig) onSpeichern(einheit.id, text.trim(), dauer ? Number(dauer) : null) }}
-            placeholder="z. B. Wandern mit Freunden"
-            className="w-full rounded-lg border px-3 py-2 text-sm text-[#e8eaf0] outline-none focus:border-[#00d4ff55]"
-            style={{ background: '#0d0f14', borderColor: '#1e2228' }}
-          />
+          <div className="flex gap-1.5 flex-wrap">
+            {ERSATZ_SPORTARTEN.map(({ key, label }) => {
+              const aktiv = disziplin === key
+              const farbe = DISCIPLINE_COLOR[key] || '#64748b'
+              return (
+                <button
+                  key={key} type="button"
+                  onClick={() => setDisziplin(aktiv ? '' : key)}
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-mono tracking-wide border transition-colors"
+                  style={{
+                    borderColor: aktiv ? farbe : '#1e2228',
+                    background: aktiv ? `${farbe}1e` : '#0d0f14',
+                    color: aktiv ? farbe : 'var(--text-muted)',
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="flex gap-4 flex-wrap">
+          <div>
+            <label className="block text-[10px] font-mono tracking-widest text-[var(--text-secondary)] mb-1.5">
+              DAUER IN MINUTEN
+            </label>
+            <input
+              type="number" min="1" inputMode="numeric"
+              value={dauer}
+              onChange={e => setDauer(e.target.value)}
+              placeholder="—"
+              className="w-28 rounded-lg border px-3 py-2 text-sm font-mono text-[#e8eaf0] outline-none focus:border-[#00d4ff55]"
+              style={{ background: '#0d0f14', borderColor: '#1e2228' }}
+            />
+          </div>
+
+          <div className="flex-1 min-w-[15rem]">
+            <label className="block text-[10px] font-mono tracking-widest text-[var(--text-secondary)] mb-1.5">
+              INTENSITÄT
+            </label>
+            <div className="flex gap-1.5 flex-wrap">
+              {ERSATZ_STUFEN.map(({ key, label, color }) => {
+                const aktiv = stufe === key
+                return (
+                  <button
+                    key={key} type="button"
+                    onClick={() => setStufe(aktiv ? '' : key)}
+                    className="px-2 py-1.5 rounded-lg text-[10px] font-mono tracking-wide border transition-colors"
+                    style={{
+                      borderColor: aktiv ? color : '#1e2228',
+                      background: aktiv ? `${color}1e` : '#0d0f14',
+                      color: aktiv ? color : 'var(--text-muted)',
+                    }}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
         </div>
 
         <div>
           <label className="block text-[10px] font-mono tracking-widest text-[var(--text-secondary)] mb-1.5">
-            DAUER IN MINUTEN (OPTIONAL)
+            NOTIZ (OPTIONAL)
           </label>
           <input
-            type="number" min="1" inputMode="numeric"
-            value={dauer}
-            onChange={e => setDauer(e.target.value)}
-            placeholder="—"
-            className="w-32 rounded-lg border px-3 py-2 text-sm font-mono text-[#e8eaf0] outline-none focus:border-[#00d4ff55]"
+            value={text}
+            onChange={e => setText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && gueltig) speichern() }}
+            placeholder="z. B. mit Freunden, spontan"
+            className="w-full rounded-lg border px-3 py-2 text-sm text-[#e8eaf0] outline-none focus:border-[#00d4ff55]"
             style={{ background: '#0d0f14', borderColor: '#1e2228' }}
           />
         </div>
 
         <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
           Das zählt als Belastung, nicht als Ausfall — der Coach fährt die
-          nächste Woche deswegen nicht zurück.
+          nächste Woche deswegen nicht zurück. Mit Sportart und Intensität kann
+          er die Woche danach darauf aufbauen statt nur den Ausfall zu buchen.
         </p>
 
         <div className="flex gap-2 justify-end pt-1">
@@ -319,9 +412,9 @@ function ErsatzDialog({ einheit, onClose, onSpeichern }) {
           </button>
           <button
             disabled={!gueltig}
-            onClick={() => onSpeichern(einheit.id, text.trim(), dauer ? Number(dauer) : null)}
+            onClick={speichern}
             className="px-4 py-2 rounded-lg text-xs font-mono tracking-wide border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ borderColor: '#f59e0b55', background: '#f59e0b1e', color: '#f59e0b' }}
+            style={{ borderColor: `${ERSETZT_COLOR}55`, background: `${ERSETZT_COLOR}1e`, color: ERSETZT_COLOR }}
           >
             EINTRAGEN
           </button>
@@ -330,7 +423,6 @@ function ErsatzDialog({ einheit, onClose, onSpeichern }) {
     </Modal>
   )
 }
-
 
 export default function WeekCalendar({ days: initialDays, onPersisted }) {
   const [days, setDays] = useState(() => sortDays(initialDays))
@@ -361,16 +453,26 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
     flashTimer.current = setTimeout(() => setFlashIds([]), 900)
   }
 
-  const speichereErsatz = async (id, text, dauer) => {
+  const speichereErsatz = async (id, angabe) => {
     // Der Kalender zeigt den Ersatz sofort; scheitert der Aufruf, wird der
     // alte Zustand wiederhergestellt statt eine Änderung vorzutäuschen.
     const vorher = days
+    // Sofort im Kalender: Der Tag nimmt die Ersetzt-Farbe an, noch bevor die
+    // Antwort da ist. Scheitert der Aufruf, wird der alte Zustand
+    // wiederhergestellt statt eine Änderung vorzutäuschen.
     setDays(ds => ds.map(d => d.id === id
-      ? { ...d, status: 'replaced', replacement: text, replacement_min: dauer }
+      ? {
+          ...d,
+          status: 'replaced',
+          replacement: angabe.text || null,
+          replacement_min: angabe.durationMin,
+          replacement_discipline: angabe.discipline,
+          replacement_intensity: angabe.intensity,
+        }
       : d))
     setErsetze(null)
     try {
-      await setPlannedReplacement(id, text, dauer)
+      await setPlannedReplacement(id, angabe)
       flash([id])
       onPersisted?.()
     } catch (e) {
@@ -382,7 +484,8 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
   const nimmErsatzZurueck = async (id) => {
     const vorher = days
     setDays(ds => ds.map(d => d.id === id
-      ? { ...d, status: 'planned', replacement: null, replacement_min: null }
+      ? { ...d, status: 'planned', replacement: null, replacement_min: null,
+            replacement_discipline: null, replacement_intensity: null }
       : d))
     try {
       await clearPlannedReplacement(id)
@@ -471,6 +574,11 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
           // Leistung — er bekommt kein Häkchen, sonst wäre "erledigt" beim
           // Nichtstun dasselbe Signal wie nach drei Stunden auf dem Rad.
           const istErledigt = day.status === 'completed' && day.session_type !== 'rest'
+          // Ersetzt ist eine Aussage über den Tag, keine Sportart — und sie
+          // schlägt deshalb die Disziplinfarbe. Vorher war nur ein kleines
+          // Abzeichen bernsteinfarben, und ein ersetzter Radtag sah aus wie ein
+          // gefahrener.
+          const istErsetzt = day.status === 'replaced'
           const isDragging = dragIndex === i
           const isOver = overIndex === i && dragIndex !== i
           const isSaving = day.id != null && savingIds.includes(day.id)
@@ -488,13 +596,15 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
               style={{
                 borderColor: isOver ? '#00d4ff'
                   : (isFlashing ? '#00d4ff'
-                    : (istErledigt ? `${DONE_COLOR}66`
-                      : (istHeute ? `${colors.text}99` : colors.border))),
+                    : (istErsetzt ? `${ERSETZT_COLOR}77`
+                      : (istErledigt ? `${DONE_COLOR}66`
+                        : (istHeute ? `${colors.text}99` : colors.border)))),
                 // Erledigt schlägt die Disziplinfarbe im Grund, nicht in der
                 // Kante: Die Sportart bleibt an Kante und Typmarke ablesbar,
                 // der Grund sagt "gemacht".
                 background: isOver ? '#00d4ff0d'
-                  : (istErledigt ? `${DONE_COLOR}1c` : colors.bg),
+                  : (istErsetzt ? `${ERSETZT_COLOR}1f`
+                    : (istErledigt ? `${DONE_COLOR}1c` : colors.bg)),
                 opacity: isDragging ? 0.4 : (isSaving ? 0.6 : 1),
                 cursor: isSaving ? 'progress' : 'grab',
                 boxShadow: isOver

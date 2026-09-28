@@ -62,6 +62,39 @@ async def generate_plan(
         raise HTTPException(status_code=500, detail=f"Plan-Generierung fehlgeschlagen: {str(e)}")
 
 
+@router.post("/plan/anpassen")
+async def plan_anpassen(
+    wunsch: str = Query(..., description="Was geändert werden soll"),
+    montag: date | None = Query(default=None, description="Woche; ohne Angabe die laufende"),
+    db: Session = Depends(get_db),
+):
+    """Einzelne Tage eines bestehenden Plans ändern.
+
+    Der Gegenstück zu `/plan/generate` im selben Fenster: Dort entsteht eine
+    ganze Woche, hier ändern sich nur die Tage, die gemeint sind. Bisher gab es
+    die Teiländerung nur im Coach-Chat — wer sie im Planfenster verlangte, bekam
+    sieben neu geschriebene Tage und hielt das für einen Fehler.
+    """
+    from core.wochen import kalenderwoche
+    from services.plan_adjust import tage_anpassen
+
+    start, _ = kalenderwoche(montag) if montag else kalenderwoche()
+    plan = _pick_plan(db.query(WeeklyPlan).filter(WeeklyPlan.week_start == start))
+    if plan is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Für die Woche ab {start} gibt es noch keinen Plan, an dem sich "
+                   f"Tage ändern liessen — erst erstellen.",
+        )
+
+    try:
+        return await tage_anpassen(db, plan, wunsch)
+    except BudgetExhausted:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Anpassung fehlgeschlagen: {e}")
+
+
 @router.get("/plan/current", response_model=WeeklyPlanOut)
 def get_current_plan(db: Session = Depends(get_db)):
     # Über das Datum, nicht über die Planwochennummer: Die Nummer entsteht

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  getCurrentPlan, generatePlan, getPlannedCurrent,
+  getCurrentPlan, generatePlan, adjustPlanDays, getPlannedCurrent,
   getPlanByMonday, getPlannedByMonday,
   getWeekMetrics,
 } from '../services/api'
@@ -79,6 +79,7 @@ export default function WeeklyPlan() {
   // Woche 33 durchblättern (alles leer), eine 40-Wochen-Saison brach bei 33 ab.
   const [totalWeeks, setTotalWeeks] = useState(null)
   const [notFound, setNotFound] = useState(false)
+  const [hinweis, setHinweis] = useState(null)
 
   const loadPlanned = useCallback(async (offset) => {
     try {
@@ -117,6 +118,33 @@ export default function WeeklyPlan() {
       setLoading(false)
     }
   }, [loadPlanned])
+
+  // Liegt für die angezeigte Woche ein Plan, ist "anpassen" gemeint, nicht
+  // "neu bauen". Vorher ging beides an dieselbe Stelle: Wer "ändere Donnerstag
+  // bis Sonntag" eintippte, bekam sieben neu geschriebene Tage.
+  const anpassen = async () => {
+    setGenerating(true)
+    setError(null)
+    try {
+      const { data } = await adjustPlanDays(requests, zielMontag)
+      if (data.status === 'angepasst') {
+        setRequests('')
+        setHinweis({
+          ok: true,
+          text: `${data.geaendert.length} Tag(e) angepasst: ${data.geaendert.join(', ')}`
+            + (data.abgewiesen?.length ? ` · nicht geändert: ${data.abgewiesen.join(', ')}` : '')
+            + (data.hinweis ? ` — ${data.hinweis}` : ''),
+        })
+        await load(versatz)
+      } else {
+        setHinweis({ ok: false, text: data.hinweis || 'Es wurde nichts geändert.' })
+      }
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Anpassung fehlgeschlagen')
+    } finally {
+      setGenerating(false)
+    }
+  }
 
   const generate = async () => {
     setGenerating(true)
@@ -245,9 +273,11 @@ export default function WeeklyPlan() {
             onBlur={e => { e.target.style.borderColor = '#1e2228' }}
           />
           <button
-            onClick={generate}
-            disabled={generating}
-            title={`Plan für die Woche ${zielSpanne} erzeugen`}
+            onClick={plan ? anpassen : generate}
+            disabled={generating || (plan && !requests.trim())}
+            title={plan
+              ? `Beschreibe im Feld links, was sich ändern soll — nur diese Tage werden angefasst (${zielSpanne})`
+              : `Plan für die Woche ${zielSpanne} erzeugen`}
             className="relative px-4 py-2 rounded-lg text-sm font-mono font-bold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
               background: generating ? '#00d4ff15' : '#00d4ff20',
@@ -272,7 +302,7 @@ export default function WeeklyPlan() {
               </span>
             ) : (
               <span className="flex items-center gap-2">
-                PLAN ERSTELLEN
+                {plan ? 'TAGE ANPASSEN' : 'PLAN ERSTELLEN'}
                 <span className="font-normal text-[11px] opacity-70">{zielSpanne}</span>
               </span>
             )}
@@ -290,6 +320,18 @@ export default function WeeklyPlan() {
         // alte Plan und man hält die Anpassung für ausgefallen.
         setTimeout(() => load(versatz), 30000)
       }} />
+
+      {hinweis && (
+        <div className="rounded-xl px-4 py-3 font-mono text-[11px] flex items-start gap-3"
+             style={{
+               background: hinweis.ok ? '#10b98112' : '#f59e0b14',
+               border: `1px solid ${hinweis.ok ? '#10b98133' : '#f59e0b40'}`,
+               color: hinweis.ok ? '#10b981' : '#f59e0b',
+             }}>
+          <span className="flex-1">{hinweis.text}</span>
+          <button onClick={() => setHinweis(null)} className="opacity-60 hover:opacity-100">✕</button>
+        </div>
+      )}
 
       {/* Error */}
       {error && (

@@ -22,6 +22,8 @@ from schemas import (
 from services.plan_projection import backfill_all, planned_sessions_available, project_plan
 from services.plan_selection import active_plan_for_week, current_week_number
 
+from services.obsidian.notes import DISCIPLINE_LABEL
+
 router = APIRouter()
 
 
@@ -166,18 +168,44 @@ def set_replacement(
     Leerer Text wird abgewiesen: Ein Ersatz ohne Angabe, wodurch, ist für die
     Planung nichts anderes als ein Ausfall, sähe aber besser aus.
     """
+    from core.training_types import DISCIPLINES, INTENSITIES, intensity_label
+
     _require_table(db)
+    disziplin = (body.discipline or "").strip().lower() or None
+    stufe = (body.intensity or "").strip().lower() or None
+
+    if disziplin and disziplin not in DISCIPLINES:
+        raise HTTPException(status_code=422, detail=f"Unbekannte Sportart {disziplin!r}")
+    if stufe and stufe not in INTENSITIES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unbekannte Intensität {stufe!r}. Erlaubt: {', '.join(INTENSITIES)}",
+        )
+
     text = (body.text or "").strip()
+    if not text and disziplin:
+        # Aus den strukturierten Angaben eine lesbare Zeile bauen. So muss
+        # niemand zweimal dasselbe eintragen, und im Plan steht trotzdem ein
+        # Satz statt drei Schlüsselwörter.
+        teile = [DISCIPLINE_LABEL.get(disziplin, disziplin)]
+        if body.duration_min:
+            teile.append(f"{body.duration_min} min")
+        if stufe:
+            teile.append(intensity_label(stufe, with_zone=False) or stufe)
+        text = " · ".join(teile)
+
     if not text:
         raise HTTPException(
             status_code=422,
-            detail="Bitte angeben, was stattdessen gemacht wurde.",
+            detail="Bitte angeben, was stattdessen gemacht wurde — Sportart oder Beschreibung.",
         )
 
     row = _get_or_404(db, session_id)
     row.status = "replaced"
     row.replacement = text
     row.replacement_min = body.duration_min
+    row.replacement_discipline = disziplin
+    row.replacement_intensity = stufe
     db.commit()
     db.refresh(row)
     return row
@@ -194,6 +222,8 @@ def clear_replacement(session_id: int, db: Session = Depends(get_db)):
         row.status = "planned"
     row.replacement = None
     row.replacement_min = None
+    row.replacement_discipline = None
+    row.replacement_intensity = None
     db.commit()
     db.refresh(row)
     return row
