@@ -882,7 +882,6 @@ export default function Races() {
                   : null
                 const jetzt = zones.current || {}
                 return [
-                  { label: 'FTP', neu: zones.ftp_watts, alt: jetzt.ftp_watts, einheit: 'W' },
                   { label: 'SCHWELLENPACE', neu: pace(zones.threshold_pace_s_per_km), alt: pace(jetzt.threshold_pace_s_per_km), einheit: '/km' },
                   { label: 'SCHWELLENPULS', neu: zones.threshold_hr, alt: jetzt.threshold_hr, einheit: 'bpm' },
                   { label: 'MAX. HF', neu: zones.max_hr, alt: jetzt.max_hr, einheit: 'bpm' },
@@ -918,13 +917,33 @@ export default function Races() {
                   sie steht nur nicht in der App. Statt den Athleten ins Profil zu
                   schicken, kann er sie hier eintragen — an der Stelle, an der er
                   gerade nach ihr sucht. */}
-              {zones.ftp_hinweis && (
-                <div className="sm:col-span-3 rounded-lg p-3"
-                     style={{ background: '#f59e0b0d', border: '1px solid #f59e0b33' }}>
+              {/* FTP wird nie automatisch übernommen — sie wird eingetragen.
+                  Die Benchmark-Woche kommt alle drei Monate, und ein
+                  20-Minuten-Test auf dem Trainer gibt den Wert selbst aus. Die
+                  Ableitung aus den Runden steht hier als Gegenprobe. Automatisch
+                  geschrieben hat sie einmal 175 W statt 264 eingetragen, und
+                  daran hingen jede Wattvorgabe, die TSS und die Einstufung. */}
+              <div className="sm:col-span-3 rounded-lg p-3"
+                   style={{ background: '#f59e0b0d', border: '1px solid #f59e0b33' }}>
                   <div className={LABEL} style={{ color: '#f59e0b' }}>FTP EINTRAGEN</div>
                   <p className="text-[11px] font-mono text-[var(--text-secondary)] mt-1 leading-relaxed">
-                    {zones.ftp_hinweis}
+                    {zones.ftp_hinweis
+                      || (zones.ftp_vorschlag
+                        ? `Aus den besten zwanzig Minuten ergäbe sich ${zones.ftp_vorschlag} W. `
+                          + `Das ist ein Vergleichswert, kein Testergebnis — maßgeblich ist die Zahl, `
+                          + `die dein Trainer am Ende des Tests ausgibt. Trag sie hier ein.`
+                        : `Trag die FTP ein, die dein Trainer am Ende des 20-Minuten-Tests ausgibt. `
+                          + `Aus den Runden lässt sich hier nichts ableiten.`)}
                   </p>
+                  {zones.ftp_vorschlag && !zones.ftp_hinweis && (
+                    <button
+                      type="button"
+                      onClick={() => setStufenFtp(String(zones.ftp_vorschlag))}
+                      className="mt-2 text-[10px] font-mono underline decoration-dotted"
+                      style={{ color: '#f59e0b' }}>
+                      {zones.ftp_vorschlag} W übernehmen
+                    </button>
+                  )}
                   <div className="flex gap-2 items-center mt-2 flex-wrap">
                     <input
                       type="number" inputMode="numeric"
@@ -955,8 +974,7 @@ export default function Races() {
                     Die Wattzonen ergeben sich daraus von selbst — sie werden aus der
                     FTP gerechnet, nicht getrennt gespeichert.
                   </p>
-                </div>
-              )}
+              </div>
 
               <div className="sm:col-span-3 flex items-center gap-3 flex-wrap">
                 {zones.justApplied ? (

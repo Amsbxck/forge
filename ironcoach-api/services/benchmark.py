@@ -291,8 +291,16 @@ def maybe_autoderive(db: Session) -> dict | None:
     if profile is None or profile.zones_source == "manual":
         return None
 
+    # Nur in den ersten beiden Wochen des Aufbaus. Hier stand `> 2`, was mit
+    # der vorzeichenbehafteten Wochenzählung jede Vorlaufwoche einschloss:
+    # Woche -20 ist auch "nicht grösser als 2". Bei einem Athleten, dessen
+    # Aufbau erst in Monaten beginnt, lief die automatische Übernahme dadurch
+    # nach **jedem** Import — genau das, was der Kommentar ausschliessen wollte.
     anchor = get_plan_anchor(db)
-    if anchor is None or get_current_week(anchor) > 2:
+    if anchor is None:
+        return None
+    woche = get_current_week(anchor)
+    if not 1 <= woche <= 2:
         return None
 
     result = derive_zones(db, days=21, apply=True)
@@ -511,7 +519,16 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
                 **grund["daten"],
             }
         else:
-            result["ftp_watts"] = round(best_bike["avg_watts"] * FTP_FACTOR)
+            # **Vorschlag**, kein Wert zum Übernehmen. Die Benchmark-Woche
+            # kommt alle drei Monate, und ein 20-Minuten-Test auf dem Trainer
+            # gibt die FTP selbst aus — die Ableitung aus den Runden ist
+            # bestenfalls eine Gegenprobe. Automatisch geschrieben hat sie
+            # dagegen einmal 175 W statt 264 eingetragen, und daran hingen
+            # jede Wattvorgabe, die TSS und die Einstufung.
+            #
+            # Der Schlüssel heisst deshalb nicht mehr `ftp_watts`: So kann
+            # keine Stelle ihn versehentlich übernehmen, auch keine künftige.
+            result["ftp_vorschlag"] = round(best_bike["avg_watts"] * FTP_FACTOR)
             result["sources"]["ftp"] = {
                 "session_id": best_bike_session.id,
                 "date": str(best_bike_session.session_date),
@@ -651,7 +668,7 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
                 "basis": "ganze Einheit — kein Pulsstream, Wert eher zu niedrig",
             }
 
-    if not any(k in result for k in ("ftp_watts", "threshold_pace_s_per_km", "max_hr", "css_pace_s_per_100m")):
+    if not any(k in result for k in ("ftp_vorschlag", "threshold_pace_s_per_km", "max_hr", "css_pace_s_per_100m")):
         # Erklärungen mitnehmen, statt das Ergebnis zu verwerfen. Wer einen
         # Stufentest gefahren hat, bekam hier ein nacktes "keine verwertbaren
         # Daten" — obwohl der Grund bereits feststand und der nächste Schritt
@@ -669,10 +686,9 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
         if profile is None:
             return {**result, "status": "no_profile"}
         applied = []
-        if result.get("ftp_watts"):
-            profile.ftp_watts = result["ftp_watts"]
-            profile.ftp_source = "benchmark"
-            applied.append("ftp_watts")
+        # FTP wird bewusst **nicht** übernommen — weder hier noch über
+        # `maybe_autoderive`. Sie steht als `ftp_vorschlag` im Ergebnis und wird
+        # von Hand eingetragen. Begründung oben bei der Ableitung.
         # Ohne Rücksicht auf "manual": Das Übernehmen ist eine bewusste
         # Handlung nach einem Vergleich alt gegen neu. Eine Sperre hier hieße,
         # dass ein frischer Test die alten Zahlen nicht korrigieren darf.
