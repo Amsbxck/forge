@@ -60,7 +60,10 @@ async def chat(body: ChatMessageIn, db: Session = Depends(get_db)):
     ).order_by(TrainingSession.session_date.desc()).all()
 
     from services.session_view import session_to_dict
-    sessions_dicts = [session_to_dict(s) for s in sessions]
+    # Die FTP nur für die harten Minuten; fehlt ein Profil, fehlt die Angabe
+    # und der Rest der Einheit bleibt vollständig.
+    ftp = profile.ftp_watts if profile else None
+    sessions_dicts = [session_to_dict(s, ftp) for s in sessions]
 
     # Letzte 7 Tage HRV
     hrv_cutoff = date.today() - timedelta(days=7)

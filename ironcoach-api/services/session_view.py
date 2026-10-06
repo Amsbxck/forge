@@ -34,8 +34,14 @@ def _structure_summary(session: TrainingSession) -> str | None:
     return None
 
 
-def session_to_dict(session: TrainingSession) -> dict:
-    """Trainingseinheit als Dict für die Prompt-Formatierung."""
+def session_to_dict(session: TrainingSession, ftp: int | None = None) -> dict:
+    """Trainingseinheit als Dict für die Prompt-Formatierung.
+
+    `ftp` nur für die harten Minuten. Ohne sie fehlt die Angabe, der Rest bleibt
+    vollständig — der Aufrufer muss sie nicht kennen.
+    """
+    from services.segments import harte_minuten
+
     return {
         "session_date": str(session.session_date),
         "discipline": session.discipline,
@@ -63,4 +69,10 @@ def session_to_dict(session: TrainingSession) -> dict:
         "intensity": session.intensity,
         "deviation_note": session.deviation_note,
         "structure": _structure_summary(session),
+        # Harte Minuten innerhalb der Einheit. Der Gesamt-IF sieht einen harten
+        # Block in einer langen leichten Ausfahrt nicht: Eine 534-Minuten-Fahrt
+        # stand als "long_ride" und enthielt 88 Minuten über 88 % FTP, 47 über
+        # der Schwelle. Ohne diese Zeile plant der Coach Intensität obendrauf,
+        # die am Berg längst stattgefunden hat.
+        "harte_minuten": harte_minuten(session, ftp),
     }

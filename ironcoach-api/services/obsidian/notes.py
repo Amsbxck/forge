@@ -234,6 +234,19 @@ def build_managed_block(session: dict, planned: dict | None = None) -> str:
         facts.append(f"- **Herzfrequenz:** {session['avg_hr']} bpm")
     if session.get("tss"):
         facts.append(f"- **TSS:** {session['tss']}")
+    if session.get("harte_minuten"):
+        h = session["harte_minuten"]
+        # Kumulativ, nicht additiv — die Schwellenminuten stecken in den
+        # Sweetspot-Minuten. Ohne "davon" läse man sie als Summe und zählte die
+        # harte Arbeit doppelt.
+        teile = []
+        if h.get("sst"):
+            teile.append(f"{h['sst']} min über 88 % FTP")
+        if h.get("threshold"):
+            teile.append(f"davon {h['threshold']} min über der Schwelle")
+        if h.get("vo2max"):
+            teile.append(f"davon {h['vo2max']} min über 105 %")
+        facts.append(f"- **Harte Arbeit:** {', '.join(teile)}")
     lines.extend(facts or ["- _Keine Messwerte übermittelt_"])
     lines.append("")
 

@@ -76,6 +76,19 @@ def format_sessions(sessions: list) -> str:
         line = " ".join(parts)
         # Hauptteil und Abweichung in eigene Zeilen: sie sind der Grund,
         # warum eine Einheit gelungen ist oder nicht.
+        if s.get("harte_minuten"):
+            h = s["harte_minuten"]
+            # Kumulativ, nicht additiv: Die Schwellenminuten stecken in den
+            # Sweetspot-Minuten. "davon" sagt das, eine Aufzählung würde es
+            # verschweigen und die harte Arbeit doppelt zählen lassen.
+            teile = []
+            if h.get("sst"):
+                teile.append(f"{h['sst']} min über 88 % FTP")
+            if h.get("threshold"):
+                teile.append(f"davon {h['threshold']} min über der Schwelle")
+            if h.get("vo2max"):
+                teile.append(f"davon {h['vo2max']} min über 105 %")
+            line += f"\n    harte Arbeit: {', '.join(teile)}"
         if s.get("structure"):
             line += f"\n    {s['structure']}"
         if s.get("deviation_note"):

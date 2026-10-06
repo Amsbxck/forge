@@ -147,7 +147,10 @@ async def generate_and_save_plan(
     ).order_by(HrvMeasurement.measured_at.asc()).all()
 
     from services.session_view import session_to_dict
-    sessions_dicts = [session_to_dict(s) for s in sessions]
+    # Die FTP nur für die harten Minuten; fehlt ein Profil, fehlt die Angabe
+    # und der Rest der Einheit bleibt vollständig.
+    ftp = profile.ftp_watts if profile else None
+    sessions_dicts = [session_to_dict(s, ftp) for s in sessions]
 
     hrv_dicts = [
         {

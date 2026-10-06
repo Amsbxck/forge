@@ -508,3 +508,64 @@ def reference_split(session) -> dict | None:
     """
     splits = {s["distance_km"]: s for s in best_splits(session, (1, 3))}
     return splits.get(3) or splits.get(1)
+
+
+# Anteile der FTP, ab denen eine Minute als harte Arbeit zählt. Dieselben
+# Grenzen wie in der Einstufung (`IF_SWEET_SPOT`, `IF_THRESHOLD` in
+# classification.py) — zwei verschiedene Grenzen für dieselbe Sache wären eine
+# Einladung zum Auseinanderdriften.
+def _harte_schwellen() -> tuple[tuple[str, float], ...]:
+    """Die Grenzen aus der Einstufung, nicht daneben gesetzt.
+
+    Zuerst standen hier eigene Zahlen (0.88 / 0.95 / 1.05). Die 0.95 war schon
+    falsch — die Einstufung zieht die Schwelle bei 0.96 —, und zwei Quellen für
+    dieselbe Grenze driften mit der ersten Änderung auseinander. Also importiert.
+    """
+    from services.classification import IF_SWEET_SPOT, IF_THRESHOLD
+
+    return (
+        ("sst", IF_SWEET_SPOT),
+        ("threshold", IF_THRESHOLD),
+        # VO₂max hat in der Einstufung keine eigene Grenze — dort ist alles über
+        # der Schwelle VO₂max. Für die Zeitmessung ist das zu grob: Zehn Minuten
+        # bei 98 % FTP sind Schwellenarbeit, nicht VO₂max.
+        ("vo2max", 1.05),
+    )
+
+
+HARTE_SCHWELLEN = _harte_schwellen()
+
+
+def harte_minuten(session, ftp: int | None) -> dict | None:
+    """Wie viele Minuten lagen über den harten Schwellen?
+
+    Der Gesamt-IF einer Einheit kann einen harten Block in einer langen leichten
+    Ausfahrt nicht sehen. Gemessen an Amirs Historie ist das kein Randfall: 20
+    von 48 Radeinheiten trugen ein weiches Etikett (`long_ride`, `z2_endurance`,
+    einmal sogar `recovery`) und enthielten dabei mindestens fünfzehn Minuten
+    über 88 % FTP. Eine 534-Minuten-Ausfahrt kam auf 88 Minuten über 88 % und 47
+    über der Schwelle — an Anstiegen, die nun einmal Schwellenarbeit sind.
+
+    Das Etikett bleibt davon unberührt. Eine neunstündige Ausfahrt als
+    "threshold" zu führen wäre genauso falsch wie "base" — sie war eine lange
+    Ausfahrt **mit** harten Abschnitten. Diese Zahlen sagen den zweiten Teil,
+    damit der Coach nicht Intensität obendrauf plant, die am Berg schon
+    stattgefunden hat.
+
+    Nur für Rad und Brick, und nur mit Leistungsstrom: Beim Laufen fehlt eine
+    gemeinsame Bezugsgrösse, und ohne Strom gibt es nichts zu zählen.
+    """
+    if (session.discipline or "").lower() not in ("bike", "brick"):
+        return None
+    if not ftp or not (session.streams or {}).get("watts"):
+        return None
+
+    werte = {
+        name: time_in_band(session, anteil * ftp)
+        for name, anteil in HARTE_SCHWELLEN
+    }
+    # Nur melden, wenn überhaupt etwas zusammenkommt. Drei Nullen in jeder
+    # Notiz wären Lärm, und im Prompt kosten sie Token ohne Aussage.
+    if not any(werte.values()):
+        return None
+    return {k: v for k, v in werte.items() if v}

@@ -29,10 +29,13 @@ logger = logging.getLogger(__name__)
 
 def _session_dict(session: TrainingSession, ftp: int = 238) -> dict:
     from services.classification import intensity_from_session
-    from services.segments import best_splits, format_pace
+    from services.segments import best_splits, format_pace, harte_minuten
 
     return {
         "intensity": intensity_from_session(session, ftp),
+        # Harte Minuten in der Einheit. Der Gesamt-IF kann einen harten Block in
+        # einer langen leichten Ausfahrt nicht sehen — die Notiz sagt ihn trotzdem.
+        "harte_minuten": harte_minuten(session, ftp),
         "reflection": session.reflection,
         "splits": [
             {"distance_km": s["distance_km"], "pace": format_pace(s["pace_s_per_km"])}
