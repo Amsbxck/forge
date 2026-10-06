@@ -5,7 +5,7 @@ from datetime import datetime, date
 import httpx
 
 from core.config import settings
-from services.tss_calculator import calculate_tss, calculate_run_tss
+from services.tss_calculator import calculate_tss, calculate_run_tss, tss_aus_np, tss_aus_puls
 
 logger = logging.getLogger(__name__)
 
@@ -349,16 +349,19 @@ class StravaService:
             or grenzen.get("threshold_hr")
             or grenzen.get("z2_max")
         )
-        if power_data and ftp:
-            tss = calculate_tss(power_data, ftp, moving_time)
+        # Stravas eigene NP, nicht eine selbst gerechnete. Hier stand
+        # `calculate_tss(power_data, ...)`, das die NP aus dem Strom bildet —
+        # und der ist heruntergerechnet, ein Wert je zehn Sekunden. Die
+        # Ausfahrt vom 03.10. bekam dadurch 228 TSS statt 170.
+        if np_watts and ftp:
+            tss = tss_aus_np(np_watts, ftp, duration_min)
         elif activity.get("average_heartrate") and duration_min and discipline != "rest":
             # Über die Herzfrequenz statt über Leistung: gilt jetzt für jede
             # Sportart mit Pulsaufzeichnung. Vorher bekam nur der Lauf eine
             # TSS, und ein Crosstrainer oder StairMaster tauchte in der
             # Belastungsrechnung überhaupt nicht auf.
-            tss = calculate_run_tss(
-                duration_min, int(activity["average_heartrate"]),
-                threshold_hr=schwelle or 173,
+            tss = tss_aus_puls(
+                int(activity["average_heartrate"]), schwelle or 173, duration_min
             )
 
         avg_speed = activity.get("average_speed", 0)

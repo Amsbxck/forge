@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 
 from models import AthleteProfile, TrainingSession, User
+from services.tss_calculator import tss_aus_np, tss_aus_puls
 
 logger = logging.getLogger(__name__)
 
@@ -85,18 +86,18 @@ def _tss_neu(session: TrainingSession, profil: AthleteProfile) -> tuple[float | 
         # die ehrlichere Grundlage.
         np = session.normalized_power
         ftp = profil.ftp_watts if profil else None
-        if np and ftp:
-            faktor = np / ftp
-            return round(dauer_h * faktor ** 2 * 100, 1), f"NP {np} / FTP {ftp}"
+        wert = tss_aus_np(np, ftp, session.duration_min)
+        if wert is not None:
+            return wert, f"NP {np} / FTP {ftp}"
 
     schwelle = None
     if profil:
         schwelle = (
             profil.swim_threshold_hr if disziplin == "swim" else None
         ) or profil.threshold_hr or profil.z2_hr_max
-    if session.avg_hr and schwelle:
-        faktor = session.avg_hr / schwelle
-        return round(dauer_h * faktor ** 2 * 100, 1), f"HF {session.avg_hr} / {schwelle}"
+    wert = tss_aus_puls(session.avg_hr, schwelle, session.duration_min)
+    if wert is not None:
+        return wert, f"HF {session.avg_hr} / {schwelle}"
 
     return None, "keine Grundlage"
 

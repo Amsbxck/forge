@@ -49,7 +49,11 @@ def _z(hr_zones: dict | None, *keys: str) -> float:
 
 
 def classify_bike(session: TrainingSession, ftp: int) -> str | None:
-    np = session.normalized_power or session.avg_watts
+    # **Nur** mit echter NP, kein Rückfall auf den Wattdurchschnitt. Der trägt
+    # jedes Rollen und jede Ampel mit: Taminas Ausfahrt über 315 Minuten kam auf
+    # 95 W Schnitt, also 50 % ihrer FTP, und galt damit als "recovery" — fünf
+    # Stunden Erholung. Ohne NP ist die Pulsverteilung die ehrlichere Grundlage.
+    np = session.normalized_power
     duration = session.duration_min or 0
 
     if np and ftp:
@@ -187,7 +191,11 @@ def intensity_from_session(session: TrainingSession, ftp: int = 238) -> str | No
 
     # Rad mit Leistungsmesser: eindeutig über den Intensitätsfaktor.
     if discipline == "bike":
-        np = session.normalized_power or session.avg_watts
+    # **Nur** mit echter NP, kein Rückfall auf den Wattdurchschnitt. Der trägt
+    # jedes Rollen und jede Ampel mit: Taminas Ausfahrt über 315 Minuten kam auf
+    # 95 W Schnitt, also 50 % ihrer FTP, und galt damit als "recovery" — fünf
+    # Stunden Erholung. Ohne NP ist die Pulsverteilung die ehrlichere Grundlage.
+        np = session.normalized_power
         if np and ftp:
             intensity = np / ftp
             if intensity < IF_ENDURANCE:
