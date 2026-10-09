@@ -106,3 +106,45 @@ def test_zuruecknehmen_leert_auch_die_neuen_felder(client, geplant, db):
     assert daten["status"] == "planned"
     assert daten["replacement_discipline"] is None
     assert daten["replacement_intensity"] is None
+
+
+# --- Ruhetag als Ersatz ------------------------------------------------------
+
+def test_ruhetag_kann_als_ersatz_gemeldet_werden(client, geplant, db):
+    """Zuerst war `rest` nicht in der Liste, mit der Begründung "ein Ruhetag ist
+    kein Ersatz". Das war falsch gedacht: Wer die Einheit ausfallen lässt und
+    sich stattdessen ausruht, hat eine Entscheidung getroffen. Ohne die Angabe
+    steht im Wochenblock "nicht absolviert, kein Grund gemeldet", und die
+    nächste Woche wird zurückgefahren, als wäre etwas schiefgegangen.
+    """
+    antwort = client.post(f"/api/planned/{geplant.id}/replacement", json={
+        "text": "", "discipline": "rest",
+    })
+    assert antwort.status_code == 200
+    daten = antwort.json()
+    assert daten["status"] == "replaced"
+    assert daten["replacement_discipline"] == "rest"
+    assert daten["replacement"] == "Ruhetag"
+
+
+def test_ruhetag_traegt_keine_dauer_und_keine_intensitaet(client, geplant, db):
+    """Serverseitig erzwungen, nicht nur in der Oberfläche ausgeblendet —
+    sonst schreibt ein anderer Aufrufer einem Ruhetag eine Belastung zu."""
+    antwort = client.post(f"/api/planned/{geplant.id}/replacement", json={
+        "text": "", "discipline": "rest", "duration_min": 90, "intensity": "threshold",
+    })
+    assert antwort.status_code == 200
+    daten = antwort.json()
+    assert daten["replacement_min"] is None
+    assert daten["replacement_intensity"] is None
+    assert daten["replacement"] == "Ruhetag", "keine Dauer im Text"
+
+
+def test_andere_sportarten_behalten_dauer_und_stufe(client, geplant):
+    """Gegenprobe: Die Regel gilt nur für den Ruhetag."""
+    antwort = client.post(f"/api/planned/{geplant.id}/replacement", json={
+        "text": "", "discipline": "swim", "duration_min": 45, "intensity": "base",
+    })
+    daten = antwort.json()
+    assert daten["replacement_min"] == 45
+    assert daten["replacement_intensity"] == "base"

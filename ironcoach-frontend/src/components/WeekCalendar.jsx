@@ -8,8 +8,15 @@ import { DISCIPLINE_COLOR, DONE_COLOR, HR_ZONE_COLOR } from '../utils/colors'
 // Disziplinfarbe, sonst sieht ein ersetzter Radtag wie ein gefahrener aus.
 const ERSETZT_COLOR = '#f59e0b'
 
-// Als Ersatz sinnvoll. `rest` und `brick` fehlen mit Absicht: Ein Ruhetag ist
-// kein Ersatz, und ein Koppeltraining plant man, es passiert nicht spontan.
+// Als Ersatz sinnvoll. `brick` fehlt mit Absicht: Ein Koppeltraining plant man,
+// es passiert nicht spontan.
+//
+// `rest` stand zuerst auch nicht hier — mit der Begründung, ein Ruhetag sei kein
+// Ersatz. Das war falsch gedacht: Wer die Einheit ausfallen lässt und sich
+// stattdessen ausruht, hat eine Entscheidung getroffen, und der Coach soll den
+// Unterschied zu einer unerklärten Lücke sehen. Ohne die Angabe steht dort
+// "nicht absolviert, kein Grund gemeldet", und die nächste Woche wird
+// zurückgefahren, als wäre etwas schiefgegangen.
 const ERSATZ_SPORTARTEN = [
   { key: 'swim', label: 'SCHWIMMEN' },
   { key: 'bike', label: 'RAD' },
@@ -17,6 +24,7 @@ const ERSATZ_SPORTARTEN = [
   { key: 'gym', label: 'KRAFT' },
   { key: 'hike', label: 'WANDERN' },
   { key: 'other', label: 'SONSTIGES' },
+  { key: 'rest', label: 'RUHETAG' },
 ]
 
 // Dieselben vier Stufen wie überall in der Anwendung, in denselben Farben der
@@ -303,10 +311,14 @@ function ErsatzDialog({ einheit, onClose, onSpeichern }) {
   // ableiten.
   const gueltig = disziplin !== '' || text.trim().length > 0
 
+  // Ein Ruhetag hat keine Dauer und keine Intensität. Sie trotzdem
+  // mitzuschicken hiesse, einem Ruhetag eine Belastung zuzuschreiben.
+  const istRuhe = disziplin === 'rest'
+
   const speichern = () => onSpeichern(einheit.id, {
     discipline: disziplin || null,
-    durationMin: dauer ? Number(dauer) : null,
-    intensity: stufe || null,
+    durationMin: istRuhe || !dauer ? null : Number(dauer),
+    intensity: istRuhe ? null : (stufe || null),
     text: text.trim(),
   })
 
@@ -344,6 +356,13 @@ function ErsatzDialog({ einheit, onClose, onSpeichern }) {
           </div>
         </div>
 
+        {istRuhe ? (
+          <p className="text-xs font-mono leading-relaxed rounded-lg px-3 py-2"
+             style={{ background: `${ERSETZT_COLOR}0d`, border: `1px solid ${ERSETZT_COLOR}26`, color: 'var(--text-secondary)' }}>
+            Dauer und Intensität entfallen. Der Tag zählt als bewusste Erholung,
+            nicht als Ausfall — der Coach sieht den Unterschied.
+          </p>
+        ) : (
         <div className="flex gap-4 flex-wrap">
           <div>
             <label className="block text-[10px] font-mono tracking-widest text-[var(--text-secondary)] mb-1.5">
@@ -384,6 +403,7 @@ function ErsatzDialog({ einheit, onClose, onSpeichern }) {
             </div>
           </div>
         </div>
+        )}
 
         <div>
           <label className="block text-[10px] font-mono tracking-widest text-[var(--text-secondary)] mb-1.5">

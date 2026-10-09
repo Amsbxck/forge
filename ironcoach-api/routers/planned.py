@@ -182,14 +182,21 @@ def set_replacement(
             detail=f"Unbekannte Intensität {stufe!r}. Erlaubt: {', '.join(INTENSITIES)}",
         )
 
+    # Ein Ruhetag hat keine Dauer und keine Intensität. Serverseitig erzwungen,
+    # nicht nur in der Oberfläche ausgeblendet: Sonst schreibt ein anderer
+    # Aufrufer einem Ruhetag eine Belastung zu, und der Plan rechnet damit.
+    dauer = None if disziplin == "rest" else body.duration_min
+    if disziplin == "rest":
+        stufe = None
+
     text = (body.text or "").strip()
     if not text and disziplin:
         # Aus den strukturierten Angaben eine lesbare Zeile bauen. So muss
         # niemand zweimal dasselbe eintragen, und im Plan steht trotzdem ein
         # Satz statt drei Schlüsselwörter.
         teile = [DISCIPLINE_LABEL.get(disziplin, disziplin)]
-        if body.duration_min:
-            teile.append(f"{body.duration_min} min")
+        if dauer:
+            teile.append(f"{dauer} min")
         if stufe:
             teile.append(intensity_label(stufe, with_zone=False) or stufe)
         text = " · ".join(teile)
@@ -203,7 +210,7 @@ def set_replacement(
     row = _get_or_404(db, session_id)
     row.status = "replaced"
     row.replacement = text
-    row.replacement_min = body.duration_min
+    row.replacement_min = dauer
     row.replacement_discipline = disziplin
     row.replacement_intensity = stufe
     db.commit()
