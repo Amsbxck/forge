@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  CartesianGrid, ReferenceArea, ReferenceLine
+  CartesianGrid, Area, ReferenceArea, ReferenceLine
 } from 'recharts'
 import HRVHeatmap from './HRVHeatmap'
 import { getHrvRange } from '../services/api'
@@ -24,13 +24,46 @@ const RANGE_OPTIONS = [
  *
  *  Der Trend bleibt: er zeigt die Richtung, ohne eine Bewertung zu behaupten.
  */
-function computeBaseline(data) {
+/** Gleitender Trend und die mitlaufende Normalspanne.
+ *
+ *  Zwei verschiedene Fenster, mit Absicht:
+ *
+ *  Der **Trend** mittelt sieben Messungen — kurz genug, um eine Woche
+ *  Erschöpfung zu zeigen.
+ *
+ *  Die **Normalspanne** rechnet mit denselben Regeln wie `compute_baseline` im
+ *  Backend: bis zu 30 Messungen, Mittelwert ± 0,5 σ, und unter 14 Messungen
+ *  gar nichts. Nur dann zeigt das Diagramm die Rechnung, die auch urteilt —
+ *  mit einem eigenen Fenster wäre es eine zweite, davon abweichende Rechnung,
+ *  und man sähe die Bewegung einer Spanne, die es nirgends gibt.
+ */
+function computeBaseline(data, regeln) {
+  const { minMessungen = 14, maxMessungen = 30, sigma = 0.5 } = regeln || {}
   return data.map((point, i) => {
-    const window = data.slice(Math.max(0, i - 6), i + 1)
-    const mean = window.reduce((a, b) => a + b.rmssd, 0) / window.length
+    const trendFenster = data.slice(Math.max(0, i - 6), i + 1)
+    const mean = trendFenster.reduce((a, b) => a + b.rmssd, 0) / trendFenster.length
+
+    // Alles bis zu diesem Punkt, höchstens die jüngsten `maxMessungen` —
+    // genau das, was das Backend an diesem Tag gesehen hätte.
+    const bandFenster = data.slice(Math.max(0, i + 1 - maxMessungen), i + 1)
+    let band = null
+    let bandMitte = null
+    if (bandFenster.length >= minMessungen) {
+      const werte = bandFenster.map(d => d.rmssd)
+      const m = werte.reduce((a, b) => a + b, 0) / werte.length
+      const varianz = werte.reduce((a, b) => a + (b - m) ** 2, 0) / werte.length
+      const sd = Math.sqrt(varianz)
+      band = [
+        parseFloat((m - sigma * sd).toFixed(1)),
+        parseFloat((m + sigma * sd).toFixed(1)),
+      ]
+      bandMitte = parseFloat(m.toFixed(1))
+    }
     return {
       ...point,
       mean: parseFloat(mean.toFixed(1)),
+      band,
+      bandMitte,
     }
   })
 }
@@ -46,6 +79,16 @@ const CustomTooltip = ({ active, payload }) => {
         <div style={{ color: 'var(--text-secondary)' }}>Body Battery: <span style={{ color: '#e8eaf0' }}>{d.readiness_score}</span></div>
       )}
       <div style={{ color: 'var(--text-muted)' }} className="font-mono">Trend: {d?.mean} ms</div>
+      {/* Die Spanne dieses Tages — hier wird die Bewegung der Rechnung
+          ablesbar, statt nur als Fläche sichtbar zu sein. */}
+      {d?.band && (
+        <div style={{ color: '#22c55e' }} className="font-mono">
+          Normalspanne: {d.band[0]}–{d.band[1]} ms
+          {d.bandMitte != null && (
+            <span style={{ color: 'var(--text-muted)' }}> (Mittel {d.bandMitte})</span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -57,10 +100,18 @@ export default function HRVHistoryChart({ data }) {
   // die Rechnung sichtbar zu machen: Wer seine Garmin-Spanne pflegt, soll sehen,
   // was die eigenen Messungen daneben ergeben würden.
   const [grundlinie, setGrundlinie] = useState(null)
+  // Die Regeln der Rechnung, nicht nur ihr Ergebnis — damit die gezeichnete
+  // Spanne dieselbe ist, die auch urteilt.
+  const [regeln, setRegeln] = useState(null)
   useEffect(() => {
     getHrvRange().then(({ data: d }) => {
       setGrenzen(d.grenzen)
       setGrundlinie(d.baseline)
+      setRegeln({
+        minMessungen: d.min_messungen,
+        maxMessungen: d.max_messungen,
+        sigma: d.band_sigma,
+      })
     }).catch(() => {})
   }, [])
   const [range, setRange] = useState(30)
@@ -68,12 +119,12 @@ export default function HRVHistoryChart({ data }) {
   const allChartData = useMemo(() => {
     if (!data?.length) return []
     const sorted = [...data].sort((a, b) => a.measured_at?.localeCompare(b.measured_at))
-    return computeBaseline(sorted).map(d => ({
+    return computeBaseline(sorted, regeln).map(d => ({
       ...d,
       date: d.measured_at?.slice(5),
       fullDate: d.measured_at,
     }))
-  }, [data])
+  }, [data, regeln])
 
   const chartData = useMemo(() => allChartData.slice(-range), [allChartData, range])
 
@@ -121,37 +172,40 @@ export default function HRVHistoryChart({ data }) {
           />
           <Tooltip content={<CustomTooltip />} />
 
-          {/* Die Grenzen, nach denen die Ampel tatsächlich urteilt — nicht
-              eine zweite, davon abweichende Rechnung. */}
-          {/* Beschriftet, weil die Fläche jetzt oben begrenzt ist: Seit die
-              Normalspanne beide Grenzen hat (Mittelwert ± 0,5 σ), liegt ein
-              auffällig guter Wert **über** dem grünen Band — ohne Beschriftung
-              liest sich das wie "ausserhalb des guten Bereichs". Über der
-              Spanne ist nicht schlechter als darin, nur nachweislich anders. */}
+          {/* Die **berechnete** Normalspanne, mitlaufend als Fläche.
+              Vorher stand hier die eingetragene Garmin-Spanne als waagerechtes
+              Band. Die urteilt weiter — aber sie bewegt sich nicht, und damit
+              war von der Rechnung nichts zu sehen. Die Fläche hier zeigt je Tag
+              die Spanne, die das Backend an diesem Tag ergeben hätte: Wird die
+              Streuung grösser, öffnet sie sich; verschiebt sich das Mittel,
+              wandert sie mit. */}
+          <Area dataKey="band" fill="#22c55e" fillOpacity={0.10} stroke="none"
+                isAnimationActive={false} connectNulls legendType="none"
+                activeDot={false} />
+          {/* Die Ränder zusätzlich als feine Linien: Sie machen die Bewegung
+              auch dort erkennbar, wo die Fläche flach verläuft, und sie geben
+              der Spanne eine Kante statt eines Farbverlaufs. */}
+          <Line type="monotone" dataKey={d => d.band?.[1]} stroke="#22c55e" strokeWidth={1}
+                strokeOpacity={0.45} strokeDasharray="2 3" dot={false} legendType="none"
+                isAnimationActive={false} connectNulls activeDot={false} name="Spanne oben" />
+          <Line type="monotone" dataKey={d => d.band?.[0]} stroke="#22c55e" strokeWidth={1}
+                strokeOpacity={0.45} strokeDasharray="2 3" dot={false} legendType="none"
+                isAnimationActive={false} connectNulls activeDot={false} name="Spanne unten" />
+
+          {/* Die geltenden Grenzen als Bezug. Gestrichelt und ohne Fläche: Sie
+              entscheiden über die Ampel, sollen aber die Bewegung der Rechnung
+              nicht überdecken. */}
           {grenzen && (
-            <ReferenceArea y1={grenzen.gruen_ab} y2={grenzen.gruen_bis || 'dataMax'}
-                           fill="#22c55e" fillOpacity={0.08} stroke="none"
-                           label={{ value: 'NORMALSPANNE', position: 'insideTopLeft',
-                                    fill: '#22c55e', fillOpacity: 0.7, fontSize: 9,
+            <ReferenceLine y={grenzen.gruen_ab} stroke="#22c55e" strokeOpacity={0.55} strokeDasharray="6 4"
+                           label={{ value: grenzen.quelle === 'manual' ? 'GARMIN' : '', position: 'insideTopRight',
+                                    fill: '#22c55e', fillOpacity: 0.6, fontSize: 9,
                                     fontFamily: 'monospace', letterSpacing: '0.1em' }} />
           )}
-          {grenzen && (
-            <ReferenceLine y={grenzen.gruen_ab} stroke="#22c55e" strokeOpacity={0.5} strokeDasharray="4 4" />
+          {grenzen?.gruen_bis && (
+            <ReferenceLine y={grenzen.gruen_bis} stroke="#22c55e" strokeOpacity={0.35} strokeDasharray="6 4" />
           )}
           {grenzen && (
             <ReferenceLine y={grenzen.rot_unter} stroke="#ef4444" strokeOpacity={0.5} strokeDasharray="4 4" />
-          )}
-          {/* Die berechnete Normalspanne — nur zum Vergleich, nicht als Urteil.
-              Zurückgenommen gezeichnet (grau, feine Punkte), damit sie nicht mit
-              der geltenden Spanne verwechselt wird. Sie erscheint nur, wenn eine
-              eingetragene gilt: Sind beide dasselbe, wären es doppelte Linien. */}
-          {grundlinie?.status === 'ok' && grenzen?.quelle === 'manual' && (
-            <>
-              <ReferenceLine y={grundlinie.band_unten} stroke="#7b8496"
-                             strokeOpacity={0.45} strokeDasharray="1 3" />
-              <ReferenceLine y={grundlinie.band_oben} stroke="#7b8496"
-                             strokeOpacity={0.45} strokeDasharray="1 3" />
-            </>
           )}
           {/* Ohne Einblendung: die Animation schneidet den Pfad beim ersten
               Zeichnen ab, solange die Breite des Containers noch nicht steht —
@@ -182,45 +236,38 @@ export default function HRVHistoryChart({ data }) {
       <div className="flex gap-4 px-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
         <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block" style={{ background: '#00d4ff' }} /> rMSSD</span>
         <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block opacity-50" style={{ background: '#22c55e' }} /> Trend</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm inline-block opacity-20" style={{ background: '#22c55e' }} /> Grüner Bereich</span>
-        <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block opacity-60" style={{ background: '#ef4444' }} /> Rote Grenze</span>
-        {grundlinie?.status === 'ok' && grenzen?.quelle === 'manual' && (
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm inline-block opacity-25" style={{ background: '#22c55e' }} /> Normalspanne (berechnet)</span>
+        {grenzen?.quelle === 'manual' && (
           <span className="flex items-center gap-1.5">
-            <span className="w-4 h-0.5 inline-block opacity-45" style={{ background: '#7b8496' }} /> gemessen
+            <span className="w-4 h-0.5 inline-block opacity-55" style={{ background: '#22c55e' }} /> Garmin
           </span>
         )}
+        <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block opacity-60" style={{ background: '#ef4444' }} /> Rote Grenze</span>
       </div>
 
-      {/* Welche Spanne gilt und welche nur daneben steht. Ohne diesen Satz wären
-          vier Linien im Diagramm und keine Auskunft darüber, welche urteilt. */}
-      {grenzen && (
-        <p className="px-1 text-[11px] font-mono leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-          {grenzen.quelle === 'manual' ? (
-            <>
-              Es gilt deine eingetragene Spanne{' '}
-              <span style={{ color: '#22c55e' }}>
-                {grenzen.gruen_ab}{grenzen.gruen_bis ? `–${grenzen.gruen_bis}` : '+'} ms
-              </span>
-              , rot unter {grenzen.rot_unter} ms.
-              {grundlinie?.status === 'ok' && (
-                <> Deine {grundlinie.messungen} Messungen hier ergäben{' '}
-                  <span style={{ color: '#7b8496' }}>
-                    {grundlinie.band_unten}–{grundlinie.band_oben} ms
-                  </span>{' '}
-                  (Mittel {grundlinie.mean} ± 0,5 σ) — nur zum Vergleich, geurteilt
-                  wird nach deiner Spanne.</>
-              )}
-            </>
-          ) : (
-            <>
-              Normalspanne aus deinen {grundlinie?.messungen} Messungen:{' '}
-              <span style={{ color: '#22c55e' }}>{grenzen.gruen_ab}–{grenzen.gruen_bis} ms</span>
-              {' '}(Mittel {grundlinie?.mean} ± 0,5 σ). Innerhalb davon ist ein
-              Unterschied Messrauschen. Trägst du deine Garmin-Spanne ein, gilt sie.
-            </>
-          )}
-        </p>
-      )}
+      {/* Was die Fläche ist und was die Linie. Ohne diesen Satz sind es zwei
+          grüne Dinge im Diagramm und keine Auskunft darüber, welches urteilt. */}
+      <p className="px-1 text-[11px] font-mono leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+        Die <span style={{ color: '#22c55e' }}>Fläche</span> ist deine berechnete
+        Normalspanne — Mittelwert ± 0,5 σ aus den jeweils letzten{' '}
+        {regeln?.maxMessungen ?? 30} Messungen, Tag für Tag neu. Sie öffnet sich,
+        wenn deine Streuung wächst, und wandert mit, wenn sich dein Mittel
+        verschiebt. Innerhalb davon ist ein Unterschied Messrauschen.
+        {grenzen?.quelle === 'manual' ? (
+          <> Geurteilt wird aber nach deiner eingetragenen Garmin-Spanne{' '}
+            <span style={{ color: '#22c55e' }}>
+              {grenzen.gruen_ab}{grenzen.gruen_bis ? `–${grenzen.gruen_bis}` : '+'} ms
+            </span>{' '}
+            (gestrichelt), rot unter {grenzen.rot_unter} ms.</>
+        ) : grenzen ? (
+          <> Nach ihr wird auch geurteilt: aktuell{' '}
+            <span style={{ color: '#22c55e' }}>{grenzen.gruen_ab}–{grenzen.gruen_bis} ms</span>,
+            rot unter {grenzen.rot_unter} ms.</>
+        ) : (
+          <> Für ein Urteil fehlen noch Messungen — ab{' '}
+            {regeln?.minMessungen ?? 14} wird die Spanne gezeichnet.</>
+        )}
+      </p>
 
       {/* Heatmap */}
       <div className="pt-2">

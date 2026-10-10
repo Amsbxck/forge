@@ -68,7 +68,8 @@ def hrv_range(db: Session = Depends(get_db)):
     """Die geltende Normalspanne und woher sie stammt."""
     from core.deps import get_profile
     from services.hrv_baseline import (
-        MIN_MESSUNGEN, compute_baseline, thresholds_for,
+        BAND_SIGMA, FENSTER_TAGE, MAX_MESSUNGEN, MIN_MESSUNGEN,
+        compute_baseline, thresholds_for,
     )
 
     profile = get_profile(db)
@@ -77,7 +78,14 @@ def hrv_range(db: Session = Depends(get_db)):
     return {
         "grenzen": grenzen,
         "baseline": baseline,
+        # Die Regeln der Rechnung mitliefern, nicht nur ihr Ergebnis. Das
+        # Diagramm zeichnet die Spanne je Tag mit, und es muss dafür dasselbe
+        # Fenster und dieselbe Streuungsbreite verwenden — sonst zeigt es eine
+        # Rechnung, die es hier nicht gibt.
         "min_messungen": MIN_MESSUNGEN,
+        "max_messungen": MAX_MESSUNGEN,
+        "fenster_tage": FENSTER_TAGE,
+        "band_sigma": BAND_SIGMA,
     }
 
 
