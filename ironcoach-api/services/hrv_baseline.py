@@ -110,13 +110,31 @@ def compute_baseline(db: Session, user: User | None = None, today: date | None =
 
 
 def thresholds_for(profile: AthleteProfile | None, baseline: dict | None) -> dict | None:
-    """Die geltenden Grenzen: eingetragene zuerst, sonst die berechneten."""
-    if profile is not None and profile.hrv_range_source == "manual" \
-            and profile.hrv_green_min and profile.hrv_red_below:
+    """Die geltenden Grenzen.
+
+    **Eine eingetragene Spanne hat unbedingten Vorrang.** Sie kommt aus der Uhr,
+    die über Monate und mit dem eigenen Messverfahren gelernt hat; die Rechnung
+    hier sieht nur die Werte, die in dieser App gelandet sind. Wer eine Spanne
+    einträgt, hat entschieden.
+
+    Hier wurden zuvor **beide** Werte verlangt, `hrv_green_min` und
+    `hrv_red_below`. Fehlte die rote Grenze, fiel die Funktion stillschweigend
+    auf die berechnete Spanne zurück — die eingetragene galt dann nicht, ohne
+    dass irgendwo etwas davon stand. Jetzt genügt die untere Bandgrenze; die
+    rote wird daraus abgeleitet, so wie beim Eintragen auch.
+    """
+    if profile is not None and profile.hrv_range_source == "manual" and profile.hrv_green_min:
+        rot = profile.hrv_red_below
+        if not rot:
+            rot = (
+                red_from_band(profile.hrv_green_min, profile.hrv_band_high)
+                if profile.hrv_band_high
+                else round(profile.hrv_green_min * 0.9, 1)
+            )
         return {
             "gruen_ab": profile.hrv_green_min,
             "gruen_bis": profile.hrv_band_high,
-            "rot_unter": profile.hrv_red_below,
+            "rot_unter": rot,
             "quelle": "manual",
         }
     if baseline and baseline.get("status") == "ok":

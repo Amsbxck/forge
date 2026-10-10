@@ -116,11 +116,20 @@ def format_hrv(hrv_list: list, grenzen: dict | None = None) -> str:
     if grenzen:
         unten, oben = grenzen.get("gruen_ab"), grenzen.get("gruen_bis")
         if unten and oben:
+            # Die Herkunft nennen, nicht unterstellen. Eine eingetragene Spanne
+            # kommt aus der Uhr, die über Monate gelernt hat — sie ist nicht
+            # "Mittelwert ± 0,5 σ", und das so zu behaupten wäre eine erfundene
+            # Begründung für eine Zahl, die jemand von Hand gesetzt hat.
+            herkunft = (
+                "vom Athleten eingetragen, aus seiner Uhr"
+                if grenzen.get("quelle") == "manual"
+                else "Mittelwert ± 0,5 σ seiner Messungen"
+            )
             lines.append(
-                f"Normalspanne dieses Athleten: {unten}–{oben} ms "
-                f"(Mittelwert ± 0,5 σ). Innerhalb davon ist ein Unterschied "
-                f"Messrauschen und keine Aussage — erst ausserhalb lohnt eine "
-                f"Reaktion. Rot unter {grenzen.get('rot_unter')} ms."
+                f"Normalspanne dieses Athleten: {unten}–{oben} ms ({herkunft}). "
+                f"Innerhalb davon ist ein Unterschied Messrauschen und keine "
+                f"Aussage — erst ausserhalb lohnt eine Reaktion. "
+                f"Rot unter {grenzen.get('rot_unter')} ms."
             )
     for h in hrv_list:
         status = h.get("hrv_status")

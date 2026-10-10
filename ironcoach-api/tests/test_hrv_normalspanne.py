@@ -178,3 +178,73 @@ def test_neue_messung_zieht_die_grundlinie_nach(client, db, messreihe):
     })
     assert antwort.status_code == 200
     assert antwort.json()["hrv_status"] in ("green", "yellow", "red")
+
+
+# --- Vorrang der eingetragenen Spanne ---------------------------------------
+
+class Eingetragen:
+    """Eine Spanne aus der Uhr, wie sie im Profil steht."""
+
+    hrv_range_source = "manual"
+    hrv_green_min = 67.0
+    hrv_band_high = 98.0
+    hrv_red_below = 59.2
+
+
+GRUNDLINIE_OK = {
+    "status": "ok", "messungen": 30, "mean": 77.1, "sd": 12.0,
+    "band_unten": 71.1, "band_oben": 83.1, "gruen_ab": 71.1, "rot_unter": 65.1,
+}
+
+
+def test_eingetragene_spanne_schlaegt_die_rechnung():
+    """Sie kommt aus der Uhr, die über Monate und mit dem eigenen Messverfahren
+    gelernt hat. Die Rechnung hier sieht nur, was in dieser App gelandet ist."""
+    grenzen = thresholds_for(Eingetragen(), GRUNDLINIE_OK)
+    assert grenzen["quelle"] == "manual"
+    assert grenzen["gruen_ab"] == 67.0
+    assert grenzen["gruen_bis"] == 98.0
+
+
+def test_vorrang_gilt_auch_ohne_rote_grenze():
+    """Das Loch im Vorrang: Hier wurden **beide** Werte verlangt. Fehlte die
+    rote Grenze, fiel die Funktion stillschweigend auf die berechnete Spanne
+    zurück — die eingetragene galt dann nicht, ohne dass irgendwo etwas davon
+    stand."""
+    class OhneRot(Eingetragen):
+        hrv_red_below = None
+
+    grenzen = thresholds_for(OhneRot(), GRUNDLINIE_OK)
+    assert grenzen["quelle"] == "manual"
+    assert grenzen["gruen_ab"] == 67.0
+    assert grenzen["rot_unter"] < 67.0, "aus dem Band abgeleitet"
+
+
+def test_vorrang_gilt_auch_mit_nur_einer_grenze():
+    class NurUnten(Eingetragen):
+        hrv_band_high = None
+        hrv_red_below = None
+
+    grenzen = thresholds_for(NurUnten(), GRUNDLINIE_OK)
+    assert grenzen["quelle"] == "manual"
+    assert grenzen["gruen_ab"] == 67.0
+
+
+def test_ohne_eintrag_rechnet_die_app():
+    assert thresholds_for(None, GRUNDLINIE_OK)["quelle"] == "auto"
+
+
+def test_der_prompt_nennt_die_herkunft_statt_sie_zu_erfinden():
+    """Eine eingetragene Spanne ist nicht "Mittelwert ± 0,5 σ" — das so zu
+    behaupten wäre eine erfundene Begründung für eine Zahl, die jemand von Hand
+    gesetzt hat."""
+    from core.prompt_templates import format_hrv
+
+    messung = [{"measured_at": "2026-10-10", "rmssd": 80, "hrv_status": "green"}]
+
+    eingetragen = format_hrv(messung, thresholds_for(Eingetragen(), GRUNDLINIE_OK))
+    assert "eingetragen" in eingetragen
+    assert "Mittelwert ± 0,5 σ" not in eingetragen
+
+    gerechnet = format_hrv(messung, thresholds_for(None, GRUNDLINIE_OK))
+    assert "Mittelwert ± 0,5 σ" in gerechnet

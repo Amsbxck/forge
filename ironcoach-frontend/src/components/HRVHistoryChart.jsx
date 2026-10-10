@@ -52,8 +52,16 @@ const CustomTooltip = ({ active, payload }) => {
 
 export default function HRVHistoryChart({ data }) {
   const [grenzen, setGrenzen] = useState(null)
+  // Die berechnete Grundlinie getrennt von den geltenden Grenzen. Sie urteilt
+  // nicht — die eingetragene Spanne aus der Uhr hat Vorrang. Sie steht da, um
+  // die Rechnung sichtbar zu machen: Wer seine Garmin-Spanne pflegt, soll sehen,
+  // was die eigenen Messungen daneben ergeben würden.
+  const [grundlinie, setGrundlinie] = useState(null)
   useEffect(() => {
-    getHrvRange().then(({ data: d }) => setGrenzen(d.grenzen)).catch(() => {})
+    getHrvRange().then(({ data: d }) => {
+      setGrenzen(d.grenzen)
+      setGrundlinie(d.baseline)
+    }).catch(() => {})
   }, [])
   const [range, setRange] = useState(30)
 
@@ -133,6 +141,18 @@ export default function HRVHistoryChart({ data }) {
           {grenzen && (
             <ReferenceLine y={grenzen.rot_unter} stroke="#ef4444" strokeOpacity={0.5} strokeDasharray="4 4" />
           )}
+          {/* Die berechnete Normalspanne — nur zum Vergleich, nicht als Urteil.
+              Zurückgenommen gezeichnet (grau, feine Punkte), damit sie nicht mit
+              der geltenden Spanne verwechselt wird. Sie erscheint nur, wenn eine
+              eingetragene gilt: Sind beide dasselbe, wären es doppelte Linien. */}
+          {grundlinie?.status === 'ok' && grenzen?.quelle === 'manual' && (
+            <>
+              <ReferenceLine y={grundlinie.band_unten} stroke="#7b8496"
+                             strokeOpacity={0.45} strokeDasharray="1 3" />
+              <ReferenceLine y={grundlinie.band_oben} stroke="#7b8496"
+                             strokeOpacity={0.45} strokeDasharray="1 3" />
+            </>
+          )}
           {/* Ohne Einblendung: die Animation schneidet den Pfad beim ersten
               Zeichnen ab, solange die Breite des Containers noch nicht steht —
               sichtbar als Kurve, die mitten im Diagramm endet. */}
@@ -164,7 +184,43 @@ export default function HRVHistoryChart({ data }) {
         <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block opacity-50" style={{ background: '#22c55e' }} /> Trend</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm inline-block opacity-20" style={{ background: '#22c55e' }} /> Grüner Bereich</span>
         <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block opacity-60" style={{ background: '#ef4444' }} /> Rote Grenze</span>
+        {grundlinie?.status === 'ok' && grenzen?.quelle === 'manual' && (
+          <span className="flex items-center gap-1.5">
+            <span className="w-4 h-0.5 inline-block opacity-45" style={{ background: '#7b8496' }} /> gemessen
+          </span>
+        )}
       </div>
+
+      {/* Welche Spanne gilt und welche nur daneben steht. Ohne diesen Satz wären
+          vier Linien im Diagramm und keine Auskunft darüber, welche urteilt. */}
+      {grenzen && (
+        <p className="px-1 text-[11px] font-mono leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+          {grenzen.quelle === 'manual' ? (
+            <>
+              Es gilt deine eingetragene Spanne{' '}
+              <span style={{ color: '#22c55e' }}>
+                {grenzen.gruen_ab}{grenzen.gruen_bis ? `–${grenzen.gruen_bis}` : '+'} ms
+              </span>
+              , rot unter {grenzen.rot_unter} ms.
+              {grundlinie?.status === 'ok' && (
+                <> Deine {grundlinie.messungen} Messungen hier ergäben{' '}
+                  <span style={{ color: '#7b8496' }}>
+                    {grundlinie.band_unten}–{grundlinie.band_oben} ms
+                  </span>{' '}
+                  (Mittel {grundlinie.mean} ± 0,5 σ) — nur zum Vergleich, geurteilt
+                  wird nach deiner Spanne.</>
+              )}
+            </>
+          ) : (
+            <>
+              Normalspanne aus deinen {grundlinie?.messungen} Messungen:{' '}
+              <span style={{ color: '#22c55e' }}>{grenzen.gruen_ab}–{grenzen.gruen_bis} ms</span>
+              {' '}(Mittel {grundlinie?.mean} ± 0,5 σ). Innerhalb davon ist ein
+              Unterschied Messrauschen. Trägst du deine Garmin-Spanne ein, gilt sie.
+            </>
+          )}
+        </p>
+      )}
 
       {/* Heatmap */}
       <div className="pt-2">
