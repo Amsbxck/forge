@@ -115,9 +115,17 @@ export default function HRVHistoryChart({ data }) {
 
           {/* Die Grenzen, nach denen die Ampel tatsächlich urteilt — nicht
               eine zweite, davon abweichende Rechnung. */}
+          {/* Beschriftet, weil die Fläche jetzt oben begrenzt ist: Seit die
+              Normalspanne beide Grenzen hat (Mittelwert ± 0,5 σ), liegt ein
+              auffällig guter Wert **über** dem grünen Band — ohne Beschriftung
+              liest sich das wie "ausserhalb des guten Bereichs". Über der
+              Spanne ist nicht schlechter als darin, nur nachweislich anders. */}
           {grenzen && (
             <ReferenceArea y1={grenzen.gruen_ab} y2={grenzen.gruen_bis || 'dataMax'}
-                           fill="#22c55e" fillOpacity={0.08} stroke="none" />
+                           fill="#22c55e" fillOpacity={0.08} stroke="none"
+                           label={{ value: 'NORMALSPANNE', position: 'insideTopLeft',
+                                    fill: '#22c55e', fillOpacity: 0.7, fontSize: 9,
+                                    fontFamily: 'monospace', letterSpacing: '0.1em' }} />
           )}
           {grenzen && (
             <ReferenceLine y={grenzen.gruen_ab} stroke="#22c55e" strokeOpacity={0.5} strokeDasharray="4 4" />

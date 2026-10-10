@@ -28,6 +28,19 @@ def create_hrv(data: HrvCreate, db: Session = Depends(get_db)):
     )
     db.add(measurement)
     db.commit()
+
+    # Fortlaufend nachziehen: Jede neue Messung verschiebt Mittelwert und
+    # Streuung ein wenig, also auch die Normalspanne. Ohne das trug die neue
+    # Messung die heutige Spanne und jede ältere die von damals — im
+    # Verlaufsdiagramm lägen Punkte in Farben, die zur eingezeichneten Spanne
+    # nicht passen. Ein paar hundert Zeilen neu zu bewerten kostet nichts.
+    from services.hrv_baseline import recompute_all
+
+    try:
+        recompute_all(db, user)
+    except Exception as e:  # pragma: no cover - darf das Eintragen nie reissen
+        import logging
+        logging.getLogger(__name__).warning("Grundlinie nicht nachgezogen: %s", e)
     db.refresh(measurement)
     return measurement
 

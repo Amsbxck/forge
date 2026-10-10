@@ -10,9 +10,20 @@ streichen. Eine falsche Ampel ist damit schlimmer als gar keine.
 Deshalb wird verglichen, was allein vergleichbar ist: der heutige Wert gegen
 die eigene Streuung der letzten Wochen.
 
-    grün   ab Mittelwert − 0,5 σ
-    gelb   zwischen Mittelwert − 1,0 σ und − 0,5 σ
-    rot    darunter
+    Normalspanne   Mittelwert ± 0,5 σ
+    gelb           zwischen Mittelwert − 1,0 σ und − 0,5 σ
+    rot            darunter
+
+Die halbe Standardabweichung ist nicht beliebig gewählt: Sie ist die
+**kleinste bedeutsame Änderung** — die kleinste Verschiebung, die mehr ist als
+das normale Rauschen der Messung. Innerhalb der Spanne ist ein Unterschied
+Zufall und keine Aussage; wer darauf reagiert, reagiert auf Messrauschen.
+
+Die Spanne hat deshalb **zwei** Grenzen. Die untere entscheidet über die Ampel,
+die obere sagt, wann ein Wert tatsächlich über der eigenen Norm liegt. Lange
+gab es nur die untere: Alles darüber war grün, ob fünf oder fünfzig Prozent —
+und damit war nicht zu erkennen, ob ein guter Wert wirklich gut war oder nur
+innerhalb der Streuung lag.
 
 Solange zu wenige Messungen vorliegen, gibt es keine Ampel — geraten wäre
 schlechter als offen zu sagen, dass die Grundlinie noch entsteht. Wer seine
@@ -40,7 +51,10 @@ MAX_MESSUNGEN = 30
 # Darunter ist eine Standardabweichung nicht aussagekräftig.
 MIN_MESSUNGEN = 14
 
-GRUEN_SIGMA = 0.5
+# Die halbe Standardabweichung: die kleinste Verschiebung, die über das
+# Messrauschen hinausgeht. Sie begrenzt die Normalspanne nach **beiden** Seiten.
+BAND_SIGMA = 0.5
+GRUEN_SIGMA = BAND_SIGMA   # die untere Bandgrenze ist die Ampelschwelle
 ROT_SIGMA = 1.0
 
 # Aus einem eingetragenen grünen Bereich (wie Garmin ihn anzeigt) muss die
@@ -84,6 +98,12 @@ def compute_baseline(db: Session, user: User | None = None, today: date | None =
         "zeitraum_tage": FENSTER_TAGE,
         "mean": round(mittel, 1),
         "sd": round(streuung, 1),
+        # Die Normalspanne, beide Grenzen. `gruen_ab` ist identisch mit
+        # `band_unten` und bleibt stehen, weil die Ampel darauf verweist —
+        # zwei Namen für eine Zahl sind hier ehrlicher als ein Name für zwei
+        # Bedeutungen.
+        "band_unten": round(mittel - BAND_SIGMA * streuung, 1),
+        "band_oben": round(mittel + BAND_SIGMA * streuung, 1),
         "gruen_ab": round(mittel - GRUEN_SIGMA * streuung, 1),
         "rot_unter": round(mittel - ROT_SIGMA * streuung, 1),
     }
@@ -102,6 +122,7 @@ def thresholds_for(profile: AthleteProfile | None, baseline: dict | None) -> dic
     if baseline and baseline.get("status") == "ok":
         return {
             "gruen_ab": baseline["gruen_ab"],
+            "gruen_bis": baseline["band_oben"],
             "rot_unter": baseline["rot_unter"],
             "quelle": "auto",
         }
@@ -119,6 +140,19 @@ def status_for(rmssd: float, grenzen: dict | None) -> str | None:
     return "red"
 
 
+def ueber_band(rmssd: float | None, grenzen: dict | None) -> bool:
+    """Liegt der Wert über der eigenen Normalspanne?
+
+    Keine eigene Ampelfarbe: Über der Spanne ist nicht besser als grün, es ist
+    grün — nur eben nachweislich, nicht innerhalb des Rauschens. Als Aussage ist
+    das etwas anderes und gehört deshalb getrennt gemeldet, nicht in den Status
+    hineingemischt. Ein vierter Statuswert hätte dagegen jede Stelle berührt,
+    die heute drei kennt.
+    """
+    oben = (grenzen or {}).get("gruen_bis")
+    return bool(oben and rmssd is not None and rmssd > oben)
+
+
 def evaluate(db: Session, rmssd: float, user: User | None = None) -> tuple[str | None, dict]:
     """Ampel für einen Messwert samt der Begründung."""
     from core.deps import get_profile
@@ -126,7 +160,11 @@ def evaluate(db: Session, rmssd: float, user: User | None = None) -> tuple[str |
     profile = get_profile(db, user)
     baseline = compute_baseline(db, user)
     grenzen = thresholds_for(profile, baseline)
-    return status_for(rmssd, grenzen), {"baseline": baseline, "grenzen": grenzen}
+    return status_for(rmssd, grenzen), {
+        "baseline": baseline,
+        "grenzen": grenzen,
+        "ueber_band": ueber_band(rmssd, grenzen),
+    }
 
 
 def recompute_all(db: Session, user: User | None = None) -> int:

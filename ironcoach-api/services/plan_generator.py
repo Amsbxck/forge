@@ -152,6 +152,12 @@ async def generate_and_save_plan(
     ftp = profile.ftp_watts if profile else None
     sessions_dicts = [session_to_dict(s, ftp) for s in sessions]
 
+    # Die HRV-Normalspanne. Ohne sie stünden im Prompt nur Millisekunden, und
+    # rMSSD ist zwischen Menschen nicht vergleichbar — 45 und 120 sind beide
+    # normal. Die Spanne macht aus der Zahl eine Aussage.
+    from services.hrv_baseline import compute_baseline, thresholds_for
+    hrv_grenzen = thresholds_for(profile, compute_baseline(db))
+
     hrv_dicts = [
         {
             "measured_at": str(h.measured_at),
@@ -242,6 +248,7 @@ async def generate_and_save_plan(
         zones=zones_block,
         quality=quality_block,
         base_period=base_block,
+        hrv_grenzen=hrv_grenzen,
     )
 
     plan_text_lines = [f"Wochenplan {current_week} ({week_start} – {week_end})", ""]

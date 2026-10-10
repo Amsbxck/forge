@@ -65,6 +65,10 @@ async def chat(body: ChatMessageIn, db: Session = Depends(get_db)):
     ftp = profile.ftp_watts if profile else None
     sessions_dicts = [session_to_dict(s, ftp) for s in sessions]
 
+    # Die HRV-Normalspanne, damit im Chat dieselbe Grundlage gilt wie im Plan.
+    from services.hrv_baseline import compute_baseline, thresholds_for
+    hrv_grenzen = thresholds_for(profile, compute_baseline(db))
+
     # Letzte 7 Tage HRV
     hrv_cutoff = date.today() - timedelta(days=7)
     hrv_records = db.query(HrvMeasurement).filter(
@@ -105,7 +109,7 @@ async def chat(body: ChatMessageIn, db: Session = Depends(get_db)):
         **gemeinsam,
         "sessions_summary": gemeinsam["sessions_text"],
         "reflections": gemeinsam["reflections_text"],
-        "hrv_summary": format_hrv(hrv_dicts),
+        "hrv_summary": format_hrv(hrv_dicts, hrv_grenzen),
         "latest_hrv": latest_hrv,
         "current_plan": plan_text,
         "current_plan_detail": plan_content,

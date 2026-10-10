@@ -97,13 +97,41 @@ def format_sessions(sessions: list) -> str:
     return "\n".join(lines)
 
 
-def format_hrv(hrv_list: list) -> str:
+AMPEL_SYMBOL = {"green": "🟢", "yellow": "🟡", "red": "🔴"}
+
+
+def format_hrv(hrv_list: list, grenzen: dict | None = None) -> str:
+    """HRV-Verlauf für den Prompt — gegen die eigene Spanne, nicht gegen Zahlen.
+
+    Hier stand `"🟢" if h["rmssd"] > 85 else ...`, also genau die festen
+    Schwellen, die `services/hrv_baseline.py` ersetzt. Der Coach bekam damit
+    zwei widersprechende Signale in derselben Zeile: ein Symbol nach fremden
+    Zahlen und daneben den richtig gerechneten Status. Für einen Athleten mit
+    einer Normallage um 45 stand dort dauerhaft 🔴 neben "green".
+    """
     if not hrv_list:
         return "Keine HRV-Daten."
+
     lines = []
+    if grenzen:
+        unten, oben = grenzen.get("gruen_ab"), grenzen.get("gruen_bis")
+        if unten and oben:
+            lines.append(
+                f"Normalspanne dieses Athleten: {unten}–{oben} ms "
+                f"(Mittelwert ± 0,5 σ). Innerhalb davon ist ein Unterschied "
+                f"Messrauschen und keine Aussage — erst ausserhalb lohnt eine "
+                f"Reaktion. Rot unter {grenzen.get('rot_unter')} ms."
+            )
     for h in hrv_list:
-        status_icon = "🟢" if h["rmssd"] > 85 else ("🟡" if h["rmssd"] >= 75 else "🔴")
-        lines.append(f"- {h['measured_at']}: {h['rmssd']}ms rMSSD {status_icon} ({h.get('hrv_status', '')})")
+        status = h.get("hrv_status")
+        symbol = AMPEL_SYMBOL.get(status, "·")
+        zusatz = ""
+        if grenzen and grenzen.get("gruen_bis") and h.get("rmssd", 0) > grenzen["gruen_bis"]:
+            zusatz = " — über der Normalspanne"
+        lines.append(
+            f"- {h['measured_at']}: {h['rmssd']}ms rMSSD {symbol}"
+            f"{f' ({status})' if status else ' (noch keine Grundlinie)'}{zusatz}"
+        )
     return "\n".join(lines)
 
 
@@ -273,6 +301,9 @@ def build_plan_prompt(
     zones: str | None = None,
     quality: str | None = None,
     base_period: str | None = None,
+    # Die Normalspanne der HRV. Nicht hier berechnet, weil dieses Modul keine
+    # Datenbank kennt — der Aufrufer hat sie ohnehin zur Hand.
+    hrv_grenzen: dict | None = None,
 ) -> str:
     from core.race_types import phase_boundaries
 
@@ -339,7 +370,7 @@ def build_plan_prompt(
             "Nutze sie zur Einordnung — behandle sie nicht als gemessene Werte.\n\n"
             f"{reflections}\n"
         )
-    hrv_text = format_hrv(hrv)
+    hrv_text = format_hrv(hrv, hrv_grenzen)
     week_start, week_end = get_week_dates(week, plan_start)
     is_deload = week % 4 == 0
     phase_workouts_sst = get_phase_workouts(phase, is_deload, "sst_tempo")
