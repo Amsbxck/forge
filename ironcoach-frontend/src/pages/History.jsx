@@ -366,7 +366,18 @@ function SessionRow({ session: s, onDelete, onHardDelete, onRestore, onCommute, 
         className="flex gap-2 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
         onClick={e => e.stopPropagation()}
       >
-        {!s.deleted_at && s.discipline === 'bike' && (
+        {/* Nur bei Fahrten mit Strecke. Eine Hallenfahrt auf dem Ergometer
+            hat 0 km und kann kein Arbeitsweg sein — der Knopf dort anzubieten
+            stiftet nur Verwirrung.
+
+            Und mit Vorzeichen beschriftet, wie "+ ERSETZT" im Wochenkalender.
+            Vorher stand dort bei einer nicht markierten Fahrt nur
+            "ARBEITSWEG", in derselben grauen Monospace wie die Messwerte
+            daneben — das liest sich als Etikett ("diese Fahrt ist ein
+            Arbeitsweg") statt als Handlung. Genau so ist es passiert: Taminas
+            Hallenfahrt galt als Arbeitsweg gemeldet, obwohl `is_commute`
+            false war. */}
+        {!s.deleted_at && s.discipline === 'bike' && (s.is_commute || s.distance_km > 0) && (
           <button
             onClick={onCommute}
             className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[#e8eaf0] whitespace-nowrap"
@@ -374,7 +385,7 @@ function SessionRow({ session: s, onDelete, onHardDelete, onRestore, onCommute, 
               ? 'Markierung aufheben — die Einheit wird wieder dem Plan zugeordnet'
               : 'Als Arbeitsweg markieren — bleibt in der Formkurve, erfüllt aber keine Vorgabe'}
           >
-            {s.is_commute ? 'KEIN WEG' : 'ARBEITSWEG'}
+            {s.is_commute ? '✕ ARBEITSWEG' : '+ ARBEITSWEG'}
           </button>
         )}
         {s.deleted_at ? (
