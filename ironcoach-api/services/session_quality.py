@@ -162,7 +162,21 @@ def bewerte(ist: TrainingSession, soll: PlannedSession, profile) -> dict | None:
 
     # Puls als Gegenprobe: Ohne ihn lässt sich Formzuwachs nicht von
     # „hat sich mehr gequält" unterscheiden.
+    #
+    # Für Zonen oberhalb der Schwelle gibt es keine Obergrenze im Profil, und
+    # das ist richtig so: Z5 ist als „über dem Schwellenpuls" definiert, nach
+    # oben offen. Eine Grenze dafür zu erfinden wäre falsch — bei kurzen
+    # Intervallen hinkt der Puls ohnehin hinterher, in einem Vergleich zeigte
+    # er sogar das Gegenteil des tatsächlichen Reizes.
+    #
+    # Nur: `grenzen.get()` lieferte dort None, `puls_hinweis` blieb None, und
+    # im Urteil unten führt genau das in den letzten Zweig — jede übertroffene
+    # Einheit über der Schwelle wurde damit zur Spitzeneinheit erklärt, ohne
+    # dass die Gegenprobe stattgefunden hätte. Die Legende behauptete dem
+    # Coach trotzdem „Puls nicht erhöht". Deshalb wird jetzt mitgeführt, ob
+    # geprüft werden *konnte*.
     puls_hinweis = None
+    puls_pruefbar = False
     if ist.avg_hr and soll.target_hr_zone and getattr(profile, "z2_hr_max", None):
         grenzen = {
             "Z1": profile.z1_hr_max, "Z2": profile.z2_hr_max,
@@ -170,6 +184,7 @@ def bewerte(ist: TrainingSession, soll: PlannedSession, profile) -> dict | None:
         }
         obergrenze = grenzen.get(soll.target_hr_zone.upper())
         if obergrenze:
+            puls_pruefbar = True
             puls_hinweis = ist.avg_hr - obergrenze
 
     urteil = "im_rahmen"
@@ -193,6 +208,10 @@ def bewerte(ist: TrainingSession, soll: PlannedSession, profile) -> dict | None:
         "zone_soll": zone_soll,
         "zone_ist": zone_ist,
         "puls_ueber_zone": puls_hinweis,
+        # Ob die Gegenprobe möglich war. Nur bei einer Spitzeneinheit von
+        # Belang, dort aber entscheidend: ohne sie ist „Puls nicht erhöht"
+        # keine Feststellung, sondern eine Lücke.
+        "puls_pruefbar": puls_pruefbar,
         "urteil": urteil,
         "reflexion": (ist.reflection or "").strip() or None,
     }
@@ -248,6 +267,11 @@ def prompt_block(db: Session, beginn: date, heute: date | None = None,
             kern += f" ({t['zone_soll']} geplant, {t['zone_ist']} gefahren)"
         if t["puls_ueber_zone"] is not None and t["puls_ueber_zone"] > PULS_TOLERANZ:
             kern += f", Puls {t['puls_ueber_zone']} über der Zielzone"
+        elif t["urteil"] == "spitzeneinheit" and not t.get("puls_pruefbar"):
+            # Nicht verschweigen, dass die Gegenprobe ausgefallen ist. Sonst
+            # liest der Coach „SPITZE" samt Legende („Puls nicht erhöht") als
+            # Feststellung, wo gar nichts geprüft wurde.
+            kern += ", Puls nicht beurteilbar (Zielzone über der Schwelle)"
         zeilen.append(kern)
         if t["reflexion"]:
             # Die eigene Notiz direkt darunter: Die Zahl sagt, dass etwas
@@ -262,10 +286,12 @@ def prompt_block(db: Session, beginn: date, heute: date | None = None,
         "## AUFFÄLLIGE EINHEITEN (Soll gegen Ist, mit Reflexion)\n\n"
         + "\n".join(zeilen)
         + "\n\n**So ist das zu lesen:**\n"
-        "- **SPITZE** = Vorgabe übertroffen, Intensitätskategorie gehalten, "
-        "Puls nicht erhöht. Das ist der Beleg für Reserve — steigere hier "
+        "- **SPITZE** = Vorgabe übertroffen und Intensitätskategorie gehalten, "
+        "bei unauffälligem Puls. Das ist der Beleg für Reserve — steigere hier "
         "beim nächsten Mal die Vorgabe, statt eine Einheit zusätzlich "
-        "einzuplanen.\n"
+        "einzuplanen. Steht in der Zeile, der Puls sei nicht beurteilbar, lag "
+        "die Zielzone über der Schwelle: dann fehlt die Gegenprobe, und der "
+        "Beleg ist schwächer.\n"
         "- **hart erkauft** = übertroffen, aber der Puls lag deutlich über der "
         "Zielzone. Kein Formzuwachs, sondern ein harter Tag. Vorgabe **nicht** "
         "anheben.\n"

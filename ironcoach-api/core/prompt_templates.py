@@ -497,7 +497,10 @@ def build_plan_prompt(
 - Vorbereitung: {"Off Season — kein laufendes Saisonziel" if offseason_block else "Grundlagenphase — der Aufbau hat noch nicht begonnen" if base_block else f"Woche {week} von {athlete_profile.get('total_weeks', 33)}"}
 - FTP: {athlete_profile['ftp_watts']}W
 - Max HR: {athlete_profile['max_hr']} bpm
-- HR-Zonen: Z1 0-{athlete_profile['z1_hr_max']} | Z2 {athlete_profile['z2_hr_min']}-{athlete_profile['z2_hr_max']} | Z3 {athlete_profile['z3_hr_min']}-{athlete_profile['z3_hr_max']} | Z4 {athlete_profile['z4_hr_min']}-{athlete_profile['z4_hr_max']} | Z5 >{athlete_profile['max_hr']}
+- HR-Zonen: Z1 0-{athlete_profile['z1_hr_max']} | Z2 {athlete_profile['z2_hr_min']}-{athlete_profile['z2_hr_max']} | Z3 {athlete_profile['z3_hr_min']}-{athlete_profile['z3_hr_max']} | Z4 {athlete_profile['z4_hr_min']}-{athlete_profile['z4_hr_max']} | Z5 und höher >{athlete_profile['z4_hr_max']} (bis Maximalpuls {athlete_profile['max_hr']})
+- Oberhalb der Schwelle gibt es **keine** Pulsobergrenze je Zone, und das ist
+  Absicht: Steuere Z5 bis Z7 über Pace und Watt, nicht über den Puls. Er hinkt
+  bei kurzen Intervallen hinterher.
 - Schwimmen: CSS {css_text} | Schwellenpuls {swim_hr_text}
 - Equipment: Wahoo KICKR Core, Zwift, Garmin Forerunner 255, Wahoo Elemnt Bolt v2
 

@@ -201,14 +201,6 @@ def phase_family(phase: str | None) -> str:
     return roh
 
 
-def phase_block(phase: str | None) -> int | None:
-    """Die Blocknummer einer Phase: „Base 2" → 2, „Taper" → None."""
-    teile = (phase or "").strip().rsplit(" ", 1)
-    if len(teile) == 2 and teile[1].isdigit():
-        return int(teile[1])
-    return None
-
-
 def is_deload(week: int, total_weeks: int = 33) -> bool:
     """Ist diese Woche eine Entlastungswoche?
 

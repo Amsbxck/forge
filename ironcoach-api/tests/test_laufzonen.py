@@ -106,3 +106,65 @@ def test_steigerungslauf_ist_keine_spitzeneinheit():
     urteil = bewerte(ist, soll, profil)
     assert urteil is not None
     assert urteil["urteil"] != "spitzeneinheit", urteil
+
+
+def test_spitzeneinheit_ohne_pulsgegenprobe_wird_benannt():
+    """Über der Schwelle gibt es keine Pulsobergrenze — das muss dastehen.
+
+    Das Profil kennt Obergrenzen nur bis Z4; Z5 ist als "über dem
+    Schwellenpuls" definiert, nach oben offen. `grenzen.get()` lieferte dort
+    None, `puls_hinweis` blieb None, und im Urteil führte genau das in den
+    letzten Zweig: Jede übertroffene Einheit über der Schwelle wurde zur
+    Spitzeneinheit erklärt, ohne dass die Gegenprobe stattgefunden hätte —
+    während die Legende dem Coach "Puls nicht erhöht" versicherte.
+
+    Eine Pulsgrenze für vVO2max zu erfinden wäre falsch: bei kurzen
+    Intervallen hinkt der Puls hinterher und zeigte in einem Vergleich sogar
+    das Gegenteil des tatsächlichen Reizes. Also wird die Lücke benannt, nicht
+    gefüllt.
+    """
+    from types import SimpleNamespace
+
+    from services.session_quality import bewerte
+
+    profil = SimpleNamespace(
+        ftp_watts=264, threshold_pace_s_per_km=SCHWELLE, threshold_hr=188,
+        z1_hr_max=130, z2_hr_max=155, z3_hr_max=172, z4_hr_max=188,
+    )
+
+    def lauf(zone, ziel_schnell, ziel_langsam, gelaufen_s):
+        soll = SimpleNamespace(
+            discipline="run", training_type="vo2max", duration_min=45,
+            target_pace_low_s_per_km=ziel_schnell,
+            target_pace_high_s_per_km=ziel_langsam,
+            target_watts_low=None, target_watts_high=None, target_hr_zone=zone,
+        )
+        ist = SimpleNamespace(
+            discipline="run", session_date=None, duration_min=45,
+            avg_pace_min_km=gelaufen_s / 60, normalized_power=None,
+            avg_watts=None, avg_hr=170, reflection=None,
+        )
+        return bewerte(ist, soll, profil)
+
+    # Zielzone Z4: die Gegenprobe ist möglich.
+    z4 = lauf("Z4", 278, 295, 255)
+    assert z4["puls_pruefbar"] is True
+
+    # Zielzone Z6: keine Obergrenze im Profil, also nicht prüfbar. Deutlich
+    # über der Vorgabe (215 gegen 240 s/km am schnellen Bandrand, also gut
+    # 10 % und damit über SCHWELLE_PACE), sonst lautet das Urteil nur
+    # "im_rahmen" und die Frage nach der Gegenprobe stellt sich nicht.
+    z6 = lauf("Z6", 240, 255, 215)
+    assert z6["puls_pruefbar"] is False
+    assert z6["urteil"] == "spitzeneinheit"
+
+
+def test_fehlende_gegenprobe_steht_im_prompt():
+    """Der Hinweis muss beim Coach ankommen, nicht nur im Datensatz stehen."""
+    import inspect
+
+    from services import session_quality
+
+    quelle = inspect.getsource(session_quality.prompt_block)
+    assert "puls_pruefbar" in quelle
+    assert "nicht beurteilbar" in quelle

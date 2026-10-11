@@ -107,9 +107,6 @@ def harte_einheiten(db: Session, von: date, bis: date,
         "tage": harte,
         "min_abstand": abstand,
         "vorhanden": bool(einheiten),
-        "disziplinen": sorted({
-            (e.discipline or "").lower() for e in einheiten if _ist_hart(e)
-        }),
     }
 
 

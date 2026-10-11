@@ -56,6 +56,13 @@ const ZONE_COLOR = {
   Z3: '#f4a261',
   Z4: '#e76f51',
   Z5: '#e63946',
+  // Die Laufbereiche haben am schnellen Ende zwei Stufen dazubekommen:
+  // Z6 ist vVO2max, Z7 sind Steigerungen. Ohne Eintrag fiel die Markierung
+  // auf Grau zurück — ausgerechnet bei den härtesten Einheiten war die
+  // Farbe damit keine Auskunft mehr. Weiter ins Violette, weil Rot am Ende
+  // der Skala schon belegt ist.
+  Z6: '#c026d3',
+  Z7: '#7c3aed',
 }
 
 // Intensitätsstufen in der Sprache der Trainingslehre. Farbe folgt der Zone,

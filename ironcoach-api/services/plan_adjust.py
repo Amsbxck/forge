@@ -81,13 +81,26 @@ async def tage_anpassen(db: Session, plan: WeeklyPlan, wunsch: str) -> dict:
     nutzer = resolve_user(db)
     ensure_budget(db, nutzer)
 
+    # Die vollständigen Trainingsbereiche, nicht nur FTP und Puls.
+    #
+    # Hier standen bisher ausschließlich HF-Zonen Z2 bis Z4 und die FTP. Ein
+    # geänderter Tag bekam damit keine Pacevorgabe, obwohl der Wochenplan, in
+    # den er eingesetzt wird, durchgehend welche trägt — und seit die
+    # Laufbereiche am schnellen Ende drei Stufen haben, hätte ein hier
+    # geänderter Lauftag die Zonen anders ausgelegt als der Rest der Woche.
     zonen = ""
     if profil:
-        zonen = (
-            f"FTP {profil.ftp_watts} W · Maximalpuls {profil.max_hr} · "
-            f"Z2 {profil.z2_hr_min}-{profil.z2_hr_max} · "
+        from services.zones import prompt_block as bereiche
+        zonen = bereiche(profil) or (
+            f"FTP {profil.ftp_watts} W · Maximalpuls {profil.max_hr}"
+        )
+        zonen += (
+            f"\n\nHF-Zonen: Z2 {profil.z2_hr_min}-{profil.z2_hr_max} · "
             f"Z3 {profil.z3_hr_min}-{profil.z3_hr_max} · "
-            f"Z4 {profil.z4_hr_min}-{profil.z4_hr_max}"
+            f"Z4 {profil.z4_hr_min}-{profil.z4_hr_max} · "
+            f"Z5 und höher über {profil.z4_hr_max}. "
+            f"Oberhalb der Schwelle über Pace und Watt steuern, nicht über den "
+            f"Puls."
         )
 
     system = f"""Du passt einzelne Tage eines bestehenden Wochenplans an.
