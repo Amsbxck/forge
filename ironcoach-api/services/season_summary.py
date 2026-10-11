@@ -318,6 +318,9 @@ def _belastbarkeit(db: Session, beginn: date, heute: date) -> dict:
     )
     mehr, weniger, verworfen, beispiele = 0, 0, 0, []
     lauf_mehr = 0
+    # Verworfene Paare nach Disziplin und Richtung. Ein einzelner Ausreißer ist
+    # ein Zuordnungsfehler; drei in dieselbe Richtung sind eine Auskunft.
+    weit_darueber: dict[str, list[float]] = {}
     for ist, soll in paare:
         if not soll.duration_min or not ist.duration_min:
             continue
@@ -326,8 +329,20 @@ def _belastbarkeit(db: Session, beginn: date, heute: date) -> dict:
         # da wurde eine ungeplante lange Ausfahrt auf einen kurzen
         # Regenerationsslot gebucht. Solche Paare als Belastbarkeit zu zählen
         # hieße, aus einem Zuordnungsfehler eine Trainingsempfehlung zu machen.
+        #
+        # Diese Annahme bricht aber, sobald sie sich wiederholt. Bei Amir waren
+        # **alle drei** Radeinheiten des Zeitraums so: 327 statt 75, 320 statt
+        # 90, 244 statt 55 Minuten. Das ist kein Zuordnungsfehler dreimal
+        # hintereinander, sondern ein systematisch zu kurz angesetzter
+        # Radumfang — und ausgerechnet das Signal, das genau das melden soll,
+        # war dafür blind. Deshalb werden sie weiter nicht mitgezählt, aber
+        # festgehalten.
         if verhaeltnis > 3 or verhaeltnis < 0.25:
             verworfen += 1
+            if verhaeltnis > 3:
+                weit_darueber.setdefault(
+                    (ist.discipline or "?").lower(), []
+                ).append(verhaeltnis)
             continue
         diff = ist.duration_min - soll.duration_min
         # Zehn Prozent Toleranz: Darunter ist es Alltag, keine Aussage.
@@ -350,6 +365,13 @@ def _belastbarkeit(db: Session, beginn: date, heute: date) -> dict:
         # Widerspruch, und der Coach müsste raten, welcher gilt.
         "lauf_mehr": lauf_mehr,
         "verworfen": verworfen,
+        # Disziplinen, in denen mindestens zwei Einheiten das Dreifache der
+        # Vorgabe überschritten: {"bike": (3, 3.6)} heißt dreimal, im Schnitt
+        # das 3,6-fache.
+        "weit_darueber": {
+            d: (len(v), round(sum(v) / len(v), 1))
+            for d, v in weit_darueber.items() if len(v) >= 2
+        },
         "gewertet": mehr + weniger,
         "zugeordnet": len(paare),
         "beispiele": beispiele[-4:],
@@ -637,6 +659,15 @@ def prompt_block(db: Session, user: User | None = None, heute: date | None = Non
             "Verfehlen das Gegenteil. In allen anderen Wochen sagt die Zahl "
             "nichts über die Belastbarkeit aus."
         )
+        for disziplin, (anzahl, faktor) in sorted(b.get("weit_darueber", {}).items()):
+            belastung.append(
+                f"**{disziplin}: {anzahl} Einheiten lagen beim {faktor}-fachen "
+                f"der Vorgabe** und wurden oben als unplausibel verworfen. "
+                f"Einmal wäre das ein Zuordnungsfehler — {anzahl}-mal in "
+                f"dieselbe Richtung heißt, dass der Umfang dieser Disziplin "
+                f"viel zu kurz angesetzt ist. Setze die Vorgabe dort an dem an, "
+                f"was tatsächlich gefahren wird, nicht am Plan."
+            )
         if b.get("lauf_mehr"):
             belastung.append(
                 f"Davon {b['lauf_mehr']} beim Laufen — dort gilt dieser Schluss "

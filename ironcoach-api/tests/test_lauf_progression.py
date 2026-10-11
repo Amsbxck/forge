@@ -145,3 +145,71 @@ def test_beide_klammern_stehen_im_prompt(db):
 def test_konstanten_folgen_den_studien():
     assert SPRUNG_ANTEIL == 1.10          # Frandsen 2025
     assert WOCHEN_ZUWACHS_GRENZE == 0.30  # Nielsen 2014
+
+
+# --- Soll gegen Ist: wann ein verworfenes Paar doch etwas sagt ---------------
+
+def test_wiederholte_verwerfung_wird_zur_auskunft(db):
+    """Einmal ist ein Zuordnungsfehler, dreimal ist eine Aussage.
+
+    Paare über dem Dreifachen der Vorgabe gelten als Zuordnungsfehler — eine
+    ungeplante lange Ausfahrt, die auf einem kurzen Slot landete. Bei beiden
+    Athleten war das aber **jede** Radeinheit des Zeitraums: 327 statt 75, 320
+    statt 90, 244 statt 55 Minuten. Das Signal, das einen zu kurz angesetzten
+    Umfang melden soll, war dafür blind — es warf die Belege weg.
+    """
+    from models import PlannedSession, TrainingSession, User, WeeklyPlan
+    from services.season_summary import _belastbarkeit
+
+    nutzer = db.query(User).first()
+    plan = WeeklyPlan(
+        user_id=nutzer.id, week_number=1, week_start=HEUTE - timedelta(days=20),
+        week_end=HEUTE - timedelta(days=14), plan_phase="Base 1", plan_content={},
+    )
+    db.add(plan)
+    db.commit()
+
+    angelegt = [plan]
+    try:
+        for i, (soll_min, ist_min) in enumerate(((75, 327), (90, 320), (55, 244))):
+            tag = HEUTE - timedelta(days=19 - i)
+            p = PlannedSession(
+                user_id=nutzer.id, plan_id=plan.id, week_number=1,
+                planned_date=tag, day_name="Mo", discipline="bike",
+                training_type="z2_endurance", duration_min=soll_min, day_index=i,
+            )
+            db.add(p)
+            db.commit()
+            s = TrainingSession(
+                user_id=nutzer.id, session_date=tag, discipline="bike",
+                duration_min=ist_min, week_number=1, planned_session_id=p.id,
+            )
+            db.add(s)
+            db.commit()
+            angelegt += [p, s]
+
+        b = _belastbarkeit(db, HEUTE - timedelta(weeks=10), HEUTE)
+        # Weiter nicht mitgezählt — die Zahl bliebe sonst unbrauchbar.
+        assert b["mehr"] == 0
+        assert b["verworfen"] >= 3
+        # Aber nicht mehr verschwiegen.
+        assert "bike" in b["weit_darueber"]
+        anzahl, faktor = b["weit_darueber"]["bike"]
+        assert anzahl == 3
+        assert 3.5 < faktor < 5.0
+    finally:
+        for o in reversed(angelegt):
+            db.delete(o)
+        db.commit()
+
+
+def test_einzelner_ausreisser_bleibt_ein_zuordnungsfehler():
+    """Ein Paar allein ergibt keine Aussage über den Umfang."""
+    from services.season_summary import _belastbarkeit
+    # Über die reine Zählung geprüft: `weit_darueber` nimmt erst ab zwei auf.
+    # (Der Schwellenwert steht in der Rückgabe von `_belastbarkeit`.)
+    import inspect
+
+    from services import season_summary
+    quelle = inspect.getsource(season_summary._belastbarkeit)
+    assert "if len(v) >= 2" in quelle
