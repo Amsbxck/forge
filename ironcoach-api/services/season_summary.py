@@ -26,7 +26,7 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
-from core.training_types import EXTERN_GEPLANT
+from core.training_types import EXTERN_GEPLANT, FUN_DISCIPLINES
 from models import HealthEvent, PlannedSession, TrainingSession, User
 
 logger = logging.getLogger(__name__)
@@ -105,7 +105,14 @@ def _progression(sessions: list[TrainingSession], heute: date) -> dict:
             # Schwimmen bleibt draußen: sein Aufbau steht im externen Plan,
             # und eine Reihe daraus hätte der Coach als Progressionsauftrag
             # gelesen. Rest und Gym haben keinen Umfang, der sich steigert.
-            if d in ("rest", "gym") or d in EXTERN_GEPLANT:
+            # Wanderungen und Crosstraining ebenso: `FUN_DISCIPLINES` gibt es
+            # genau dafür, und „hike: 14,2 km → – → –" las sich wie eine
+            # eingebrochene Reihe, obwohl es nur ein Ausflug war.
+            if d in ("rest", "gym") or d in EXTERN_GEPLANT or d in FUN_DISCIPLINES:
+                continue
+            # Arbeitswege sind kein Trainingsumfang. Als Maximum gewinnen sie
+            # selten, aber eine lange Heimfahrt kann die Reihe verfälschen.
+            if getattr(s, "is_commute", False):
                 continue
             if not (start < s.session_date <= ende):
                 continue
@@ -116,6 +123,40 @@ def _progression(sessions: list[TrainingSession], heute: date) -> dict:
             reihe[i] = eintrag
     # Chronologisch: ältester Block zuerst.
     return {d: list(reversed(r)) for d, r in reihen.items()}
+
+
+# Eine Maßeinheit je Disziplin, über alle Blöcke dieselbe.
+#
+# Vorher wurde km genommen, wenn eine Strecke vorlag, und sonst Minuten. Bei
+# einem Block voller Rollentraining ohne Strecke entstand daraus eine Reihe
+# wie „160,7 km → 240 min → 150,0 km" — drei Zahlen, die nichts miteinander
+# zu tun haben, unter einer Überschrift, die eine Richtung behauptet.
+#
+# Laufen in Kilometern, weil die Strecke die verletzungsrelevante Größe ist
+# (dieselbe, auf die sich die Einzellauf-Grenze bezieht). Rad in Minuten, weil
+# die Dauer drinnen und draußen vergleichbar bleibt.
+PROGRESSION_EINHEIT = {
+    "run": "km",
+    "brick": "km",
+    "bike": "min",
+}
+
+
+def progression_wert(disziplin: str, eintrag: dict | None) -> str:
+    """Ein Blockwert der Reihe, in der Einheit dieser Disziplin."""
+    if eintrag is None:
+        return "–"
+    einheit = PROGRESSION_EINHEIT.get(disziplin)
+    if einheit == "km" and eintrag["km"]:
+        return f"{eintrag['km']:.1f} km"
+    if einheit == "min" and eintrag["min"]:
+        return f"{eintrag['min']} min"
+    # Keine feste Einheit oder der bevorzugte Wert fehlt: nehmen, was da ist.
+    if eintrag["km"]:
+        return f"{eintrag['km']:.1f} km"
+    if eintrag["min"]:
+        return f"{eintrag['min']} min"
+    return "–"
 
 
 # Ein einzelner Lauf mehr als 10 % länger als der längste der letzten 30 Tage
@@ -180,7 +221,16 @@ def _belastbarkeit(db: Session, beginn: date, heute: date) -> dict:
         # Vorgabe mit einem 70-Minuten-Vereinstraining füllt, hat nichts
         # übererfüllt — hier wäre daraus "verträgt mehr Umfang" geworden, und
         # der Coach hätte Rad und Lauf nachgeschärft.
-        .filter(TrainingSession.discipline.notin_(EXTERN_GEPLANT))
+        # Gym, Wanderungen und Crosstraining aus demselben Grund: Der Coach
+        # gibt dort nur Termin und Dauer vor, nicht den Inhalt. Wer 110 statt
+        # 60 Minuten im Kraftraum bleibt, hat nichts übererfüllt — und genau
+        # das ist passiert: Bei Amir waren **alle vier** Beispiele unter
+        # "zuletzt darüber" Gym-Einheiten. Aus ihnen hätte der Coach
+        # geschlossen, die Schlüsseleinheiten in Rad und Lauf seien zu
+        # niedrig angesetzt.
+        .filter(TrainingSession.discipline.notin_(
+            tuple(EXTERN_GEPLANT) + ("gym",) + tuple(FUN_DISCIPLINES)
+        ))
         .all()
     )
     mehr, weniger, verworfen, beispiele = 0, 0, 0, []
@@ -431,14 +481,7 @@ def prompt_block(db: Session, user: User | None = None, heute: date | None = Non
     # Verlaufsreihe je Disziplin: drei Vierwochenblöcke, ältester zuerst.
     reihen = []
     for disziplin, blocks in sorted(daten["progression"].items()):
-        stuecke = []
-        for b in blocks:
-            if b is None:
-                stuecke.append("–")
-            elif b["km"]:
-                stuecke.append(f"{b['km']:.1f} km")
-            else:
-                stuecke.append(f"{b['min']} min")
+        stuecke = [progression_wert(disziplin, b) for b in blocks]
         reihen.append(f"- {disziplin}: {' → '.join(stuecke)}")
 
     # Die Obergrenze steht direkt unter der Reihe: die Reihe sagt, ob
