@@ -2,7 +2,7 @@ import json
 import logging
 from anthropic import AsyncAnthropic
 from core.config import settings
-from core.training_types import ALL_TRAINING_TYPES, DISCIPLINES
+from core.training_types import ALL_TRAINING_TYPES, DISCIPLINES, planbare_typen_kurz
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,13 @@ TARGETS_SCHEMA = {
             "type": "integer",
             "description": "Langsamste Ziel-Pace in Sekunden/km (Lauf), z.B. 410 = 6:50/km",
         },
-        "hr_zone": {"type": "string", "enum": ["Z1", "Z2", "Z3", "Z4", "Z5"]},
+        # Bis Z7: Ohne die beiden schnellen Laufbereiche im Enum könnte das
+        # Modell eine vVO2max- oder Steigerungsvorgabe gar nicht ausdrücken —
+        # das Schema hätte sie zurückgewiesen.
+        "hr_zone": {
+            "type": "string",
+            "enum": ["Z1", "Z2", "Z3", "Z4", "Z5", "Z6", "Z7"],
+        },
         "distance_km": {"type": "number"},
     },
 }
@@ -114,12 +120,13 @@ DAY_SCHEMA = {
         "training_type": {
             "type": "string",
             "enum": ALL_TRAINING_TYPES,
+            # Erzeugt statt abgeschrieben: Diese Liste stand hier in einer
+            # dritten, wieder anderen Fassung als in `TRAINING_TYPES` und im
+            # Prompt. Beim Laufen fehlten `threshold` und `vo2max` — der Coach
+            # konnte keinen Schwellenlauf planen.
             "description": (
                 "Trainingstyp, muss zur Sportart passen. "
-                "bike: recovery|z2_endurance|sweet_spot|threshold|vo2max|race_pace|long_ride. "
-                "run: recovery|walk_run|z2_endurance|tempo|intervals|brick_run|long_run. "
-                "swim: technique|endurance|intervals|open_water. gym: strength|mobility. "
-                "brick: brick. rest: rest."
+                + planbare_typen_kurz()
             ),
         },
         "duration_min": {"type": "integer"},
@@ -166,6 +173,7 @@ async def generate_weekly_plan(
     quality: str | None = None,
     base_period: str | None = None,
     hrv_grenzen: dict | None = None,
+    wochenform: str | None = None,
 ) -> dict:
     """Erzeugt den Wochenplan.
 
@@ -207,6 +215,7 @@ async def generate_weekly_plan(
         quality=quality,
         base_period=base_period,
         hrv_grenzen=hrv_grenzen,
+        wochenform=wochenform,
     )
 
     # Guthaben vor dem Aufruf prüfen, nicht danach: Nachträglich abzurechnen

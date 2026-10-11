@@ -1,14 +1,29 @@
-"""
-Zwift Workout Catalog for IronCoach AI.
+"""Zwift-Workouts als Nachschlagewerk, nicht als Vorgabe.
+
+Diese Bibliothek stand früher als Pflichttext im Plan-Prompt. Jetzt baut der
+Coach die Struktur aus den Formatregeln der Phase, und
+`services/intervall_format.py` sucht hinterher den Namen, unter dem dieselbe
+Einheit in Zwift zu finden ist — nur bei eindeutiger Übereinstimmung. Warum
+das so herum besser ist, steht unten bei `ALL_CATALOGS`.
+
 SST und Tempo sind eine Kategorie ('sst_tempo').
 Styles: sst_tempo | subthreshold | cadence | vo2_transition | endurance | threshold | vo2max
+
+Die `phases`-Angaben sind historisch und reichen nur von `Base 1` bis
+`Peak 2`. Für den Nachschlag spielen sie keine Rolle — er vergleicht die
+Struktur, nicht die Phase, und deckt dadurch auch kurze Pläne ab, die hier
+nie ein Etikett getroffen hätten.
 """
 
 ZWIFT_CATALOG = [
     {
         "name": "Sweet Spot Ramps - 30min",
         "duration_min": 30,
-        "tss": 11,
+        # War 11. Dreißig Minuten akkumulierter Sweet Spot bei etwa 89 % FTP
+        # ergeben grob 0,5 h × 0,89² × 100 ≈ 40 TSS. Die 11 war so niedrig,
+        # dass dieser Eintrag jeden Deload-Filter dominierte, solange der
+        # Katalog noch über `tss < 60` ausgewählt wurde.
+        "tss": 40,
         "style": "sst_tempo",
         "phases": ["Base 1", "Base 2"],
         "key_blocks": "Ramp-Aufbau 65→91% FTP @89rpm, akkumuliert 30min Sweet Spot",
@@ -17,7 +32,9 @@ ZWIFT_CATALOG = [
     {
         "name": "Free Ride Sandwich",
         "duration_min": 47,
-        "tss": 13,
+        # War 13. 47 Minuten mit 3×10 min bei 85 % FTP ergeben grob
+        # 0,78 h × 0,80² × 100 ≈ 50 TSS.
+        "tss": 50,
         "style": "sst_tempo",
         "phases": ["Base 1", "Base 2"],
         "key_blocks": "3×10min @85% FTP, mittlerer Block als Free Ride (Z3 frei)",
@@ -613,35 +630,24 @@ ALL_CATALOGS = {
 }
 
 
-def get_phase_workouts(phase: str, is_deload: bool = False, category: str = "sst_tempo") -> str:
-    """
-    Gibt eine kompakte Textliste der passenden Workouts für die aktuelle Phase zurück.
-    category: 'sst_tempo' | 'endurance' | 'threshold' | 'vo2max' | 'all'
-    Bei Deload-Wochen: nur Workouts mit TSS < 60.
-    """
-    catalog = []
-    if category == "all":
-        for c in ALL_CATALOGS.values():
-            catalog.extend(c)
-    else:
-        catalog = ALL_CATALOGS.get(category, ZWIFT_CATALOG)
-
-    if is_deload:
-        candidates = [w for w in catalog if w["tss"] < 60 and (
-            phase in w["phases"] or "Base 3" in w["phases"] or "Base 2" in w["phases"]
-        )]
-    else:
-        candidates = [w for w in catalog if phase in w["phases"]]
-
-    if not candidates:
-        candidates = [w for w in catalog if w["tss"] <= 65]
-
-    lines = []
-    for w in candidates:
-        lines.append(
-            f"**{w['name']}** ({w['duration_min']}min, ~{w['tss']} TSS)\n"
-            f"  → {w['key_blocks']}\n"
-            f"  💡 {w['note']}"
-        )
-
-    return "\n\n".join(lines)
+# Hier stand `get_phase_workouts(phase, is_deload, category)`, das diese
+# Bibliothek als Pflichtvorgabe in den Prompt rendert. Entfernt, und zwar
+# bewusst statt nur abgeklemmt:
+#
+# * Die Anweisung lautete „Verwende für jede Bike-Session EINE dieser
+#   Strukturen als Basis", und die vier Kategorieblöcke belegten rund 27 % des
+#   Prompts. Die studienbelegten Formatregeln hatten dagegen keine Chance.
+# * Der Notfilter `tss <= 65` griff **innerhalb** jeder Kategorie, und alle
+#   vier Kategorien wurden unbedingt gedruckt. Es gab damit keinen Pfad, auf
+#   dem eine Woche kein VO2max-Menü bekam: Eine Taperwoche bekam `VO2 Max 3x3`,
+#   `30/30 Anaerobic #1` und `40/20's #1` angeboten, die Grundlagenphase
+#   ebenso — obwohl ihr eigener Block höchstens eine intensive Einheit erlaubt.
+# * Die Phasenetiketten hier reichen nur von `Base 1` bis `Peak 2`. Ein 12-
+#   oder 14-Wochen-Plan traf keinen einzigen Eintrag, ein 33-Wochen-Plan
+#   verlor seine letzten fünf Wochen.
+#
+# Die Daten bleiben: `services/intervall_format.py` schlägt nach der
+# Generierung den passenden Workoutnamen nach und trägt ihn nur bei
+# eindeutiger Übereinstimmung ein. Das kostet keinen Token und kann die
+# Planung nicht mehr überschatten. Eine Funktion, die den Katalog wieder in
+# den Prompt schreibt, soll nicht herumliegen.

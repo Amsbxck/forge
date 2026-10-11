@@ -230,6 +230,21 @@ async def generate_and_save_plan(
     _ws, _we = get_week_dates(current_week, plan_start)
     races_block = race_week_block(db, _ws, _we)
 
+    # Wie die Vorwoche tatsächlich aussah — Anzahl harter Einheiten und ihr
+    # Abstand. Berichtend: Die Phasenvorgabe steht daneben, abgelehnt wird
+    # nichts.
+    from core.race_types import phase_for_week
+    from services.week_shape import prompt_block as wochenform_block_for
+    _phase = phase_for_week(current_week, total_weeks)
+    wochenform_block = wochenform_block_for(
+        db, _ws, _phase, user_id=profile.user_id,
+    )
+
+    # Welche Intervallformate zuletzt vorgegeben waren, damit bewusst
+    # gewechselt werden kann statt dreimal dasselbe zu planen.
+    from services.intervall_format import rotation_block
+    wochenform_block += rotation_block(db, _ws, _phase, user_id=profile.user_id)
+
     plan_content = await generate_weekly_plan(
         athlete_profile=build_athlete_dict(profile, goal),
         last_sessions=sessions_dicts,
@@ -249,6 +264,7 @@ async def generate_and_save_plan(
         quality=quality_block,
         base_period=base_block,
         hrv_grenzen=hrv_grenzen,
+        wochenform=wochenform_block,
     )
 
     plan_text_lines = [f"Wochenplan {current_week} ({week_start} – {week_end})", ""]
@@ -302,6 +318,31 @@ async def generate_and_save_plan(
     # Schlägt still fehl, solange Migration 005 nicht gelaufen ist.
     from services.plan_projection import project_plan
     project_plan(db, db_plan)
+
+    # Zwift-Namen nachtragen, wo die geplante Struktur eindeutig zu einem
+    # Katalog-Workout passt. Bewusst hier und nicht in `project_plan`: die
+    # Projektion schluckt jede Ausnahme, ein Fehler hier wäre dort unsichtbar.
+    try:
+        from services.intervall_format import namen_nachtragen
+        getroffen = namen_nachtragen(db, db_plan)
+        if getroffen:
+            logger.info("Zwift-Namen nachgetragen: %s", getroffen)
+    except Exception as e:  # pragma: no cover - darf die Generierung nie reißen
+        logger.warning("Zwift-Namen nachtragen fehlgeschlagen: %s", e)
+
+    # Die Wochenform der eben erzeugten Woche festhalten — sichtbar für den
+    # Athleten, ohne den Plan abzulehnen. Ebenfalls hier und nicht in
+    # `project_plan`, dessen `except` jede Ausnahme verschluckt.
+    try:
+        from services.week_shape import bericht as wochenform_bericht
+        satz = wochenform_bericht(
+            db, week_start, _phase, user_id=profile.user_id,
+        )
+        if satz:
+            db_plan.adjustments_applied = (db_plan.adjustments_applied or []) + [satz]
+            db.commit()
+    except Exception as e:  # pragma: no cover - darf die Generierung nie reißen
+        logger.warning("Wochenform-Bericht fehlgeschlagen: %s", e)
 
     # Wochenplan als Note in den Vault — nach der Projektion, weil die
     # Tabelle die normalisierten Einheiten braucht.
