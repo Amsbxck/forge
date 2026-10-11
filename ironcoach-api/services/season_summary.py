@@ -165,6 +165,20 @@ def progression_wert(disziplin: str, eintrag: dict | None) -> str:
 SPRUNG_ANTEIL = 1.10
 SPRUNG_FENSTER_TAGE = 30
 
+# Zweite, schwächere Klammer: der **Wochen**umfang. Über zwei Wochen mehr als
+# 30 % Zuwachs war bei 874 Laufanfängern mit einem Verletzungsrisiko von 1,59
+# verbunden (Nielsen 2014) — grenzwertig (p = 0,07), und Frandsen fand für die
+# Wochenstrecke gar keinen klaren Zusammenhang. Deshalb als Hinweis und nicht
+# als zweite harte Decke.
+#
+# Nötig ist sie trotzdem: Die Einzellauf-Grenze wächst um 10 % pro Woche, wenn
+# man sie ausnutzt. Täte der Coach das bei jedem Lauf, stiege der Wochenumfang
+# ebenfalls um 10 % je Woche — also 21 % über zwei Wochen und damit knapp
+# unter dieser Grenze. Ohne sie fehlte jede Begrenzung für den Fall, dass
+# zusätzlich Einheiten dazukommen.
+WOCHEN_ZUWACHS_GRENZE = 0.30
+WOCHEN_IM_UMFANG = 4
+
 
 def _lauf_obergrenze(sessions: list[TrainingSession], heute: date) -> dict | None:
     """Wie lang der nächste Lauf höchstens sein darf.
@@ -181,20 +195,89 @@ def _lauf_obergrenze(sessions: list[TrainingSession], heute: date) -> dict | Non
     damit Richtung und Obergrenze zusammen gelesen werden — die Reihe sagt, ob
     gesteigert werden soll, diese Zahl, wie viel auf einmal.
     """
-    grenze = heute - timedelta(days=SPRUNG_FENSTER_TAGE)
-    strecken = [
-        s.distance_km for s in sessions
+    laeufe = [
+        s for s in sessions
         if (s.discipline or "").lower() in ("run", "brick")
-        and s.session_date > grenze
         and (s.distance_km or 0) > 0
     ]
-    if not strecken:
+    grenze = heute - timedelta(days=SPRUNG_FENSTER_TAGE)
+    im_fenster = [s for s in laeufe if s.session_date > grenze]
+    if not im_fenster:
         return None
-    laengster = max(strecken)
+
+    laengste = max(im_fenster, key=lambda s: s.distance_km)
+    laengster = laengste.distance_km
+
+    # War der Lauf, der die Grenze bestimmt, selbst ein Sprung?
+    #
+    # Ohne diese Prüfung belohnte die Regel ihren eigenen Verstoß: Amirs Lauf
+    # am 05.07. über 21,2 km lag 99 % über der damals geltenden Grenze von
+    # 10,7 km — und hob sie am Tag danach auf 23,4 km. Der Sprung wurde damit
+    # zur neuen Normalität erklärt, obwohl die Studie nur sagt, dass er das
+    # Risiko erhöht, nicht dass die Strecke jetzt sicher ist.
+    #
+    # Dasselbe passiert, wenn jemand einen Plantag durch einen langen Lauf
+    # ersetzt: Die Regel steuert den **Plan**, nicht die Ausführung.
+    vorher = [
+        s.distance_km for s in laeufe
+        if laengste.session_date - timedelta(days=SPRUNG_FENSTER_TAGE)
+        < s.session_date < laengste.session_date
+    ]
+    sprung_anteil = None
+    if vorher:
+        damals_erlaubt = max(vorher) * SPRUNG_ANTEIL
+        if laengster > damals_erlaubt:
+            sprung_anteil = round((laengster / damals_erlaubt - 1) * 100)
+
     return {
         "laengster_km": round(laengster, 1),
+        "laengster_am": laengste.session_date,
         "hoechstens_km": round(laengster * SPRUNG_ANTEIL, 1),
-        "laeufe": len(strecken),
+        # Wie weit der bestimmende Lauf selbst über seiner Grenze lag, oder
+        # None, wenn er im Rahmen war.
+        "war_selbst_sprung": sprung_anteil,
+        "laeufe": len(im_fenster),
+    }
+
+
+def _lauf_wochenumfang(sessions: list[TrainingSession], heute: date) -> dict | None:
+    """Laufkilometer je Woche und der Zuwachs über zwei Wochen.
+
+    Die Einzellauf-Grenze begrenzt einen Lauf, nicht die Woche. Wächst sie um
+    10 % je Woche und nutzt der Coach sie bei jedem Lauf aus, steigt der
+    Wochenumfang mit — rund 21 % über zwei Wochen. Das liegt knapp unter der
+    Grenze von Nielsen, aber es fehlte jede Rückmeldung darüber, und für den
+    Fall, dass zusätzlich Einheiten dazukommen, gab es überhaupt keine
+    Begrenzung.
+
+    Montagsbasiert, damit die Zahlen zu den übrigen Wochentabellen passen.
+    """
+    montag = heute - timedelta(days=heute.weekday())
+    wochen: list[float] = []
+    for i in range(WOCHEN_IM_UMFANG, 0, -1):
+        start = montag - timedelta(weeks=i)
+        ende = start + timedelta(days=6)
+        km = sum(
+            s.distance_km or 0.0 for s in sessions
+            if (s.discipline or "").lower() in ("run", "brick")
+            and start <= s.session_date <= ende
+            and not getattr(s, "is_commute", False)
+        )
+        wochen.append(round(km, 1))
+
+    if not any(wochen):
+        return None
+
+    # Zuwachs der letzten gegen die vorletzte abgeschlossene Woche, über zwei
+    # Wochen gerechnet wie bei Nielsen.
+    zuwachs = None
+    if len(wochen) >= 3 and wochen[-3] > 0:
+        zuwachs = round((wochen[-1] / wochen[-3] - 1) * 100)
+
+    return {
+        "wochen_km": wochen,
+        "zuwachs_zwei_wochen": zuwachs,
+        "grenze_prozent": int(WOCHEN_ZUWACHS_GRENZE * 100),
     }
 
 
@@ -416,6 +499,7 @@ def build(db: Session, user: User | None = None, heute: date | None = None) -> d
         ],
         "progression": _progression(alle, heute),
         "lauf_obergrenze": _lauf_obergrenze(alle, heute),
+        "lauf_wochenumfang": _lauf_wochenumfang(alle, heute),
         "belastbarkeit": _belastbarkeit(db, beginn, heute),
         "ausfalltage": ausfalltage,
         "einheiten_gesamt": len(alle),
@@ -490,11 +574,46 @@ def prompt_block(db: Session, user: User | None = None, heute: date | None = Non
     if (grenze := daten.get("lauf_obergrenze")):
         obergrenze_zeile = (
             f"\nLängster Lauf der letzten {SPRUNG_FENSTER_TAGE} Tage: "
-            f"**{grenze['laengster_km']} km**. Plane keinen einzelnen Lauf über "
-            f"**{grenze['hoechstens_km']} km** — ein Lauf mehr als 10 % über "
-            f"diesem Wert erhöht das Verletzungsrisiko deutlich, oberhalb des "
-            f"Doppelten stark. Gilt nur fürs Laufen. Wenn ein größerer Schritt "
-            f"nötig ist, begründe ihn im coaching_comment.\n"
+            f"**{grenze['laengster_km']} km** ({grenze['laengster_am']}). "
+            f"Plane keinen einzelnen Lauf über **{grenze['hoechstens_km']} km** "
+            f"— ein Lauf mehr als 10 % über diesem Wert erhöht das "
+            f"Verletzungsrisiko deutlich, oberhalb des Doppelten stark. Gilt "
+            f"nur fürs Laufen. Wenn ein größerer Schritt nötig ist, begründe "
+            f"ihn im coaching_comment.\n"
+        )
+        # Wenn der bestimmende Lauf selbst ein Sprung war, darf die Grenze
+        # nicht als verdientes Niveau gelesen werden.
+        if (sprung := grenze.get("war_selbst_sprung")):
+            obergrenze_zeile += (
+                f"**Achtung:** Dieser längste Lauf lag selbst {sprung} % über "
+                f"der Grenze, die damals galt — er war ein Sprung, nicht ein "
+                f"erarbeitetes Niveau. Die Studie sagt, dass ein solcher Sprung "
+                f"das Risiko erhöht, nicht dass die Strecke jetzt sicher ist. "
+                f"Konsolidiere deshalb auf diesem Niveau statt noch 10 % "
+                f"draufzulegen: Plane den langen Lauf höchstens so lang wie "
+                f"diesen, bis er zweimal beschwerdefrei gelaufen wurde.\n"
+            )
+
+    if (umfang := daten.get("lauf_wochenumfang")):
+        reihe = " → ".join(f"{k:.0f}" for k in umfang["wochen_km"])
+        obergrenze_zeile += (
+            f"Laufumfang der letzten {len(umfang['wochen_km'])} Wochen: "
+            f"{reihe} km."
+        )
+        if umfang["zuwachs_zwei_wochen"] is not None:
+            z = umfang["zuwachs_zwei_wochen"]
+            obergrenze_zeile += (
+                f" Zuwachs über zwei Wochen: {z:+d} %"
+                + (
+                    f" — über der Grenze von {umfang['grenze_prozent']} %, "
+                    f"diese Woche nicht weiter steigern."
+                    if z > umfang["grenze_prozent"] else
+                    f" (Grenze {umfang['grenze_prozent']} %)."
+                )
+            )
+        obergrenze_zeile += (
+            " Die Einzellauf-Grenze oben begrenzt einen Lauf, diese Zeile die "
+            "Woche — beide gelten.\n"
         )
 
     b = daten["belastbarkeit"]
