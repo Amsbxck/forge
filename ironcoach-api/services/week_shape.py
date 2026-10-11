@@ -23,7 +23,7 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
-from core.phasenregeln import MIN_ABSTAND_TAGE, regeln_fuer
+from core.phasenregeln import BLOCK_FENSTER_WOCHEN, MIN_ABSTAND_TAGE, regeln_fuer
 
 # Was als Qualitätseinheit zählt — nach **Trainingstyp**, nicht nach
 # Intensitätsstufe.
@@ -72,10 +72,17 @@ def _ist_hart(einheit) -> bool:
 
 def harte_einheiten(db: Session, von: date, bis: date,
                     user_id: int | None = None) -> dict:
-    """Harte Einheiten einer Woche aus den **Vorgaben**.
+    """Harte Einheiten eines Zeitraums aus den **Vorgaben**.
 
-    Gelesen wird die Projektion, nicht der Plan-JSON: dort steht je Montag nur
+    Gelesen wird die Projektion, nicht der Plan-JSON: dort steht je Woche nur
     der jüngste Plan, also das, was am Ende gegolten hat.
+
+    Der Zeitraum darf mehrere Wochen umfassen. Das war er vorher nicht:
+    Gefiltert wurde auf den **einen** jüngsten `plan_id` über den ganzen
+    Bereich. Bei einer Woche stimmt das — nach der Projektion gibt es dort nur
+    einen Plan. Über vier Wochen hätte es drei Wochen stillschweigend
+    weggeworfen, weil jede Woche ihren eigenen Plan hat. Deshalb jetzt der
+    jüngste Plan **je Woche**, so wie `season_summary._einhaltung` es macht.
     """
     from models import PlannedSession
 
@@ -91,11 +98,18 @@ def harte_einheiten(db: Session, von: date, bis: date,
     except Exception:  # pragma: no cover - ohne Projektionstabelle gibt es nichts
         return {"anzahl": 0, "tage": [], "min_abstand": None, "vorhanden": False}
 
-    # Je Datum nur den jüngsten Plan: sonst zählt eine überschriebene Woche
-    # doppelt.
-    if einheiten:
-        neuester = max((e.plan_id or 0) for e in einheiten)
-        einheiten = [e for e in einheiten if (e.plan_id or 0) == neuester]
+    def montag_von(tag: date) -> date:
+        return tag - timedelta(days=tag.weekday())
+
+    jung: dict[date, int] = {}
+    for e in einheiten:
+        m = montag_von(e.planned_date)
+        if (e.plan_id or 0) > jung.get(m, -1):
+            jung[m] = e.plan_id or 0
+    einheiten = [
+        e for e in einheiten
+        if (e.plan_id or 0) == jung[montag_von(e.planned_date)]
+    ]
 
     harte = sorted({e.planned_date for e in einheiten if _ist_hart(e)})
     abstand = None
@@ -131,7 +145,44 @@ def prompt_block(db: Session, woche_ab: date, phase: str | None,
     satz = " ".join(teile).replace(" ,", ",") + "."
 
     hinweise = []
-    if regeln:
+    block_laeuft = False
+    if regeln and regeln.get("block_moeglich"):
+        # Im Aufbau zählt die Summe über vier Wochen, nicht die einzelne
+        # Woche. Sonst hätte der Zähler die Blockvariante als Verstoß gemeldet
+        # und der Prompt dem Coach gesagt, er solle zurücknehmen — gegen etwas,
+        # das absichtlich so geplant war.
+        _von, bis = regeln["qualitaet"]
+        budget = bis * BLOCK_FENSTER_WOCHEN
+        fenster_start = woche_ab - timedelta(weeks=BLOCK_FENSTER_WOCHEN)
+        fenster = harte_einheiten(
+            db, fenster_start, woche_ab - timedelta(days=1), user_id
+        )
+        verbraucht = fenster["anzahl"]
+        offen = budget - verbraucht
+        satz += (
+            f" Im {BLOCK_FENSTER_WOCHEN}-Wochen-Fenster bisher "
+            f"**{verbraucht} von {budget}**."
+        )
+        # Eine Blockwoche erkennt man daran, dass sie allein über der
+        # Wochenvorgabe lag — dann sind die Folgewochen bewusst dünn.
+        block_laeuft = form["anzahl"] > bis
+        if offen <= 0:
+            hinweise.append(
+                "Das Fenster ist ausgeschöpft — diese Woche höchstens eine "
+                "harte Einheit, besser keine."
+            )
+        elif block_laeuft:
+            hinweise.append(
+                f"Die Vorwoche war ein Block ({form['anzahl']} harte "
+                f"Einheiten). Dann gehören die nächsten Wochen dünn: noch "
+                f"{offen} im Fenster, also etwa eine pro Woche."
+            )
+        elif verbraucht < budget - bis * 2:
+            hinweise.append(
+                f"Noch {offen} im Fenster — hier wäre Platz für eine Blockwoche, "
+                f"wenn die HRV normal ist."
+            )
+    elif regeln:
         von, bis = regeln["qualitaet"]
         if form["anzahl"] > bis:
             hinweise.append(
@@ -143,7 +194,11 @@ def prompt_block(db: Session, woche_ab: date, phase: str | None,
                 f"Das war weniger als die {von} dieser Phase. Wenn kein Grund "
                 f"dagegen stand, hol die Qualität diese Woche."
             )
-    if form["min_abstand"] is not None and form["min_abstand"] < MIN_ABSTAND_TAGE:
+    # Der Abstandshinweis entfällt in einer Blockwoche: fünf harte Einheiten in
+    # sieben Tagen lassen sich nicht 48 Stunden auseinander legen, und das
+    # Dokument nimmt das für diese eine Woche ausdrücklich in Kauf.
+    if (not block_laeuft and form["min_abstand"] is not None
+            and form["min_abstand"] < MIN_ABSTAND_TAGE):
         hinweise.append(
             "Zwei harte Tage lagen näher als 48 Stunden zusammen — diese Woche "
             "weiter auseinander legen."
@@ -167,7 +222,33 @@ def bericht(db: Session, woche_ab: date, phase: str | None,
     regeln = regeln_fuer(phase)
     if not regeln:
         return None
-    von, bis = regeln["qualitaet"]
+    _von, bis = regeln["qualitaet"]
+
+    if regeln.get("block_moeglich"):
+        # Im Aufbau wird gegen das Vierwochenfenster gemessen, nicht gegen die
+        # Woche. Sonst stünde über jeder bewusst geplanten Blockwoche
+        # "5 harte Einheiten, Phasenvorgabe 2" — ein Vorwurf für etwas, das so
+        # gewollt war.
+        budget = bis * BLOCK_FENSTER_WOCHEN
+        fenster = harte_einheiten(
+            db, woche_ab - timedelta(weeks=BLOCK_FENSTER_WOCHEN - 1),
+            woche_ab + timedelta(days=6), user_id,
+        )
+        if fenster["anzahl"] > budget:
+            return (
+                f"Wochenform: {fenster['anzahl']} harte Einheiten in "
+                f"{BLOCK_FENSTER_WOCHEN} Wochen, Budget {budget}."
+            )
+        if form["anzahl"] > bis:
+            # Über der Wochenzahl, aber im Fenster: das ist die Blockvariante.
+            return (
+                f"Wochenform: Blockwoche mit {form['anzahl']} harten Einheiten "
+                f"({fenster['anzahl']} von {budget} im "
+                f"{BLOCK_FENSTER_WOCHEN}-Wochen-Fenster) — die Folgewochen "
+                f"entsprechend dünn halten."
+            )
+        return None
+
     if form["anzahl"] > bis:
         return (
             f"Wochenform: {form['anzahl']} harte Einheiten, Phasenvorgabe {bis}."

@@ -33,6 +33,21 @@ from core.einheiten_bibliothek import LAUF_MIN_WIEDERHOLUNG, formate_text
 
 MIN_ABSTAND_TAGE = 2  # 48 Stunden zwischen zwei harten Einheiten
 
+# Im Aufbau nennt die Studientabelle die Menge über **vier Wochen**, nicht über
+# eine: 2 pro Woche und 5+1+1+1 ergeben beide acht harte Einheiten, aber nur
+# die Blockvariante brachte VO2max +4,6 % (Rønnestad 2014, 19 trainierte
+# Radfahrer; die gleichmäßige Verteilung zeigte keine signifikante Änderung).
+#
+# Daraus folgt, dass die Wochenzahl allein die falsche Klammer ist. Ein
+# Vierwochenfenster lässt beide Verteilungen zu — und hält die Blockvariante
+# zugleich ehrlich: Wer in Woche 1 fünf harte Einheiten plant, hat für die
+# restlichen drei Wochen nur noch drei übrig. Die Nachführung erzwingt sich
+# damit selbst, ohne dass irgendwo ein Schalter gespeichert werden müsste.
+#
+# Nur im Aufbau. In Taper und Wettkampfwoche wäre ein Vierwochenfenster
+# sinnlos, weil es über die Phasengrenze hinausreichen würde.
+BLOCK_FENSTER_WOCHEN = 4
+
 
 # Je Familie: Qualitätseinheiten (von, bis), Krafteinheiten, Leitsatz, Formate.
 PHASENREGELN: dict[str, dict] = {
@@ -57,6 +72,8 @@ PHASENREGELN: dict[str, dict] = {
     },
     "Build": {
         "qualitaet": (2, 2),
+        # Das Vierwochenfenster gilt nur hier — siehe BLOCK_FENSTER_WOCHEN.
+        "block_moeglich": True,
         "gym": 1,
         "leitsatz": "Sweet Spot bleibt die Brot-und-Butter-Einheit.",
         "rad": ("sweet_spot", "threshold_lang", "4x8", "4-6x5", "30/15"),
@@ -141,6 +158,19 @@ def prompt_block(phase: str | None, deload: bool = False) -> str:
         "- Mindestens **48 Stunden** zwischen zwei harten Einheiten.",
         f"- {regeln['leitsatz']}",
     ]
+    if regeln.get("block_moeglich"):
+        gesamt = bis * BLOCK_FENSTER_WOCHEN
+        zeilen.append(
+            f"- **Oder als Block:** Maßgeblich ist in dieser Phase die Summe "
+            f"über {BLOCK_FENSTER_WOCHEN} Wochen, nämlich **{gesamt}**. Du "
+            f"kannst sie gleichmäßig verteilen ({bis} pro Woche) oder als "
+            f"Block: eine Woche mit **5** harten Einheiten, danach drei Wochen "
+            f"mit je einer. Gleiche Summe, aber der Block brachte in der Studie "
+            f"VO2max +4,6 %, die gleichmäßige Verteilung keine signifikante "
+            f"Änderung. **Nur bei normaler HRV**, nicht in einer Deload-Woche "
+            f"und nicht in der Woche vor einem Wettkampf. In der Blockwoche "
+            f"gilt die 48-Stunden-Regel nicht — danach wieder."
+        )
     if regeln.get("zusatz"):
         zeilen.append(f"- {regeln['zusatz']}")
     if regeln["gym"]:
