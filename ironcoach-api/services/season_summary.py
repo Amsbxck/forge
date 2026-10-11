@@ -118,6 +118,45 @@ def _progression(sessions: list[TrainingSession], heute: date) -> dict:
     return {d: list(reversed(r)) for d, r in reihen.items()}
 
 
+# Ein einzelner Lauf mehr als 10 % länger als der längste der letzten 30 Tage
+# erhöht das Verletzungsrisiko deutlich (Frandsen 2025, 5.205 Läufer, 588.000
+# Läufe: +64 % bei 10–30 % darüber, +128 % oberhalb von 100 %).
+SPRUNG_ANTEIL = 1.10
+SPRUNG_FENSTER_TAGE = 30
+
+
+def _lauf_obergrenze(sessions: list[TrainingSession], heute: date) -> dict | None:
+    """Wie lang der nächste Lauf höchstens sein darf.
+
+    Bewusst nur Laufen. Die Regel stammt aus einer Laufkohorte und hat einen
+    stoßbedingten Mechanismus; für das Rad gibt es keine Entsprechung, und sie
+    dorthin zu übertragen wäre eine Behauptung ohne Grundlage.
+
+    Gerechnet wird über die Strecke, nicht über die Dauer: ein langsamer langer
+    Lauf und ein schneller kurzer können gleich lange dauern und belasten die
+    Strukturen völlig verschieden.
+
+    Das ist eine Leitplanke, keine Sperre. Sie steht neben der Umfangsreihe,
+    damit Richtung und Obergrenze zusammen gelesen werden — die Reihe sagt, ob
+    gesteigert werden soll, diese Zahl, wie viel auf einmal.
+    """
+    grenze = heute - timedelta(days=SPRUNG_FENSTER_TAGE)
+    strecken = [
+        s.distance_km for s in sessions
+        if (s.discipline or "").lower() in ("run", "brick")
+        and s.session_date > grenze
+        and (s.distance_km or 0) > 0
+    ]
+    if not strecken:
+        return None
+    laengster = max(strecken)
+    return {
+        "laengster_km": round(laengster, 1),
+        "hoechstens_km": round(laengster * SPRUNG_ANTEIL, 1),
+        "laeufe": len(strecken),
+    }
+
+
 def _belastbarkeit(db: Session, beginn: date, heute: date) -> dict:
     """Wurde mehr oder weniger gemacht als vorgegeben?
 
@@ -145,6 +184,7 @@ def _belastbarkeit(db: Session, beginn: date, heute: date) -> dict:
         .all()
     )
     mehr, weniger, verworfen, beispiele = 0, 0, 0, []
+    lauf_mehr = 0
     for ist, soll in paare:
         if not soll.duration_min or not ist.duration_min:
             continue
@@ -160,6 +200,8 @@ def _belastbarkeit(db: Session, beginn: date, heute: date) -> dict:
         # Zehn Prozent Toleranz: Darunter ist es Alltag, keine Aussage.
         if diff > soll.duration_min * 0.10:
             mehr += 1
+            if (ist.discipline or "").lower() in ("run", "brick"):
+                lauf_mehr += 1
             beispiele.append(
                 f"{ist.session_date} {ist.discipline}: {ist.duration_min} statt "
                 f"{soll.duration_min} min"
@@ -169,6 +211,11 @@ def _belastbarkeit(db: Session, beginn: date, heute: date) -> dict:
     return {
         "mehr": mehr,
         "weniger": weniger,
+        # Getrennt ausgewiesen, weil daraus beim Laufen nicht "mehr vorgeben"
+        # folgt: dieselbe Übererfüllung ist dort das Verletzungsmuster aus der
+        # Einzellauf-Regel. Beide Schlüsse im selben Prompt wären ein
+        # Widerspruch, und der Coach müsste raten, welcher gilt.
+        "lauf_mehr": lauf_mehr,
         "verworfen": verworfen,
         "gewertet": mehr + weniger,
         "zugeordnet": len(paare),
@@ -318,6 +365,7 @@ def build(db: Session, user: User | None = None, heute: date | None = None) -> d
             for montag, w in sorted(wochen.items())
         ],
         "progression": _progression(alle, heute),
+        "lauf_obergrenze": _lauf_obergrenze(alle, heute),
         "belastbarkeit": _belastbarkeit(db, beginn, heute),
         "ausfalltage": ausfalltage,
         "einheiten_gesamt": len(alle),
@@ -393,6 +441,19 @@ def prompt_block(db: Session, user: User | None = None, heute: date | None = Non
                 stuecke.append(f"{b['min']} min")
         reihen.append(f"- {disziplin}: {' → '.join(stuecke)}")
 
+    # Die Obergrenze steht direkt unter der Reihe: die Reihe sagt, ob
+    # gesteigert werden soll, diese Zeile, wie viel auf einmal.
+    obergrenze_zeile = ""
+    if (grenze := daten.get("lauf_obergrenze")):
+        obergrenze_zeile = (
+            f"\nLängster Lauf der letzten {SPRUNG_FENSTER_TAGE} Tage: "
+            f"**{grenze['laengster_km']} km**. Plane keinen einzelnen Lauf über "
+            f"**{grenze['hoechstens_km']} km** — ein Lauf mehr als 10 % über "
+            f"diesem Wert erhöht das Verletzungsrisiko deutlich, oberhalb des "
+            f"Doppelten stark. Gilt nur fürs Laufen. Wenn ein größerer Schritt "
+            f"nötig ist, begründe ihn im coaching_comment.\n"
+        )
+
     b = daten["belastbarkeit"]
     if b["zugeordnet"]:
         belastung = [
@@ -414,6 +475,14 @@ def prompt_block(db: Session, user: User | None = None, heute: date | None = Non
             "Verfehlen das Gegenteil. In allen anderen Wochen sagt die Zahl "
             "nichts über die Belastbarkeit aus."
         )
+        if b.get("lauf_mehr"):
+            belastung.append(
+                f"Davon {b['lauf_mehr']} beim Laufen — dort gilt dieser Schluss "
+                "**nicht**. Für Läufe entscheidet die Obergrenze oben, nicht die "
+                "Übererfüllung: ein überschrittener Vorgabeumfang ist beim Laufen "
+                "kein Zeichen von Reserve, sondern genau das Muster, das die "
+                "Verletzungsrate erhöht."
+            )
         if b["beispiele"]:
             belastung.append("Zuletzt darüber: " + "; ".join(b["beispiele"]) + ".")
     else:
@@ -478,7 +547,8 @@ def prompt_block(db: Session, user: User | None = None, heute: date | None = Non
         "Größenordnung. Steht sie, halte den Umfang, bevor du Intensität erhöhst. "
         "Fällt sie ohne gemeldeten Grund, geh zurück auf das zuletzt sicher "
         "erreichte Niveau.\n"
-        "\n### Belastbarkeit — Vorgabe gegen tatsächlich absolviert\n"
+        + obergrenze_zeile
+        + "\n### Belastbarkeit — Vorgabe gegen tatsächlich absolviert\n"
         + "\n".join(belastung)
         + "\n"
         + form_zeile

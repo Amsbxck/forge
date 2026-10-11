@@ -24,7 +24,13 @@ from datetime import date
 # Ab hier lohnt sich der Blick nach vorn: Wer nur noch wenige Wochen bis zum
 # Aufbau hat, soll nicht mehr breit an Schwächen arbeiten, sondern die
 # Grundlage stabilisieren, mit der er in Woche 1 startet.
-UEBERGANG_WOCHEN = 6
+WOCHEN_VOR_AUFBAU = 6
+
+# Der alte Name. `services/offseason.py` führt denselben Namen mit der
+# **umgekehrten** Bedeutung — dort sind es zwei Wochen *nach* dem Rennen. Zwei
+# Module mit gleichem Konstantennamen und entgegengesetztem Sinn sind eine
+# Falle; der Alias bleibt nur, damit nichts bricht, das ihn noch importiert.
+UEBERGANG_WOCHEN = WOCHEN_VOR_AUFBAU
 
 
 def wochen_bis_aufbau(plan_start: date | None, heute: date | None = None) -> int | None:
@@ -39,7 +45,7 @@ def phase_label(plan_start: date | None, heute: date | None = None) -> str:
     wochen = wochen_bis_aufbau(plan_start, heute)
     if wochen is None:
         return "Grundlage"
-    return "Vorbereitung auf den Aufbau" if wochen <= UEBERGANG_WOCHEN else "Grundlage"
+    return "Vorbereitung auf den Aufbau" if wochen <= WOCHEN_VOR_AUFBAU else "Grundlage"
 
 
 def prompt_block(
@@ -52,7 +58,7 @@ def prompt_block(
     if plan_start is None:
         return ""
     wochen = wochen_bis_aufbau(plan_start, heute)
-    nah = wochen is not None and wochen <= UEBERGANG_WOCHEN
+    nah = wochen is not None and wochen <= WOCHEN_VOR_AUFBAU
 
     ziel = race_label or "dein Saisonziel"
     kopf = (
@@ -84,8 +90,17 @@ def prompt_block(
         "- **Keine Watt- und Pacevorgaben.** Gesteuert wird nach Gefühl und "
         "Puls. Zahlen aus einer Vorbereitung, die noch gar nicht läuft, "
         "erzeugen nur Druck ohne Zweck.\n"
-        "- **Umfang vor Intensität.** Höchstens eine intensive Einheit pro "
-        "Woche, und die aus Freude, nicht aus dem Plan.\n"
+        "- **Umfang vor Intensität, aber eine geplante Qualitätseinheit pro "
+        "Woche.** Rund 80 % des Umfangs locker, der Rest gezielt. Ohne jeden "
+        "Reiz verliert die Schwelle über Monate messbar — eine Einheit "
+        "genügt, aber sie steht im Plan und nicht im Zufall.\n"
+        "- **Steigerungsläufe 1–2× pro Woche**, 8–12 Sekunden am Ende eines "
+        "lockeren Laufs, mit voller Erholung. Sie kosten keine Erholung und "
+        "halten die Laufökonomie — gerade hier, wo sonst nichts Schnelles "
+        "stattfindet.\n"
+        "- **Der Umfang darf hier steigen.** Das ist der Unterschied zum "
+        "Formerhalt der Off Season, der den Umfang nur hält: Dieser Abschnitt "
+        "arbeitet auf etwas hin.\n"
         "- **Keine Phasenlogik.** Es gibt hier kein Base 1, kein Build, keinen "
         "Deload-Rhythmus — die Woche steht für sich.\n"
         "- **Kein Wochenzähler.** Diese Wochen zählen nicht als Woche 1, 2, 3 "

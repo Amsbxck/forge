@@ -450,7 +450,8 @@ def guidance(db: Session, user: User | None = None, today: date | None = None) -
                 result.lines.append(
                     "Der Athlet ist verletzt (Schmerz bei Belastung). Die betroffene "
                     "Disziplin wird ausgesetzt und durch Ersatztraining ersetzt, nicht "
-                    "ersatzlos gestrichen — Umfang etwa 40 % der Norm. "
+                    "ersatzlos gestrichen — Umfang etwa "
+                    f"{int(result.volume_factor * 100)} % der Norm. "
                     "Keine Intervalle, keine Sprünge, keine Bergläufe."
                 )
                 ersatz = ersatz_vorgabe(getattr(laufend, "body_part", None))
@@ -465,7 +466,7 @@ def guidance(db: Session, user: User | None = None, today: date | None = None) -
                 result.lines.append(
                     "Der Athlet ist leicht verletzt, aber schmerzfrei belastbar. "
                     "Nur Z1/Z2, keine Intervalle, keine Steigerungsläufe, kein Bergtraining. "
-                    "Umfang etwa 60 % der Norm."
+                    f"Umfang etwa {int(result.volume_factor * 100)} % der Norm."
                 )
                 ersatz = ersatz_vorgabe(getattr(laufend, "body_part", None))
                 if ersatz is None:
@@ -502,7 +503,8 @@ def guidance(db: Session, user: User | None = None, today: date | None = None) -
         else:
             result.lines.append(
                 "Der Athlet ist leicht erkältet (über dem Hals, kein Fieber). Nur Z1/Z2, "
-                "höchstens 60 Minuten je Einheit, Umfang etwa 60 % der Norm. "
+                "höchstens 60 Minuten je Einheit, Umfang etwa "
+                f"{int(result.volume_factor * 100)} % der Norm. "
                 "Keine Intervalle, keine Schwelle, kein VO2max."
             )
 
