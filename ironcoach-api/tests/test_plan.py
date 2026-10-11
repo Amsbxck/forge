@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 
 MOCK_PLAN = {
@@ -28,9 +28,14 @@ def test_generate_plan(client):
     # den Namen beim Import: Ein Austausch in `claude_service` erreicht ihn
     # nicht mehr — der Test ging dadurch tatsächlich ans Netz und scheiterte
     # erst an der Zurückweisung des Testschlüssels.
+    # `autospec` statt eines nackten AsyncMock: Ein freier Mock nimmt jedes
+    # Schlüsselwort an und verbarg dadurch, dass der Aufruf der echten Funktion
+    # ein Argument übergab, das sie nicht kennt — die Planerzeugung war in
+    # Produktion tot, während dieser Test grün blieb.
     with patch(
         "services.plan_generator.generate_weekly_plan",
-        new=AsyncMock(return_value=MOCK_PLAN),
+        autospec=True,
+        return_value=MOCK_PLAN,
     ):
         resp = client.get("/api/plan/generate")
     assert resp.status_code == 200, resp.json()
@@ -47,9 +52,13 @@ def test_generate_plan(client):
 
 
 def test_current_plan_after_generate(client):
+    # Im Generator einhängen, nicht in der Quelle — derselbe Grund wie oben:
+    # `plan_generator` bindet den Namen beim Import, ein Austausch in
+    # `claude_service` erreicht ihn nicht. Dieser Patch griff gar nicht.
     with patch(
-        "services.claude_service.generate_weekly_plan",
-        new=AsyncMock(return_value=MOCK_PLAN),
+        "services.plan_generator.generate_weekly_plan",
+        autospec=True,
+        return_value=MOCK_PLAN,
     ):
         client.get("/api/plan/generate")
     resp = client.get("/api/plan/current")

@@ -165,6 +165,7 @@ async def generate_weekly_plan(
     zones: str | None = None,
     quality: str | None = None,
     base_period: str | None = None,
+    hrv_grenzen: dict | None = None,
 ) -> dict:
     """Erzeugt den Wochenplan.
 
@@ -174,6 +175,12 @@ async def generate_weekly_plan(
     Argumentliste. Die beiden liefen auseinander: Im Archiv fehlten zuletzt
     Obsidian-Kontext, Reflexionen und Saisonnotizen, sodass die gespeicherte
     Fassung nicht mehr zeigte, worauf der Plan beruhte.
+
+    `hrv_grenzen` ist die persönliche Normalspanne des Athleten. Sie muss hier
+    durchgereicht werden, auch wenn diese Funktion selbst nichts damit tut:
+    Ohne den Parameter warf der Aufruf aus `plan_generator` einen `TypeError`,
+    und die Spanne erreichte nur den Chatpfad — im Plan-Prompt standen dann
+    fest verdrahtete Millisekundenwerte eines einzelnen Athleten.
     """
     from datetime import date
     from core.prompt_templates import build_plan_prompt
@@ -199,6 +206,7 @@ async def generate_weekly_plan(
         zones=zones,
         quality=quality,
         base_period=base_period,
+        hrv_grenzen=hrv_grenzen,
     )
 
     # Guthaben vor dem Aufruf prüfen, nicht danach: Nachträglich abzurechnen
