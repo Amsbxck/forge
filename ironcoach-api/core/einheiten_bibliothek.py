@@ -67,6 +67,61 @@ RAD_FORMATE: dict[str, dict] = {
     },
 }
 
+# Doppeltage — zwei Einheiten an einem Tag.
+#
+# Im Code kamen sie bisher gar nicht vor, obwohl beide Dokumente ausführliche
+# Regeln dafür haben. Wer sie sich wünschte, bekam eine Antwort ohne Grundlage.
+#
+# Der Mindestabstand von sechs Stunden ist nicht gerundet, sondern der untere
+# Rand des Untersuchten: Talsnes 2024 teilte 6×10 min Schwelle in 2×(3×10 min)
+# mit **6,5 Stunden** Abstand, Lum 2010 legte das Schwimmen **10 Stunden** nach
+# dem harten Lauf.
+DOPPEL_MIN_ABSTAND_H = 6
+
+DOPPEL_FORMATE: dict[str, dict] = {
+    "locker_plus_qualitaet": {
+        "struktur": (
+            "morgens locker, abends die Qualitätseinheit, mindestens "
+            f"{DOPPEL_MIN_ABSTAND_H} h Abstand"
+        ),
+        "ziel": "morgens 70–80 % (Z2 locker), abends nach Format der Einheit",
+        "pause": f"≥ {DOPPEL_MIN_ABSTAND_H} h zwischen den Einheiten",
+        "beleg": "Haugen 2022 — bei Weltklasseläufern Standard, 11–14 Einheiten/Woche",
+    },
+    "langer_lauf_geteilt": {
+        "struktur": "einen langen lockeren Lauf auf zwei Einheiten am Tag teilen",
+        "ziel": "beide 70–80 % (Z2 locker)",
+        "pause": f"≥ {DOPPEL_MIN_ABSTAND_H} h",
+        "beleg": (
+            "hält jeden einzelnen Lauf kürzer und damit unter der "
+            "Einzellauf-Grenze — derselbe Wochenumfang, weniger Stoßbelastung "
+            "je Einheit"
+        ),
+    },
+    "doppelschwelle_leicht": {
+        "struktur": "morgens etwa 5×6 min, abends etwa 10×1000 m oder 20×400 m",
+        "ziel": "beide 95–100 % (Z4), kontrolliert und **nicht** bis zum Anschlag",
+        "pause": f"≥ {DOPPEL_MIN_ABSTAND_H} h",
+        "beleg": (
+            "Talsnes 2024 — dieselbe Schwellenarbeit geteilt ergab weniger "
+            "Ermüdung (RPE 6,0 gegen 7,0) und weniger Muskelkater am nächsten "
+            "Morgen. Langfristige Anpassung noch nicht untersucht"
+        ),
+    },
+    "schwimmen_als_zweite": {
+        "struktur": "harte Rad- oder Laufeinheit, später am Tag Schwimmen",
+        "ziel": "Schwimmen locker bis zügig",
+        "pause": f"≥ {DOPPEL_MIN_ABSTAND_H} h",
+        "beleg": (
+            "Lum 2010 — Schwimmen 10 h nach harten Laufintervallen verbesserte "
+            "die Laufleistung am Folgetag um 14 % gegenüber passiver Ruhe, "
+            "Entzündungsmarker −23 %. Schwimmen erzeugt keine Stoßbelastung "
+            "und zählt deshalb nicht zum Laufumfang"
+        ),
+    },
+}
+
+
 LAUF_FORMATE: dict[str, dict] = {
     "steigerungen": {
         "struktur": "6–10 × 15–20 s, volle Erholung, am Ende eines lockeren Laufs",
@@ -134,6 +189,22 @@ LAUF_FORMATE: dict[str, dict] = {
 # klein bleiben. Ohne dieses Format hätte Z6 keine einzige Einheit — eine Zone,
 # die nichts vorschreibt, wäre eine Zone zu viel.
 LAUF_MIN_WIEDERHOLUNG = "drei Minuten"
+
+
+def doppel_text(erlaubt: tuple[str, ...]) -> str:
+    """Die in dieser Phase erlaubten Doppeltage."""
+    if not erlaubt:
+        return ""
+    zeilen = ["**Doppeltage:**", "| Form | Struktur | Ziel |", "|---|---|---|"]
+    for schluessel in erlaubt:
+        f = DOPPEL_FORMATE[schluessel]
+        zeilen.append(f"| {schluessel} | {f['struktur']} | {f['ziel']} |")
+    zeilen.append(
+        f"\nMindestens {DOPPEL_MIN_ABSTAND_H} Stunden zwischen den beiden "
+        "Einheiten. Ein Doppelschwellentag zählt als **eine** Qualitätseinheit, "
+        "nicht als zwei. Ein harter Schwimmtag zählt dagegen mit."
+    )
+    return "\n".join(zeilen)
 
 
 def formate_text(rad: tuple[str, ...], lauf: tuple[str, ...]) -> str:

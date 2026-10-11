@@ -60,6 +60,13 @@ services:
     volumes:
       - ./ironcoach-api:/app
       - ./uploads:/app/uploads
+      # Projektdokumente nur lesbar dazu: TRAININGSOPTIONEN.md beschreibt, was
+      # sich der Athlet wünschen kann, und die Bedingungen darin stammen aus
+      # `core/phasenregeln.py`. Ein Test hält beide zusammen — ohne diesen
+      # Einhängepunkt läge die Datei außerhalb des Containers und der Test
+      # hätte sich stillschweigend übersprungen.
+      - ./TRAININGSOPTIONEN.md:/app/../TRAININGSOPTIONEN.md:ro
+      - ./researched_training_structures:/app/../researched_training_structures:ro
     depends_on:
       db:
         condition: service_healthy

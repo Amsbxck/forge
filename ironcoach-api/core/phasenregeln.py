@@ -29,7 +29,11 @@ Etiketten, und jede phasengebundene Regel griff dort bisher ins Leere.
 
 from __future__ import annotations
 
-from core.einheiten_bibliothek import LAUF_MIN_WIEDERHOLUNG, formate_text
+from core.einheiten_bibliothek import (
+    LAUF_MIN_WIEDERHOLUNG,
+    doppel_text,
+    formate_text,
+)
 
 MIN_ABSTAND_TAGE = 2  # 48 Stunden zwischen zwei harten Einheiten
 
@@ -52,6 +56,7 @@ BLOCK_FENSTER_WOCHEN = 4
 # Je Familie: Qualitätseinheiten (von, bis), Krafteinheiten, Leitsatz, Formate.
 PHASENREGELN: dict[str, dict] = {
     "Grundlage": {
+        "doppel": ("locker_plus_qualitaet", "langer_lauf_geteilt", "schwimmen_als_zweite"),
         "qualitaet": (1, 1),
         "gym": 2,
         "leitsatz": "Umfang aufbauen. Rund 80 % des Umfangs locker.",
@@ -60,6 +65,7 @@ PHASENREGELN: dict[str, dict] = {
         "zusatz": "Steigerungen 1–2× pro Woche, sie kosten keine Erholung.",
     },
     "Base": {
+        "doppel": ("locker_plus_qualitaet", "langer_lauf_geteilt", "schwimmen_als_zweite"),
         "qualitaet": (1, 1),
         "gym": 2,
         "leitsatz": (
@@ -71,6 +77,7 @@ PHASENREGELN: dict[str, dict] = {
         "zusatz": "Steigerungen 1–2× pro Woche, sie kosten keine Erholung.",
     },
     "Build": {
+        "doppel": ("locker_plus_qualitaet", "langer_lauf_geteilt", "doppelschwelle_leicht", "schwimmen_als_zweite"),
         "qualitaet": (2, 2),
         # Das Vierwochenfenster gilt nur hier — siehe BLOCK_FENSTER_WOCHEN.
         "block_moeglich": True,
@@ -88,6 +95,7 @@ PHASENREGELN: dict[str, dict] = {
         ),
     },
     "Peak": {
+        "doppel": ("locker_plus_qualitaet", "doppelschwelle_leicht", "schwimmen_als_zweite"),
         "qualitaet": (2, 2),
         "gym": 1,
         "leitsatz": (
@@ -99,6 +107,7 @@ PHASENREGELN: dict[str, dict] = {
         "zusatz": "Ab hier eine der beiden Schwimmeinheiten im Freiwasser.",
     },
     "Taper": {
+        "doppel": (),
         "qualitaet": (1, 2),
         "gym": 0,
         "leitsatz": (
@@ -112,6 +121,7 @@ PHASENREGELN: dict[str, dict] = {
         "zusatz": "",
     },
     "Race Week": {
+        "doppel": (),
         "qualitaet": (1, 1),
         "gym": 0,
         "leitsatz": (
@@ -193,6 +203,16 @@ def prompt_block(phase: str | None, deload: bool = False) -> str:
     bibliothek = formate_text(regeln.get("rad", ()), regeln.get("lauf", ()))
     if bibliothek:
         zeilen.append("\n### Erlaubte Formate in dieser Phase\n" + bibliothek)
+
+    # Doppeltage standen nirgends im Code, obwohl beide Dokumente Regeln dafür
+    # haben. Wer sie sich wünschte, bekam eine Antwort ohne Grundlage.
+    if (doppel := doppel_text(regeln.get("doppel", ()))):
+        zeilen.append("\n### Doppeltage in dieser Phase\n" + doppel)
+    elif regeln.get("doppel") == ():
+        zeilen.append(
+            "\n### Doppeltage\nIn dieser Phase keine — zwei Einheiten an einem "
+            "Tag erhöhen die Tageslast, und darum geht es hier nicht mehr."
+        )
 
     zeilen.append(
         "\nDas sind Leitlinien, keine Sperren. Wenn du begründet abweichst, "

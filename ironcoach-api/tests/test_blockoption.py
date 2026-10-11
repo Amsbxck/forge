@@ -126,3 +126,72 @@ def test_nach_dem_block_wird_zum_duennhalten_geraten(db, aufbauwochen):
 def prompt_block_wochenform(db, woche_ab):
     from services.week_shape import prompt_block as p
     return p(db, woche_ab, "Build 1")
+
+
+# --- Doppeltage: im Code gab es sie überhaupt nicht ------------------------
+
+def test_doppelschwelle_nur_in_aufbau_und_peak():
+    """Das Laufdokument sagt ausdrücklich „Aufbau/Peak only, HRV normal"."""
+    from core.phasenregeln import PHASENREGELN
+
+    for familie in ("Build", "Peak"):
+        assert "doppelschwelle_leicht" in PHASENREGELN[familie]["doppel"], familie
+    for familie in ("Grundlage", "Base", "Taper", "Race Week"):
+        assert "doppelschwelle_leicht" not in PHASENREGELN[familie]["doppel"], familie
+
+
+def test_keine_doppeltage_im_taper_und_in_der_rennwoche():
+    from core.phasenregeln import PHASENREGELN
+
+    assert PHASENREGELN["Taper"]["doppel"] == ()
+    assert PHASENREGELN["Race Week"]["doppel"] == ()
+    text = prompt_block("Taper")
+    assert "In dieser Phase keine" in text
+
+
+def test_jede_phase_nennt_nur_bekannte_doppelformen():
+    from core.einheiten_bibliothek import DOPPEL_FORMATE
+    from core.phasenregeln import PHASENREGELN
+
+    for familie, regeln in PHASENREGELN.items():
+        for schluessel in regeln["doppel"]:
+            assert schluessel in DOPPEL_FORMATE, f"{familie}: {schluessel}"
+
+
+def test_doppeltag_zaehlt_als_eine_qualitaetseinheit():
+    """Sonst wäre ein geteilter Schwellentag doppelt im Budget."""
+    text = prompt_block("Build 2")
+    assert "als **eine** Qualitätseinheit" in text
+    assert "6 h Abstand" in text or "6 Stunden" in text
+
+
+def test_jede_doppelform_nennt_ihren_beleg():
+    from core.einheiten_bibliothek import DOPPEL_FORMATE
+
+    for name, f in DOPPEL_FORMATE.items():
+        assert f.get("beleg"), name
+        assert f.get("struktur"), name
+        assert f.get("ziel"), name
+
+
+def test_glossar_deckt_sich_mit_den_regeln():
+    """Das Glossar für den Athleten darf nichts versprechen, was der Code nicht tut."""
+    import pathlib
+
+    from core.phasenregeln import PHASENREGELN
+
+    pfad = pathlib.Path(__file__).resolve().parent.parent.parent / "TRAININGSOPTIONEN.md"
+    assert pfad.exists(), "Glossar fehlt"
+    text = pfad.read_text(encoding="utf-8")
+
+    # Die Blockwoche ist laut Glossar nur im Aufbau — so muss es im Code sein.
+    assert "nur Aufbau" in text
+    assert PHASENREGELN["Build"].get("block_moeglich")
+    assert not PHASENREGELN["Peak"].get("block_moeglich")
+
+    # Die Doppelschwelle laut Glossar nur Aufbau und Peak.
+    assert "nur Aufbau und Peak" in text
+
+    # Der Mindestabstand im Glossar muss der Konstante entsprechen.
+    from core.einheiten_bibliothek import DOPPEL_MIN_ABSTAND_H
+    assert f"**{DOPPEL_MIN_ABSTAND_H} Stunden**" in text
