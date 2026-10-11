@@ -8,7 +8,7 @@ from models import ChatMessage, AthleteProfile, PlannedSession, WeeklyPlan, Trai
 from schemas import ChatMessageIn, ChatMessageOut, ChatResponse
 from services.claude_service import chat_with_coach
 from services.plan_generator import get_current_week
-from core.prompt_templates import get_phase, format_hrv, get_week_dates
+from core.prompt_templates import analyze_hrv_trend, format_hrv, get_phase, get_week_dates
 from core.deps import get_profile
 
 router = APIRouter()
@@ -110,6 +110,11 @@ async def chat(body: ChatMessageIn, db: Session = Depends(get_db)):
         "sessions_summary": gemeinsam["sessions_text"],
         "reflections": gemeinsam["reflections_text"],
         "hrv_summary": format_hrv(hrv_dicts, hrv_grenzen),
+        # Richtung und Streuung — dieselbe berechnete Zeile wie im Plan-Prompt.
+        # Sie fehlte hier, und genau im Gespräch wird sie gebraucht: „soll ich
+        # heute hart trainieren" lässt sich mit einem Tageswert nicht
+        # beantworten, mit drei fallenden Tagen schon.
+        "hrv_trend": analyze_hrv_trend(hrv_dicts, hrv_grenzen),
         "latest_hrv": latest_hrv,
         "current_plan": plan_text,
         "current_plan_detail": plan_content,

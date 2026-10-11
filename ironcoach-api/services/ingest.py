@@ -95,7 +95,7 @@ async def ingest_activity(
     """
     service = StravaService(db)
     profile = get_profile(db)
-    ftp = profile.ftp_watts if profile else 238
+    ftp = profile.ftp_watts if profile else None
 
     activity = await service.fetch_activity(activity_id, athlete_id)
     session_date = _parse_activity_date(activity)

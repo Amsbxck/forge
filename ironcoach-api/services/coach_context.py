@@ -162,6 +162,41 @@ def bloecke(db: Session, user=None, fakten: dict | None = None) -> dict:
         from services.offseason import prompt_block
         return prompt_block(db, getattr(goal, "race_date", None))
 
+    def _phasen():
+        """Die Wochenvorgabe der Phase — im Chat dieselbe wie im Plan.
+
+        Ohne sie beantwortete der Coach im Gespräch Fragen wie „soll ich heute
+        noch eine harte Einheit dranhängen", ohne das Budget der Phase zu
+        kennen. Der Plan-Prompt hatte es, der Chat nicht — obwohl der
+        Docstring unten „dieselbe Grundlage wie der Plan" behauptet.
+
+        In Grundlage und Off Season leer: dort gilt der eigene Block, und zwei
+        Quellen für dieselbe Vorgabe sind der nächste Widerspruch.
+        """
+        if fakten.get("base_period") or fakten["offseason"]:
+            return ""
+        from core.phasenregeln import prompt_block
+        from core.race_types import is_deload
+        return prompt_block(
+            fakten["phase"],
+            is_deload(fakten["week"], fakten["total_weeks"]),
+        )
+
+    def _wochenform():
+        """Harte Einheiten der Vorwoche und die Formatrotation."""
+        from core.prompt_templates import get_week_dates
+        from services.intervall_format import rotation_block
+        from services.week_shape import prompt_block
+        start = getattr(goal, "plan_start_date", None) or (
+            profile.plan_start_date if profile else None)
+        if start is None or profile is None:
+            return ""
+        ws, _we = get_week_dates(fakten["week"], start)
+        return (
+            prompt_block(db, ws, fakten["phase"], user_id=profile.user_id)
+            + rotation_block(db, ws, fakten["phase"], user_id=profile.user_id)
+        )
+
     def _obsidian():
         from services.obsidian.context import build_training_context
         return build_training_context(db, days=14)
@@ -170,6 +205,8 @@ def bloecke(db: Session, user=None, fakten: dict | None = None) -> dict:
 
     return {
         "zones": sicher("zonen", _zonen),
+        "phasen": sicher("phasen", _phasen),
+        "wochenform": sicher("wochenform", _wochenform),
         "season_history": sicher("verlauf", _verlauf),
         "quality": sicher("auffaellig", _auffaellig),
         "health": sicher("gesundheit", _gesundheit),

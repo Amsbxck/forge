@@ -399,12 +399,13 @@ async def chat_with_coach(
 **HEUTE: {today_str}**  ← Nutze immer dieses Datum als Referenz. "Gestern" = {(_date.fromordinal(today.toordinal() - 1)).isoformat()}.
 
 Athletenkontext: {positions_text}, Phase: {current_week_context.get('phase', 'Base')}, {ftp_text}Ziel: {ziel_text}.
-{abschnitt(current_week_context.get("offseason_block"))}{abschnitt(current_week_context.get("base_block"))}{abschnitt(current_week_context.get("health"))}{abschnitt(current_week_context.get("races"))}{abschnitt(current_week_context.get("constraints_block"))}{abschnitt(current_week_context.get("zones"))}
+{abschnitt(current_week_context.get("offseason_block"))}{abschnitt(current_week_context.get("base_block"))}{abschnitt(current_week_context.get("health"))}{abschnitt(current_week_context.get("races"))}{abschnitt(current_week_context.get("constraints_block"))}{abschnitt(current_week_context.get("zones"))}{abschnitt(current_week_context.get("phasen"))}{abschnitt(current_week_context.get("wochenform"))}
 
 **Aktuelle HRV (heute):** {latest_hrv_str}
 
 **HRV-Verlauf letzte 7 Tage:**
 {hrv_text if hrv_text else 'Keine Daten'}
+{abschnitt(current_week_context.get("hrv_trend") and f"**Richtung und Streuung:** {current_week_context['hrv_trend']}")}
 
 **Letzte Trainingseinheiten (gemessen, inkl. Struktur und Plan/Ist-Abgleich):**
 {sessions_text if sessions_text else 'Keine Daten'}

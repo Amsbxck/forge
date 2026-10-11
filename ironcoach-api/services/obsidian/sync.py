@@ -27,7 +27,7 @@ from core.deps import get_profile
 logger = logging.getLogger(__name__)
 
 
-def _session_dict(session: TrainingSession, ftp: int = 238) -> dict:
+def _session_dict(session: TrainingSession, ftp: int | None = None) -> dict:
     from services.classification import intensity_from_session
     from services.segments import best_splits, format_pace, harte_minuten
 
@@ -176,7 +176,7 @@ def sync_session(
     if not client.enabled:
         return {"status": "disabled", "session_id": session.id}
 
-    ftp = profile.ftp_watts if profile else 238
+    ftp = profile.ftp_watts if profile else None
     subdir = vault_subdir_for(profile)
     saison = saison_name(
         session.session_date, ziele if ziele is not None else saison_ziele(db)

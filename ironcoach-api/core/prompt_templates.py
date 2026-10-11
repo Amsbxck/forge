@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 from core.race_types import is_deload
+from core.einheiten_bibliothek import PAUSE_STANDARD_RAD
 from core.training_types import planbare_typen_tabelle
 
 
@@ -192,6 +193,18 @@ def format_hrv(hrv_list: list, grenzen: dict | None = None) -> str:
     return "\n".join(lines)
 
 
+# Warum die Rad-Beispielwerte symbolisch sind: Hier standen absolute Zahlen
+# (warmup 100-140 W, Blöcke 145-155 W, Erholung 115 W) — die Bereiche eines
+# bestimmten Athleten. Bei einer niedrigeren Schwelle lagen sie schon eine Zone
+# zu hart: 145-155 W sind bei 191 W FTP rund 76-81 %, also Z3 statt Z2. Beim
+# Laufen waren die Platzhalter aus demselben Grund längst symbolisch; das Rad
+# war übersehen worden.
+#
+# Ebenso der Rad-Abschnitt in den TRAININGSREGELN: Dort stand "Kadenz 75-85 rpm,
+# NICHT höher" (eine persönliche Vorliebe als Gebot), "Z1-Erholungen 1-3 min @
+# 115-130W" (44-49 % einer bestimmten FTP, bei 191 W FTP schon Z2), "Zwift
+# ERG-Modus" und eine Equipment-Zeile mit Rolle, Uhr und Fahrradcomputer eines
+# einzelnen Athleten. Ein Profilfeld für Ausrüstung gibt es nicht.
 TARGETS_FORMAT = """### targets — numerische Zielwerte (PFLICHT für jede Trainingseinheit)
 
 Jede Einheit braucht neben `details` (Beschreibung für den Athleten) ein
@@ -272,13 +285,13 @@ DETAILS_FORMAT = """### details-Format:
 **bike:** (`workout` NICHT selbst füllen — siehe unten)
 ```json
 {
-  "warmup": {"dauer": "10 min", "watt": "100-140 W", "rpm": "70-75"},
+  "warmup": {"dauer": "10 min", "watt": "<Z1-Watt>", "rpm": "70-75"},
   "blocks": [
-    {"block": "1", "watt": "145-155 W", "rpm": "76-80", "dauer": "14 min", "zone": "Z2"},
-    {"block": "Erholung", "watt": "115 W", "rpm": "locker", "dauer": "2 min", "zone": "Z1"},
-    {"block": "2", "watt": "145-155 W", "rpm": "76-80", "dauer": "14 min", "zone": "Z2"}
+    {"block": "1", "watt": "<Z2-Watt>", "rpm": "76-80", "dauer": "14 min", "zone": "Z2"},
+    {"block": "Erholung", "watt": "<Z1-Watt>", "rpm": "locker", "dauer": "2 min", "zone": "Z1"},
+    {"block": "2", "watt": "<Z2-Watt>", "rpm": "76-80", "dauer": "14 min", "zone": "Z2"}
   ],
-  "cooldown": {"dauer": "8 min", "watt": "140-100 W", "rpm": "85-90"}
+  "cooldown": {"dauer": "8 min", "watt": "<Z1-Watt>", "rpm": "85-90"}
 }
 ```
 
@@ -293,6 +306,9 @@ nicht findet.
 keine Zahl und lässt sich später nicht gegen die tatsächlich gefahrene
 Leistung stellen — in der Auswertung bleibt dort sonst eine Lücke. Dasselbe
 gilt für Erholungsblöcke: jeder Block braucht `watt`.
+
+Die Platzhalter oben (`<Z1-Watt>`, `<Z2-Watt>`) sind durch echte Zahlen aus
+den Trainingsbereichen **dieses** Athleten zu ersetzen.
 
 **run (Intervalle):** — gleiche Blockstruktur wie beim Rad, nur mit `pace`
 
@@ -502,7 +518,6 @@ def build_plan_prompt(
   Absicht: Steuere Z5 bis Z7 über Pace und Watt, nicht über den Puls. Er hinkt
   bei kurzen Intervallen hinterher.
 - Schwimmen: CSS {css_text} | Schwellenpuls {swim_hr_text}
-- Equipment: Wahoo KICKR Core, Zwift, Garmin Forerunner 255, Wahoo Elemnt Bolt v2
 
 {offseason_block}
 {base_block}
@@ -606,12 +621,13 @@ hinterher selbst ein — such keinen aus und erfinde keinen.
 ## TRAININGSREGELN (WICHTIG!)
  
 ### Rad
-- **Kadenz:** 75-85 rpm (natürlich), NICHT höher!
-- **Warm-up/Cool-down:** 70-75 rpm
-- **Z2-Blöcke:** 76-82 rpm
-- **Z1-Erholungen:** 1-3 min @ 115-130W zwischen Z2-Blöcken (locker treten)
+- **Kadenz:** die selbst gewählte. Gib sie als Bereich an, wo sie Teil des
+  Reizes ist (Kraftausdauer tief, Mikrointervalle hoch), sonst frei.
+- **Erholungen zwischen Blöcken:** 1–3 min, {PAUSE_STANDARD_RAD}.
 - **1× Feel Ride/Woche:** Kadenz komplett frei, nur Watt vorgegeben
-- **Zwift ERG-Modus** kompatibel
+- **Ausrüstung** ist nicht bekannt. Setze keine voraus — weder Rolle noch Uhr
+  noch eine bestimmte Software. Was der Athlet hat, steht in seinen
+  individuellen Regeln, falls er es dort nennt.
  
 ### Lauf
 - **Brick-Läufe:** Kürzer und konservativer als Standalone

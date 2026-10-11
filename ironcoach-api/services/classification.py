@@ -142,8 +142,15 @@ def classify_swim(session: TrainingSession) -> str | None:
     return None
 
 
-def classify_actual_type(session: TrainingSession, ftp: int = 238) -> str | None:
-    """Trainingstyp aus den Ist-Daten. None, wenn die Daten nichts hergeben."""
+def classify_actual_type(session: TrainingSession, ftp: int | None = None) -> str | None:
+    """Trainingstyp aus den Ist-Daten. None, wenn die Daten nichts hergeben.
+
+    Ohne FTP entscheidet die Pulsverteilung. Hier stand als Standardwert
+    `238` — die alte Schwelle eines bestimmten Athleten. Wer ohne Profil
+    eingestuft wurde, bekam seine Einheiten gegen eine fremde FTP
+    gerechnet, und das Ergebnis sah plausibel aus. Ein fehlender Wert ist
+    besser als ein falscher.
+    """
     discipline = (session.discipline or "").lower()
     if discipline == "bike":
         return classify_bike(session, ftp)
@@ -193,7 +200,7 @@ def _hf_widerspricht(zones: dict | None, stufe: str) -> bool:
     return hart < HART_MIN_ANTEIL and locker > LOCKER_WIDERSPRUCH
 
 
-def intensity_from_session(session: TrainingSession, ftp: int = 238) -> str | None:
+def intensity_from_session(session: TrainingSession, ftp: int | None = None) -> str | None:
     """Intensität aus den Ist-Daten — nur Rad und Lauf.
 
     Reihenfolge: gemessene Leistung schlägt HF-Verteilung, HF schlägt die
@@ -477,7 +484,7 @@ def classify_session(db: Session, session: TrainingSession, commit: bool = True,
     schützt gezielt das Feld, das sich nicht rekonstruieren lässt.
     """
     profile = get_profile(db)
-    ftp = profile.ftp_watts if profile else 238
+    ftp = profile.ftp_watts if profile else None
 
     actual_type = classify_actual_type(session, ftp)
     if actual_type and not is_valid_training_type(session.discipline, actual_type):
