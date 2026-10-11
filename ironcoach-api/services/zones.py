@@ -18,14 +18,56 @@ sichtbar und nicht verteilt im Prompt-Text.
 
 from __future__ import annotations
 
-# Laufen: Anteile der Schwellenpace. Größer heißt langsamer, weil in
-# Sekunden je Kilometer gerechnet wird — Z2 ist also 14–29 % langsamer.
+# Laufen: Anteile der **Schwellengeschwindigkeit**, nicht der Pace.
+#
+# Die Literatur beschreibt Laufbereiche durchgehend als Prozent der
+# Schwellengeschwindigkeit; hier standen stattdessen Pace-Multiplikatoren, und
+# der Unterschied war nicht kosmetisch:
+#
+# * „Z5 VO2max" lag bei 101–106 % der Schwellengeschwindigkeit — das ist
+#   5-Kilometer-Tempo. Echtes vVO2max liegt bei 112–118 %. Bei einem
+#   Schwellenpace von 4:46/km hieß die Vorgabe 4:29–4:43/km, während vVO2max
+#   bei 4:02–4:15/km liegt: Eine als „VO2max" geplante Einheit konnte den
+#   Reiz, nach dem sie benannt war, strukturell nicht erreichen.
+# * „Z2 Grundlage" spannte über 78–88 % und damit über zwei verschiedene
+#   Absichten — locker (70–80 %) und ruhig zügig (82–90 %). Ein als locker
+#   gemeinter Dauerlauf am schnellen Ende erhöhte die Wochenintensität
+#   unbemerkt.
+#
+# Deshalb jetzt in Prozent, mit zwei zusätzlichen Bereichen am schnellen Ende.
+# Die Bänder schließen lückenlos aneinander an: die Zuordnung in
+# `session_quality` greift über die Obergrenze, eine Lücke würde einen Wert
+# stillschweigend in das nächsthöhere Band schieben.
+# Z1 bis Z4 behalten ihre Bedeutung: „Z4 Schwelle" heißt weiter Schwelle, und
+# jede historische Notiz bleibt lesbar. Neu sind Z5 bis Z7 am schnellen Ende
+# und die Teilung von Z2, deren beide Hälften bewusst dieselbe Nummer tragen —
+# es sind zwei Absichten innerhalb eines Bereichs, keine neue Stufe.
+LAUF_TEMPO_ZONEN = [
+    # (Name, langsame Grenze in % Schwellengeschwindigkeit, schnelle Grenze)
+    ("Z1 Regeneration", None, 70),
+    ("Z2 locker", 70, 81),
+    ("Z2 ruhig zügig", 81, 90),
+    ("Z3 Tempo", 90, 95),
+    ("Z4 Schwelle", 95, 103),
+    ("Z5 5K / Tempo hart", 103, 112),
+    ("Z6 vVO2max", 112, 120),
+    ("Z7 Steigerungen", 120, 130),
+]
+
+# Dieselben Bereiche als Pace-Multiplikatoren, wie der restliche Code sie
+# erwartet: erst die schnelle, dann die langsame Grenze, `None` heißt offen
+# nach langsam. Abgeleitet, nicht zweimal gepflegt — zwei Quellen für eine
+# Grenze waren der Ursprung des Rad-Befunds.
+#
+# Weniger Prozent Geschwindigkeit heißt mehr Sekunden je Kilometer, die
+# Grenzen tauschen beim Umrechnen also die Seite.
 LAUF_ZONEN = [
-    ("Z1 Regeneration", 1.29, None),
-    ("Z2 Grundlage", 1.14, 1.29),
-    ("Z3 Tempo", 1.06, 1.13),
-    ("Z4 Schwelle", 1.00, 1.05),
-    ("Z5 VO2max", 0.94, 0.99),
+    (
+        name,
+        round(100 / schnell, 4),                        # schnelle Grenze
+        round(100 / langsam, 4) if langsam else None,   # langsame Grenze
+    )
+    for name, langsam, schnell in LAUF_TEMPO_ZONEN
 ]
 
 # Schwimmen: Aufschlag auf die CSS-Pace in Sekunden je 100 m.
@@ -37,14 +79,28 @@ SCHWIMM_ZONEN = [
     ("Z5 schneller als CSS", -4, -1),
 ]
 
-# Rad: Anteile der FTP.
+# Rad: Anteile der FTP, nach Coggan.
+#
+# Die Grenze Z3/Z4 lag bei 0,90/0,91 und damit vier Prozentpunkte zu tief: Bei
+# Coggan reicht das Tempoband bis 87 %, darüber liegt bis 94 % der Sweet Spot
+# und erst ab 95 % die Schwelle. Eine Ausfahrt bei 92 % stand deshalb als
+# „Z4 Schwelle" in der Anzeige, während `services/classification.py` sie
+# gleichzeitig `sweet_spot` nannte — zwei Antworten im selben Prompt.
+#
+# Sweet Spot ist bewusst **keine** sechste Zone: Er ist das obere Ende von Z3
+# und wird im Text benannt. Eine zusätzliche Zone hätte die Zonenordnung in
+# `session_quality`, `ZONE_TO_INTENSITY` und das Schema mitverschoben, ohne
+# dass dafür ein Reiz dazukäme.
 RAD_ZONEN = [
-    ("Z1 Regeneration", 0.00, 0.55),
-    ("Z2 Grundlage", 0.56, 0.75),
-    ("Z3 Tempo", 0.76, 0.90),
-    ("Z4 Schwelle", 0.91, 1.05),
+    ("Z1 Regeneration", 0.00, 0.54),
+    ("Z2 Grundlage", 0.55, 0.75),
+    ("Z3 Tempo", 0.76, 0.94),
+    ("Z4 Schwelle", 0.95, 1.05),
     ("Z5 VO2max", 1.06, 1.20),
 ]
+
+# Das obere Ende von Z3, benannt statt als eigene Zone geführt.
+RAD_SWEET_SPOT = (0.88, 0.94)
 
 
 def mmss(sekunden: float) -> str:
@@ -164,8 +220,15 @@ def prompt_block(profile, sport: str | None = None) -> str:
     ftp = getattr(profile, "ftp_watts", None)
     if ftp and "ftp" in zaehlt:
         zeilen = "\n".join(f"| {z['name']} | {z['text']} |" for z in rad_zonen(ftp))
+        # Sweet Spot ist das obere Ende von Z3 und keine eigene Zone. Ohne
+        # diese Zeile wüsste der Coach nicht, wo er liegt — und „Sweet Spot"
+        # steht in den Phasenregeln als Brot-und-Butter-Einheit.
+        ss_von, ss_bis = RAD_SWEET_SPOT
         teile.append(
             f"### Rad — FTP {ftp} W\n| Bereich | Leistung |\n|---|---|\n" + zeilen
+            + f"\n\nSweet Spot ist das obere Ende von Z3: "
+              f"{int(ftp * ss_von)}–{int(ftp * ss_bis)} W "
+              f"({ss_von * 100:.0f}–{ss_bis * 100:.0f} % FTP)."
         )
 
     if not teile:

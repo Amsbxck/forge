@@ -94,4 +94,12 @@ def test_mit_np_entscheidet_weiter_die_leistung():
         hr_zones = {"z1": 5.0, "z2": 15.0, "z3": 20.0, "z4": 45.0, "z5": 15.0}
         actual_type = None
 
+    # 250 von 264 W sind 94,7 % FTP, nach Coggan der obere Sweet Spot — die
+    # Schwelle beginnt bei 95 %. Der Puls sagt hier etwas anderes (60 % der
+    # Zeit in Z4/Z5), und genau darum geht es: Mit NP entscheidet die
+    # Leistung. Vorher stand hier "threshold", weil die Einstufung die
+    # Schwelle ein ganzes Band zu tief bei 88 % zog.
+    assert classify_bike(MitNP(), 264) == "sweet_spot"
+    # Und oberhalb von 95 % wird daraus Schwellenarbeit.
+    MitNP.normalized_power = 255
     assert classify_bike(MitNP(), 264) == "threshold"

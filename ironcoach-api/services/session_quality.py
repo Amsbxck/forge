@@ -51,7 +51,12 @@ logger = logging.getLogger(__name__)
 # Schwellenpace —, kann dieses Fenster leer sein. Das ist beabsichtigt: Eine
 # Schwelleneinheit deutlich zu übertreffen ist kein Beleg für Reserve, sondern
 # heißt, dass etwas anderes trainiert wurde als geplant.
-SCHWELLE_PACE = 0.05
+#
+# Die 5 % stammten aus der alten Zonentabelle, in der Z4 beim Laufen nur
+# 5:28–5:13 umfasste, also gut fünf Prozent. Die korrigierten Bereiche sind
+# breiter (Z4 Schwelle rund acht Prozent, Z5 rund neun), weshalb fünf Prozent
+# dort auf Alltagsschwankung angesprungen wären.
+SCHWELLE_PACE = 0.08
 SCHWELLE_WATT = 0.15
 # Ab wieviel Pulsabweichung „bei gleichem Puls" nicht mehr gilt. Fünf Schläge
 # sind Alltagsschwankung, darüber wird es eine andere Belastung.
@@ -84,18 +89,16 @@ def _zone_pace(sekunden_pro_km: float, schwelle: int | None) -> str | None:
     if not schwelle or not sekunden_pro_km:
         return None
     anteil = sekunden_pro_km / schwelle
-    # Über die **oberen** Grenzen zugeordnet, von langsam nach schnell. Die
-    # Tabelle hat zwischen den Zonen kleine Lücken (Z2 endet bei 1.14, Z3
-    # beginnt bei 1.13); wer stattdessen die unteren Grenzen prüft, ordnet
-    # Werte in dieser Lücke eine Zone anders ein als die Anzeige.
-    for i, (name, unten, oben) in enumerate(LAUF_ZONEN):
-        grenze = oben if oben is not None else unten
-        naechste = LAUF_ZONEN[i + 1] if i + 1 < len(LAUF_ZONEN) else None
-        if naechste is None:
+    # Von langsam nach schnell: die erste Zone, deren schnelle Grenze noch
+    # nicht erreicht ist. Die Tabelle schließt jetzt lückenlos an, deshalb
+    # genügt eine Grenze je Zone — vorher musste gegen die Nachbarzone
+    # geprüft werden, weil zwischen den Bändern kleine Lücken lagen und ein
+    # Wert darin je nach Richtung in einer anderen Zone landete.
+    for name, schnell, _langsam in LAUF_ZONEN:
+        if anteil > schnell:
             return name.split()[0]
-        if anteil > (naechste[2] if naechste[2] is not None else naechste[1]):
-            return name.split()[0]
-    return "Z5"
+    # Schneller als die schnellste Zone: dort gibt es keine Stufe mehr.
+    return LAUF_ZONEN[-1][0].split()[0]
 
 
 def bewerte(ist: TrainingSession, soll: PlannedSession, profile) -> dict | None:
@@ -143,10 +146,17 @@ def bewerte(ist: TrainingSession, soll: PlannedSession, profile) -> dict | None:
     # Deshalb: höchstens eine Zone darüber. Das lässt den realistischen Fall zu
     # (Vorgabe nahe der Grenze, etwas darüber gefahren) und schließt weiter
     # aus, was ein anderes Training war — eine Z2-Ausfahrt, die in Z5 endete.
-    ordnung = {"Z1": 1, "Z2": 2, "Z3": 3, "Z4": 4, "Z5": 5}
+    #
+    # Reicht bis Z7, weil die Laufbereiche am schnellen Ende zwei Stufen
+    # dazubekommen haben (vVO2max, Steigerungen). Ein unbekanntes Etikett
+    # ergab hier über `.get(…, 0)` einen **negativen** Abstand — ein
+    # Steigerungslauf gegen eine Z2-Vorgabe wäre damit als Spitzeneinheit
+    # gemeldet worden, also als Beleg für Reserve.
+    ordnung = {f"Z{i}": i for i in range(1, 8)}
+    unbekannt = [z for z in (zone_soll, zone_ist) if z and z not in ordnung]
     abstand = (
-        ordnung.get(zone_ist, 0) - ordnung.get(zone_soll, 0)
-        if zone_soll and zone_ist else None
+        ordnung[zone_ist] - ordnung[zone_soll]
+        if zone_soll and zone_ist and not unbekannt else None
     )
     kategorie_gehalten = abstand is not None and abstand <= 1
 

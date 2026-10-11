@@ -89,8 +89,14 @@ def test_der_prompt_nennt_sie():
         "actual_type": "long_ride", "tss": 169.9,
         "harte_minuten": {"sst": 26, "threshold": 20},
     }])
-    assert "26 min über 88 % FTP" in text
-    assert "davon 20 min über der Schwelle" in text
+    # Gegen die Grenzen geprüft, nicht gegen eine abgeschriebene Zahl: Der
+    # Text hieß „davon 20 min über der Schwelle", während die Grenze bei 96 %
+    # lag — und 96 % liegt nach Coggan *an* der Schwelle, nicht darüber.
+    from services.segments import HARTE_SCHWELLEN
+    grenzen = dict(HARTE_SCHWELLEN)
+    assert f"26 min ab {grenzen['sst'] * 100:.0f} % FTP" in text
+    assert "davon 20 min an der Schwelle oder darüber" in text
+    assert f"ab {grenzen['threshold'] * 100:.0f} %" in text
 
 
 def test_die_notiz_nennt_sie():
@@ -101,7 +107,10 @@ def test_die_notiz_nennt_sie():
         "intensity": "base", "duration_min": 320, "tss": 169.9,
         "harte_minuten": {"sst": 26, "threshold": 20},
     }, None)
-    assert "**Harte Arbeit:** 26 min über 88 % FTP, davon 20 min über der Schwelle" in text
+    # Notiz und Prompt bauen denselben Satz — er steht jetzt an einer Stelle
+    # (`segments.harte_minuten_text`), vorher wörtlich doppelt in beiden.
+    from services.segments import harte_minuten_text
+    assert f"**Harte Arbeit:** {harte_minuten_text({'sst': 26, 'threshold': 20})}" in text
 
 
 def test_das_etikett_bleibt_unberuehrt():

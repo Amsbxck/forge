@@ -25,13 +25,22 @@ from core.deps import get_profile
 
 logger = logging.getLogger(__name__)
 
-# Intensitätsfaktor = NP / FTP. Grenzen nach gängiger Trainingslehre,
-# leicht großzügig geschnitten, weil reale Ausfahrten selten sauber in
-# eine Schublade fallen.
-IF_RECOVERY = 0.56
+# Intensitätsfaktor = NP / FTP, Grenzen nach Coggan.
+#
+# Hier saß jedes Etikett ab 76 % ein Band zu hart: 80–86 % hieß `sweet_spot`,
+# ist aber Tempo; 90–94 % hieß `threshold`, ist aber Sweet Spot; und 98–102 %
+# hieß `vo2max`, obwohl die Schwelle nach Coggan bis 105 % reicht — eine
+# Schwellenausfahrt wurde also als VO2max-Einheit verbucht.
+#
+# Die Grenzen müssen zu `services.zones.RAD_ZONEN` passen: dieselbe Zahl darf
+# nicht an zwei Stellen verschieden stehen. Genau das war der Fall — die
+# Zonentabelle setzte die Schwelle bei 91 %, diese Konstanten bei 96 %, und
+# beide landeten im selben Prompt. Ein Test sichert den Gleichstand.
+IF_RECOVERY = 0.55
 IF_ENDURANCE = 0.76
 IF_SWEET_SPOT = 0.88
-IF_THRESHOLD = 0.96
+IF_THRESHOLD = 0.95
+IF_VO2MAX = 1.06
 
 LONG_RIDE_MIN = 180
 LONG_RUN_MIN = 75
@@ -61,8 +70,10 @@ def classify_bike(session: TrainingSession, ftp: int) -> str | None:
         # Dieselbe Gegenprobe wie bei der Intensitätsstufe: Stand die FTP zu
         # tief, wurde aus einer Grundlagenausfahrt ein "threshold". Widerspricht
         # der Puls, fällt die Rechnung auf die Pulsverteilung darunter zurück.
-        harte_stufe = "vo2max" if intensity >= IF_THRESHOLD else (
-            "threshold" if intensity >= IF_SWEET_SPOT else None
+        harte_stufe = "vo2max" if intensity >= IF_VO2MAX else (
+            "threshold" if intensity >= IF_THRESHOLD else (
+                "sweet_spot" if intensity >= IF_SWEET_SPOT else None
+            )
         )
         if harte_stufe and _hf_widerspricht(session.hr_zones, harte_stufe):
             pass  # weiter unten über die Pulsverteilung
@@ -71,10 +82,14 @@ def classify_bike(session: TrainingSession, ftp: int) -> str | None:
         elif intensity < IF_ENDURANCE:
             return "long_ride" if duration >= LONG_RIDE_MIN else "z2_endurance"
         elif intensity < IF_SWEET_SPOT:
-            # Lange Einheit in diesem Band ist eher Renntempo als ein
-            # klassischer Sweet-Spot-Block.
-            return "race_pace" if duration >= LONG_RIDE_MIN else "sweet_spot"
+            # 76–88 % ist das Tempoband. Eine lange Einheit darin ist
+            # Renntempo (70.3-Wettkampftempo liegt bei 80–85 % FTP), eine
+            # kurze ein Tempoblock — kein Sweet Spot, der erst bei 88 %
+            # beginnt.
+            return "race_pace" if duration >= LONG_RIDE_MIN else "tempo"
         elif intensity < IF_THRESHOLD:
+            return "sweet_spot"
+        elif intensity < IF_VO2MAX:
             return "threshold"
         else:
             return "vo2max"
@@ -448,8 +463,19 @@ def build_deviation_note(
     return " | ".join(parts) if parts else None
 
 
-def classify_session(db: Session, session: TrainingSession, commit: bool = True) -> dict:
-    """Einheit klassifizieren, dem Plan zuordnen, Abweichung festhalten."""
+def classify_session(db: Session, session: TrainingSession, commit: bool = True,
+                     rewrite_notes: bool = True) -> dict:
+    """Einheit klassifizieren, dem Plan zuordnen, Abweichung festhalten.
+
+    `rewrite_notes=False` berechnet die Abweichungsnotiz, **schreibt sie aber
+    nicht**, wenn dort schon eine steht; der Unterschied kommt stattdessen im
+    Ergebnis zurück. Das ist die Lehre aus einem echten Verlust: Ein Aufruf von
+    `POST /planned/classify?only_unclassified=false&dry_run=false` hat sechs
+    historische Notizen durch „ungeplantes Training" ersetzt, weil die
+    zugehörigen Wochenpläne in dieser Datenbank nicht mehr existierten. Der
+    bestehende `dry_run` schützte den ganzen Lauf oder nichts — dieser Schalter
+    schützt gezielt das Feld, das sich nicht rekonstruieren lässt.
+    """
     profile = get_profile(db)
     ftp = profile.ftp_watts if profile else 238
 
@@ -470,7 +496,14 @@ def classify_session(db: Session, session: TrainingSession, commit: bool = True)
     session.actual_type = actual_type
     session.planned_session_id = planned.id if planned else None
     session.match_confidence = confidence if planned else None
-    session.deviation_note = build_deviation_note(planned, session, actual_type, components)
+
+    neue_notiz = build_deviation_note(planned, session, actual_type, components)
+    alte_notiz = session.deviation_note
+    notiz_behalten = (
+        not rewrite_notes and alte_notiz and neue_notiz != alte_notiz
+    )
+    if not notiz_behalten:
+        session.deviation_note = neue_notiz
 
     if planned is not None:
         # Der Rückverweis fasst nur eine Einheit; bei einem Brick gewinnt
@@ -485,7 +518,7 @@ def classify_session(db: Session, session: TrainingSession, commit: bool = True)
     if commit:
         db.commit()
 
-    return {
+    ergebnis = {
         "session_id": session.id,
         "discipline": session.discipline,
         "actual_type": actual_type,
@@ -494,6 +527,13 @@ def classify_session(db: Session, session: TrainingSession, commit: bool = True)
         "confidence": confidence if planned else None,
         "deviation": session.deviation_note,
     }
+    if notiz_behalten:
+        # Nicht verschweigen, was nicht geschrieben wurde: Sonst sieht der
+        # Aufrufer nur, dass nichts passiert ist, und weiß nicht, dass es
+        # etwas zu entscheiden gäbe.
+        ergebnis["deviation_behalten"] = alte_notiz
+        ergebnis["deviation_vorschlag"] = neue_notiz
+    return ergebnis
 
 
 def classify_all(
@@ -501,7 +541,15 @@ def classify_all(
     limit: int | None = None,
     only_unclassified: bool = True,
     commit: bool = True,
+    rewrite_notes: bool = False,
 ) -> dict:
+    """Mehrere Einheiten einstufen.
+
+    `rewrite_notes` ist hier **standardmäßig aus**, anders als bei der
+    einzelnen Einheit: Ein Massenlauf über die ganze Historie ist genau die
+    Stelle, an der sich ein Verlust nicht mehr zurückholen lässt. Wer eine
+    Notiz bewusst neu schreiben will, sagt es ausdrücklich.
+    """
     query = db.query(TrainingSession).filter(TrainingSession.deleted_at == None)  # noqa: E711
     if only_unclassified:
         query = query.filter(TrainingSession.actual_type == None)  # noqa: E711
@@ -509,15 +557,21 @@ def classify_all(
     if limit:
         query = query.limit(limit)
 
-    results = [classify_session(db, s, commit=False) for s in query.all()]
+    results = [
+        classify_session(db, s, commit=False, rewrite_notes=rewrite_notes)
+        for s in query.all()
+    ]
     if commit:
         db.commit()
 
     typed = sum(1 for r in results if r["actual_type"])
     matched = sum(1 for r in results if r["planned_session_id"])
+    behalten = [r for r in results if r.get("deviation_behalten")]
     return {
         "processed": len(results),
         "with_actual_type": typed,
         "matched_to_plan": matched,
+        # Was bewusst nicht überschrieben wurde, steht sichtbar im Ergebnis.
+        "notizen_behalten": len(behalten),
         "details": results,
     }

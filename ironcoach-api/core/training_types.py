@@ -28,6 +28,10 @@ TRAINING_TYPES: dict[str, list[str]] = {
     "bike": [
         "recovery",
         "z2_endurance",
+        # Das Tempoband (76–88 % FTP) fehlte, obwohl es nach Coggan zwischen
+        # Grundlage und Sweet Spot liegt. Eine Ausfahrt bei 80 % wurde deshalb
+        # `sweet_spot` genannt, was sie um ein ganzes Band zu hart auswies.
+        "tempo",
         "sweet_spot",
         "threshold",
         "vo2max",
@@ -148,6 +152,49 @@ FUN_DISCIPLINES = ("hike", "other")
 # an derselben Disziplin und lässt sich an dieser Stelle nicht trennen.
 EXTERN_GEPLANT = ("swim",)
 
+# Was der Coach beim Schwimmen überhaupt vorgeben darf. Enger als
+# `TRAINING_TYPES["swim"]`, und zwar absichtlich: Technik und Intervalle stehen
+# im externen Plan, der Coach setzt nur Termin und Dauer. Freiwasser ist die
+# Ausnahme, weil es dafür keinen externen Plan gibt.
+PLANBAR_SCHWIMMEN = ("endurance", "open_water")
+
+
+def planbare_typen(discipline: str) -> list[str]:
+    """Welche Typen der Coach für eine Disziplin vorgeben darf."""
+    if discipline == "swim":
+        return list(PLANBAR_SCHWIMMEN)
+    return list(TRAINING_TYPES.get(discipline, []))
+
+
+def planbare_typen_tabelle() -> str:
+    """Die erlaubten Typen als Markdown-Tabelle für den Prompt.
+
+    Dieselbe Liste stand an drei Stellen mit **drei verschiedenen Inhalten**:
+    hier, in `core/prompt_templates.py` und als Schemabeschreibung in
+    `services/claude_service.py`. Die Prompt-Tabelle kannte beim Rad kein
+    `tempo`, die Schemabeschreibung ließ beim Laufen `threshold` und `vo2max`
+    weg — der Coach konnte also keinen Schwellenlauf planen, obwohl die
+    Zonentabelle im selben Prompt eine Schwellenpace nennt. Erzeugt statt
+    abgeschrieben.
+    """
+    zeilen = ["| Sportart | erlaubte training_type |", "|----------|------------------------|"]
+    for disziplin in ("bike", "run", "swim", "gym", "brick", "other", "rest"):
+        typen = ", ".join(planbare_typen(disziplin))
+        hinweis = ""
+        if disziplin == "swim":
+            hinweis = " — Becken immer `endurance`, `open_water` erst ab Peak"
+        zeilen.append(f"| {disziplin} | {typen}{hinweis} |")
+    return "\n".join(zeilen)
+
+
+def planbare_typen_kurz() -> str:
+    """Dieselbe Liste einzeilig, für die Schemabeschreibung."""
+    return " ".join(
+        f"{d}: {'|'.join(planbare_typen(d))}."
+        for d in ("bike", "run", "swim", "gym", "brick", "other", "rest")
+    )
+
+
 INTENSITIES = ["base", "sweet_spot", "threshold", "vo2max"]
 
 INTENSITY_LABEL = {
@@ -195,7 +242,13 @@ ZONE_TO_INTENSITY = {
     "Z2": "base",
     "Z3": "sweet_spot",
     "Z4": "threshold",
+    # Die drei schnellen Laufbereiche sind alle VO2max und darüber. Eine
+    # eigene Intensitätsstufe für Steigerungen gibt es nicht, und sie zu
+    # erfinden hieße, die vier Stufen überall mitzuziehen — Steigerungen sind
+    # ohnehin keine Belastungseinheit, sondern Technik.
     "Z5": "vo2max",
+    "Z6": "vo2max",
+    "Z7": "vo2max",
 }
 
 
@@ -258,7 +311,10 @@ _WATT_RANGE = re.compile(r"(\d{2,3})\s*[-–]\s*(\d{2,3})\s*W", re.IGNORECASE)
 _WATT_SINGLE = re.compile(r"(\d{2,3})\s*W", re.IGNORECASE)
 _PACE_RANGE = re.compile(r"(\d):(\d{2})\s*[-–]\s*(\d):(\d{2})\s*/\s*km")
 _PACE_SINGLE = re.compile(r"(\d):(\d{2})\s*/\s*km")
-_HR_ZONE = re.compile(r"\b(Z[1-5])\b")
+# Bis Z7: Die Laufbereiche haben am schnellen Ende zwei Stufen dazubekommen
+# (vVO2max, Steigerungen). Mit `Z[1-5]` wäre eine Z6-Angabe aus einer
+# Alt-Vorgabe stillschweigend durchgefallen.
+_HR_ZONE = re.compile(r"\b(Z[1-7])\b")
 
 
 def _flatten_text(value, out: list[str]) -> None:

@@ -1,5 +1,7 @@
 from datetime import date, timedelta
-from core.zwift_catalog import get_phase_workouts
+
+from core.race_types import is_deload
+from core.training_types import planbare_typen_tabelle
 
 
 
@@ -21,16 +23,71 @@ def get_week_dates(week_number: int, plan_start: date) -> tuple[date, date]:
     return week_start, week_end
 
 
-def analyze_hrv_trend(hrv_list: list) -> str:
-    if not hrv_list:
+def analyze_hrv_trend(hrv_list: list, grenzen: dict | None = None) -> str:
+    """Richtung und Streuung der HRV — das, was ein Tageswert nicht zeigt.
+
+    Hier stand ein Mittel der letzten drei Tage gegen fest verdrahtete 80 und
+    70 ms. Das waren die Zahlen eines einzelnen Athleten, und sie standen im
+    Prompt zwei Zeilen neben der persönlich gerechneten Normalspanne — zwei
+    widersprechende Urteile über denselben Tag. Für einen Athleten mit einer
+    Normallage um 45 ms war das Urteil dauerhaft "Rot".
+
+    Was ein Tageswert gegen die Spanne nicht beantwortet, ist die Richtung: drei
+    fallende Tage innerhalb der Spanne sind ein anderes Bild als drei
+    schwankende. Genau diese Zeile stand bisher als „⚠️ Fallend 3+ Tage" in
+    zwei Prompt-Tabellen, ohne dass irgendetwas sie berechnete.
+
+    Die Streuung wird nur gegen eine **berechnete** Grundlinie verglichen. Bei
+    einer eingetragenen Spanne aus der Uhr ist deren Breite kein σ, und sie als
+    solches zu verrechnen wäre eine erfundene Begründung.
+    """
+    werte = [h["rmssd"] for h in hrv_list if h.get("rmssd")]
+    if not werte:
         return "Keine HRV-Daten vorhanden"
-    avg = sum(h["rmssd"] for h in hrv_list) / len(hrv_list)
-    if avg > 80:
-        return f"Grün ({avg:.0f}ms avg) — normale Einheit wie geplant"
-    elif avg >= 70:
-        return f"Gelb ({avg:.0f}ms avg) — machbar, aber nicht zu intensiv"
-    else:
-        return f"Rot ({avg:.0f}ms avg) — Intensität reduzieren oder Rest"
+
+    teile = []
+
+    # Richtung: nur eine durchgehend fallende Folge ist eine Aussage. Zwei
+    # fallende Tage mit einem Ausreißer dazwischen sind Rauschen.
+    if len(werte) >= 3:
+        letzte = werte[-3:]
+        if letzte[0] > letzte[1] > letzte[2]:
+            # Gezählt werden die Rückgänge, nicht die Messwerte: vier Tage in
+            # Folge tiefer sind fünf Werte.
+            folge = 0
+            for i in range(len(werte) - 1, 0, -1):
+                if werte[i] >= werte[i - 1]:
+                    break
+                folge += 1
+            teile.append(
+                f"seit {folge} Tagen fallend "
+                f"({' → '.join(f'{w:.0f}' for w in werte[-(folge + 1):])})"
+            )
+        elif letzte[0] < letzte[1] < letzte[2]:
+            teile.append("seit 3 Tagen steigend")
+
+    if len(werte) >= 3:
+        import statistics
+
+        mittel = statistics.fmean(werte)
+        if mittel > 0:
+            cv = statistics.pstdev(werte) / mittel * 100
+            text = f"Streuung der letzten {len(werte)} Tage: CV {cv:.1f} %"
+            if grenzen and grenzen.get("quelle") == "auto":
+                unten, oben = grenzen.get("gruen_ab"), grenzen.get("gruen_bis")
+                if unten and oben:
+                    # Die Spanne ist Mittelwert ± 0,5 σ, ihre Breite also 1 σ.
+                    mitte = (unten + oben) / 2
+                    if mitte > 0:
+                        basis = (oben - unten) / mitte * 100
+                        text += f" gegen {basis:.1f} % in der Grundlinie"
+                        if cv > basis * 1.5:
+                            text += " — deutlich erhöht"
+            teile.append(text)
+
+    if not teile:
+        return f"{len(werte)} Messung(en), kein auswertbarer Trend"
+    return " · ".join(teile)
 
 
 def format_sessions(sessions: list) -> str:
@@ -77,18 +134,9 @@ def format_sessions(sessions: list) -> str:
         # Hauptteil und Abweichung in eigene Zeilen: sie sind der Grund,
         # warum eine Einheit gelungen ist oder nicht.
         if s.get("harte_minuten"):
-            h = s["harte_minuten"]
-            # Kumulativ, nicht additiv: Die Schwellenminuten stecken in den
-            # Sweetspot-Minuten. "davon" sagt das, eine Aufzählung würde es
-            # verschweigen und die harte Arbeit doppelt zählen lassen.
-            teile = []
-            if h.get("sst"):
-                teile.append(f"{h['sst']} min über 88 % FTP")
-            if h.get("threshold"):
-                teile.append(f"davon {h['threshold']} min über der Schwelle")
-            if h.get("vo2max"):
-                teile.append(f"davon {h['vo2max']} min über 105 %")
-            line += f"\n    harte Arbeit: {', '.join(teile)}"
+            from services.segments import harte_minuten_text
+            if (text := harte_minuten_text(s["harte_minuten"])):
+                line += f"\n    harte Arbeit: {text}"
         if s.get("structure"):
             line += f"\n    {s['structure']}"
         if s.get("deviation_note"):
@@ -174,15 +222,7 @@ Regeln:
 Zusätzlich zu `session_type` (Sportart) braucht jeder Tag einen `training_type`
 aus genau dieser Liste:
 
-| Sportart | erlaubte training_type |
-|----------|------------------------|
-| bike | recovery, z2_endurance, sweet_spot, threshold, vo2max, race_pace, long_ride |
-| run | recovery, walk_run, z2_endurance, tempo, intervals, threshold, vo2max, brick_run, long_run |
-| swim | endurance (Becken, immer) · open_water (nur ab Peak) |
-| gym | strength, mobility |
-| brick | brick |
-| other | cross_training |
-| rest | rest |
+<<TYPENTABELLE>>
 
 Keine eigenen Werte erfinden — der Typ wird 1:1 gegen die Ist-Daten abgeglichen.
 
@@ -196,20 +236,42 @@ entlang dieser vier Stufen und halte die Z2-Dominanz ein:
 | Base / Endurance | Z1–Z2 | recovery, z2_endurance, long_ride, walk_run, long_run, brick_run |
 | Sweet Spot | Z3 | sweet_spot, race_pace, tempo |
 | Threshold | Z4 | threshold |
-| VO₂max | Z5 | vo2max, intervals |
+| VO₂max | Z5–Z7 | vo2max, intervals |
 
 Für Läufe gelten dieselben Stufen wie fürs Rad: eine Bahneinheit mit
 1km-Intervallen ist `vo2max`, kein `intervals`-Sammelbegriff, wenn sie
-tatsächlich in Z5 führt. Schwimmen bleibt außen vor — dafür gibt es einen
-eigenen Plan.
+tatsächlich in Z5 oder höher führt. Schwimmen bleibt außen vor — dafür gibt es
+einen eigenen Plan.
+
+**Die drei schnellen Laufbereiche sind nicht dasselbe.** Z5 ist 5-Kilometer-
+Tempo, Z6 ist vVO2max (die Geschwindigkeit, bei der VO2max erreicht wird), Z7
+sind Steigerungen.
+
+- **VO2max-Intervalle über drei bis vier Minuten gehören in Z5**, nicht in Z6:
+  Sie werden bei etwa 95 % von vVO2max gelaufen. Das ist die Einheit mit dem
+  stärksten Beleg (4×4 min, +8,1 % VO2max).
+- **Z6 ist vVO2max selbst** und nur für kurze Wiederholungen gedacht
+  (15 s / 15 s), als Abwechslung und mit kleinem Geschwindigkeitsunterschied
+  zwischen schnell und locker. Vier Minuten in Z6 hält niemand durch.
+- **Z7 ist keine Belastungseinheit**, sondern Technik: 15–20 Sekunden locker
+  schnell, volle Erholung.
+
+Beurteile nach Pace, nicht nach Puls: der Puls hinkt bei kurzen Intervallen
+hinterher, und in einem Vergleich zeigte er sogar das Gegenteil des
+tatsächlichen Reizes.
 """
+
+# Die Typentabelle wird eingesetzt statt abgeschrieben. Kein f-String, weil der
+# Block JSON-Beispiele mit geschweiften Klammern enthält.
+TARGETS_FORMAT = TARGETS_FORMAT.replace(
+    "<<TYPENTABELLE>>", planbare_typen_tabelle()
+)
 
 DETAILS_FORMAT = """### details-Format:
 
-**bike:** (Zwift-Workout-Name in "workout" angeben)
+**bike:** (`workout` NICHT selbst füllen — siehe unten)
 ```json
 {
-  "workout": "Name aus der Bibliothek (z.B. Tempo #1)",
   "warmup": {"dauer": "10 min", "watt": "100-140 W", "rpm": "70-75"},
   "blocks": [
     {"block": "1", "watt": "145-155 W", "rpm": "76-80", "dauer": "14 min", "zone": "Z2"},
@@ -219,6 +281,12 @@ DETAILS_FORMAT = """### details-Format:
   "cooldown": {"dauer": "8 min", "watt": "140-100 W", "rpm": "85-90"}
 }
 ```
+
+Das Feld `workout` bleibt weg. Welches Zwift-Workout der geplanten Struktur
+entspricht, trägt die App hinterher selbst ein — sie vergleicht die Blöcke mit
+ihrem Katalog und schreibt den Namen nur bei eindeutiger Übereinstimmung. Einen
+Namen zu erfinden hieße, dem Athleten eine Einheit zu nennen, die er im Trainer
+nicht findet.
 
 **WICHTIG bei Rad-Einheiten:** `warmup` und `cooldown` sind Objekte mit
 **konkretem Wattbereich**, keine Sätze. "10 min locker ausfahren" enthält
@@ -313,15 +381,21 @@ def build_plan_prompt(
     # Die Normalspanne der HRV. Nicht hier berechnet, weil dieses Modul keine
     # Datenbank kennt — der Aufrufer hat sie ohnehin zur Hand.
     hrv_grenzen: dict | None = None,
+    # Wie die Vorwoche tatsächlich aussah: Anzahl harter Einheiten und ihr
+    # Abstand. Berichtend, nicht ablehnend — siehe `services/week_shape.py`.
+    wochenform: str | None = None,
 ) -> str:
     from core.race_types import phase_boundaries
 
     phase = get_phase(week, total_weeks)
 
     # Saisonstruktur aus der Zieldauer statt als feste 33-Wochen-Tabelle.
-    # Deload jeweils in der letzten Woche einer Phase.
+    # Die Deload-Spalte kommt aus derselben Funktion, die auch die aktuelle
+    # Woche beurteilt — sonst laufen Tabelle und Vorgabe auseinander, was sie
+    # jahrelang taten.
     rows = [
-        f"| {name} | W{start}–{end} | {'Deload W' + str(end) if end - start >= 3 else '–'} |"
+        f"| {name} | W{start}–{end} | "
+        f"{'Deload W' + str(end) if is_deload(end, total_weeks) else '–'} |"
         for name, start, end in phase_boundaries(total_weeks)
     ]
     season_structure = "\n".join(
@@ -352,6 +426,13 @@ def build_plan_prompt(
     # wäre eine Vorgabe aus einem Zeitplan, der noch nicht begonnen hat.
     if base_block:
         phase = "Grundlage"
+    # Dasselbe auf der anderen Seite der Saison. Ohne diese Zeile stand im
+    # Prompt eine Aufbauphase ("Base 3"), während der Off-Season-Block direkt
+    # darüber Formerhalt verlangte und die Datenbank "Off Season · Formerhalt"
+    # speicherte — drei Angaben, zwei davon falsch. Die Off-Season-Logik selbst
+    # bleibt unberührt; hier wird nur ihr Name übernommen.
+    elif offseason_block:
+        phase = "Off Season"
     # Der Langzeitverlauf steht vor den 14 Tagen im Detail: erst wohin die
     # Saison läuft, dann was zuletzt passiert ist. Umgekehrt liest sich das
     # Fenster als Gesamtbild — und genau der Trugschluss soll hier weg.
@@ -364,7 +445,10 @@ def build_plan_prompt(
     # erst was bemerkenswert war und warum, dann die vollständige Liste.
     quality_block = quality or ""
 
-    hrv_status = analyze_hrv_trend(hrv[-3:] if hrv else [])
+    # Über den ganzen übergebenen Zeitraum, nicht über drei Tage: Richtung und
+    # Streuung lassen sich aus drei Werten kaum beurteilen, und der Aufrufer
+    # übergibt ohnehin nur die letzte Woche.
+    hrv_status = analyze_hrv_trend(hrv or [], hrv_grenzen)
     # Bevorzugt der ausführliche Kontext aus den Obsidian-Notes; ohne ihn
     # die kompakte Zusammenfassung aus der Datenbank.
     session_summary = sessions_text or format_sessions(sessions)
@@ -381,11 +465,19 @@ def build_plan_prompt(
         )
     hrv_text = format_hrv(hrv, hrv_grenzen)
     week_start, week_end = get_week_dates(week, plan_start)
-    is_deload = week % 4 == 0
-    phase_workouts_sst = get_phase_workouts(phase, is_deload, "sst_tempo")
-    phase_workouts_endurance = get_phase_workouts(phase, is_deload, "endurance")
-    phase_workouts_threshold = get_phase_workouts(phase, is_deload, "threshold")
-    phase_workouts_vo2max = get_phase_workouts(phase, is_deload, "vo2max")
+    # Eine Quelle für den Deload — dieselbe, aus der die Saisonübersicht
+    # weiter unten gebaut wird. Vorher stand hier `week % 4 == 0`, was in
+    # jedem Plan mit durch vier teilbarer Länge die Wettkampfwoche als
+    # Entlastungswoche auswies.
+    deload = is_deload(week, total_weeks)
+
+    # Die Phasenvorgabe ersetzt die eine alte Wochenvorlage, die nur für
+    # „Build 2" existierte und nur das Rad kannte. In Grundlage und Off Season
+    # bleibt sie leer — dort gilt der eigene Block, und zwei Quellen für
+    # dieselbe Vorgabe wären der nächste Widerspruch.
+    from core.phasenregeln import prompt_block as phasen_prompt
+    phasen_block = "" if (base_block or offseason_block) else phasen_prompt(phase, deload)
+    wochenform_block = wochenform or ""
     day_names = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
     week_days = [(day_names[i], str(week_start + timedelta(days=i))) for i in range(7)]
     week_days_str = "\n".join(f"- {name}: {d}" for name, d in week_days)
@@ -418,7 +510,7 @@ def build_plan_prompt(
 ## BRICK-SESSIONS
 
 ### REGELN
-- Nur **Bike → Run** (Swim → Bike erst ab Peak Phase W25+)
+- Nur **Bike → Run** (Swim → Bike erst ab der Peak-Phase)
 - Laufanteil durchgehend, **es sei denn**, die Athletenvorgaben oder der
   Gesundheitsabschnitt verlangen Gehpausen — oder der Athlet hat darum gebeten
 - IMMER kürzer als Standalone-Lauf der gleichen Woche
@@ -427,42 +519,45 @@ def build_plan_prompt(
 - Tag nach Brick = Rest, Schwimmen oder Rad — KEIN Standalone-Lauf
 
 ### BRICK-PROGRESSION
+Nach Phase, nicht nach Wochennummer: In einem Plan unter sechzehn Wochen heißen
+die Phasen „Base", „Build" und „Peak" ohne Blocknummer, und eine auf „Base 3"
+geschlüsselte Zeile griff dort gar nicht.
+
 | Phase | Bike | Run |
 |-------|------|-----|
-| Base 3 | 50–60min Z2 | 3×5min jog + 2min walk |
-| Build 1–2 | 60–75min Z2 + Sweet Spot | 3–4×800m–1km jog + 2min walk |
-| Build 3 | 75–90min mit Threshold-Block | 4×1km jog + 90sec walk |
+| Base (späterer Teil) | 50–60min Z2 | 3×5min jog + 2min walk |
+| Build (erste Hälfte) | 60–75min Z2 + Sweet Spot | 3–4×800m–1km jog + 2min walk |
+| Build (letzter Block) | 75–90min mit Threshold-Block | 4×1km jog + 90sec walk |
 | Peak | Race-Simulation | 15–20min kontinuierlich (NUR wenn 4 Wochen schmerzfrei) |
 
 ---
 
 ## RAD-LOGIK
 
-**Quelle für konkrete Workout-Strukturen ist die Zwift-Bibliothek weiter unten.**
-Hier nur die übergeordneten Regeln:
-
 - **Sessions/Woche dynamisch 2–3**, je nach Phase und HRV
-- **Ab Build 2: Threshold UND VO2max erlaubt** (nicht erst ab Build 3)
+- **Ab Build (zweiter Block): Threshold UND VO2max erlaubt**
 - **Sweet Spot bleibt Brot-und-Butter** in allen Build-Phasen
-- **Max 2 Intensitäts-Sessions/Woche** (Rest ist Z2 oder Recovery)
 - **Rad ist die Hauptbelastungs-Quelle** — hier darf Volumen und Intensität hoch sein
+- Die Zahl der harten Einheiten gibt die Phasentabelle vor, nicht diese Zeile
 
 ### SESSION-SKALIERUNG NACH HRV
-| HRV Status | Anpassung |
+Maßgeblich ist die **Normalspanne dieses Athleten** (sie steht oben bei den
+HRV-Daten), nicht ein absoluter Millisekundenwert. Hier standen die Zahlen eines
+einzelnen Athleten; bei einer Normallage um 45 ms hätte diese Tabelle dauerhaft
+Ruhetage verordnet.
+
+| HRV-Status | Anpassung |
 |------------|-----------|
-| 🟢 >80ms | Plan wie vorgesehen, 3× Rad mit 2× Intensität OK |
-| 🟡 70–80ms | 2–3× Rad, max 1× Intensität (Threshold streichen, Sweet Spot bleibt) |
-| 🟠 65–70ms | Nur 2× Rad Z2, keine Intensität |
-| 🔴 <65ms | 1× Rad Z2 oder Rest, Volumen −30% |
-| ⚠️ Fallend 3+ Tage | Deload-Signale beachten, eine Session streichen |
+| 🟢 in der Spanne oder darüber | Plan wie vorgesehen, bis 2 Intensitätseinheiten |
+| 🟡 unter der Spanne, über der roten Grenze | max. 1 Intensität (Threshold streichen, Sweet Spot bleibt) |
+| 🔴 unter der roten Grenze | nur Z2 oder Ruhetag, Volumen −30 % |
+| fallender Trend über drei Tage | eine Einheit streichen, auch wenn die Ampel grün ist |
 
-### TYPISCHE BUILD 2 WOCHE (HRV 🟢)
-- 3× Rad (1× Sweet Spot, 1× Threshold ODER VO2max, 1× Z2/Feel)
-- 2× Lauf (1× mit Tempoanteil, 1× im Brick)
-- 2× Schwimmen
-- 1× Brick (Sa)
-- 0–1× Gym
+Ein Wert **über** der Spanne ist nicht besser als grün, er ist grün — nur eben
+belegt. Er ist kein Grund, zusätzlich zu belasten.
 
+{phasen_block}
+{wochenform_block}
 ## Aktuelle Position
 - Aktuelle Woche: {"Off Season, " + str(week - total_weeks) + ". Woche nach dem Saisonziel" if offseason_block else "Grundlagenphase — zählt nicht als Vorbereitungswoche" if base_block else f"{week}/{total_weeks}"}
 - Phase: {phase}
@@ -476,44 +571,26 @@ Hier nur die übergeordneten Regeln:
 ## Trainingsdaten letzte 7-14 Tage (gemessen)
 {session_summary}
 {reflections_block}
-## HRV-Daten (Garmin Nacht-Messung, Baseline 58-93ms rMSSD)
+## HRV-Daten (Nacht-Messung)
 {hrv_text}
-**HRV-Trend:** {hrv_status}
- 
-## HRV-Trainingsregeln
-| HRV | Status | Aktion |
-|-----|--------|--------|
-| >80ms | 🟢 Oberes Drittel | Normale/harte Einheit |
-| 70-80ms | 🟡 Mitte | Machbar, nicht zu intensiv |
-| 65-70ms | 🟠 Unteres Drittel | Auf Körpergefühl achten |
-| <65ms | 🔴 Niedrig | Intensität reduzieren/Rest |
-| Fallend 3+ Tage | ⚠️ Trend | Akkumulierte Müdigkeit |
- 
+**Richtung und Streuung:** {hrv_status}
+
 ## HR-Modifikatoren
 - Kühlung (Ventilator + kühle Luft): senkt HR ~8-12 bpm
 - Volle Glykogenspeicher (Carbs): senkt HR ~3-5 bpm
 
-## Zwift Workout Bibliothek (Phase: {phase}{" — DELOAD" if is_deload else ""})
-Verwende für jede Bike-Session EINE dieser Strukturen als Basis.
-Skaliere alle FTP%-Angaben auf absolute Watt: FTP = {athlete_profile['ftp_watts']}W.
-Beispiel: 88% FTP = {int(athlete_profile['ftp_watts'] * 0.88)}W, 95% FTP = {int(athlete_profile['ftp_watts'] * 0.95)}W.
+## Rad-Vorgaben in Watt
+Skaliere alle Prozentangaben auf absolute Watt: FTP = {athlete_profile['ftp_watts']}W.
+Beispiel: 88 % FTP = {int(athlete_profile['ftp_watts'] * 0.88)}W, 95 % FTP = {int(athlete_profile['ftp_watts'] * 0.95)}W.
 
-**Intensitätsregel:**
-- 🟢 HRV grün: FTP%-Werte wie angegeben verwenden (bis 95% der Katalog-Prozente)
-- 🟡 HRV gelb: alle FTP%-Werte −3-5% reduzieren
-- 🔴 HRV rot: Nur Endurance-Einheiten, keine Sweet Spot / Threshold / VO2max
+**Intensitätsregel nach HRV:**
+- 🟢 grün: Prozentwerte wie in der Formattabelle dieser Phase
+- 🟡 gelb: alle Prozentwerte um 3–5 % reduzieren
+- 🔴 rot: nur Endurance, kein Sweet Spot, keine Schwelle, kein VO2max
 
-### 🟦 Endurance (Z2-Z3 Grundlage)
-{phase_workouts_endurance}
-
-### 🟨 Sweet Spot & Tempo (Z3-Z4 Übergang)
-{phase_workouts_sst}
-
-### 🟧 Threshold / Lactate (Z4 Schwelle)
-{phase_workouts_threshold}
-
-### 🟥 VO2max & Anaerob (Z5-Z6)
-{phase_workouts_vo2max}
+Baue die Struktur aus der Formattabelle dieser Phase (weiter oben) und rechne
+ihre Prozentwerte in Watt um. Einen passenden Zwift-Namen trägt die App
+hinterher selbst ein — such keinen aus und erfinde keinen.
 
 {season_structure}
  
@@ -584,12 +661,21 @@ selbst — hier ist Struktur ausdrücklich erwünscht.
   sind untereinander nicht vergleichbar.
 
 ### Gym
-- Base 1-2: 2×/Woche | Ab Base 3: 1×/Woche
+- Häufigkeit: in Grundlage und Off Season **zweimal** pro Woche, ab der
+  Aufbauphase **einmal**, in Taper und Wettkampfwoche nichts Schweres. Steht
+  oben eine Phasenvorgabe, gilt deren Angabe.
 - **NUR Termin und Dauer.** Keine Übungen, keine Muskelgruppen, keine Sätze
   oder Wiederholungen — auch nicht in `notes`. Der Athlet gestaltet den Inhalt
   selbst; eine Vorgabe ohne Kenntnis von Ausrüstung und Technikstand wäre
   geraten. Zulässig ist höchstens ein Hinweis zur Einordnung in die Woche
   (etwa "Beine frisch halten für morgen").
+- **Abstand zur Ausdauereinheit: mindestens 3 Stunden.** Lässt sich das an
+  einem Tag nicht einrichten, kommt Kraft **zuerst** und die Ausdauereinheit
+  danach — in der umgekehrten Reihenfolge fällt der Kraftreiz weg.
+- Kraft ist **nicht** das Erste, was bei einer Umfangskürzung gestrichen wird.
+  Sie senkt das Verletzungsrisiko auf etwa ein Drittel und ist damit die
+  wirksamste einzelne Maßnahme im ganzen Plan. Wenn eine Woche kürzer wird,
+  kürze Ausdauerumfang, nicht die Krafteinheit.
  
 ### Zielzeit
 - Ist eine Zielzeit angegeben, ergibt sich daraus das Renntempo. Einheiten im
@@ -610,7 +696,7 @@ selbst — hier ist Struktur ausdrücklich erwünscht.
 
 Erstelle den Plan für **Woche {week}** ({week_start} – {week_end}).
 
-{'🔄 DELOAD-WOCHE: Volumen -40-50%, keine neue Intensität!' if is_deload else ''}
+{'🔄 DELOAD-WOCHE: Volumen -40-50%, keine neue Intensität!' if deload else ''}
 
 **Antworte NUR mit JSON:**
 

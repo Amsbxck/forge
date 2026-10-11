@@ -517,23 +517,52 @@ def reference_split(session) -> dict | None:
 def _harte_schwellen() -> tuple[tuple[str, float], ...]:
     """Die Grenzen aus der Einstufung, nicht daneben gesetzt.
 
-    Zuerst standen hier eigene Zahlen (0.88 / 0.95 / 1.05). Die 0.95 war schon
-    falsch — die Einstufung zieht die Schwelle bei 0.96 —, und zwei Quellen für
-    dieselbe Grenze driften mit der ersten Änderung auseinander. Also importiert.
+    Zuerst standen hier eigene Zahlen (0.88 / 0.95 / 1.05), und zwei Quellen
+    für dieselbe Grenze driften mit der ersten Änderung auseinander. Also
+    importiert. Die 1.05 stand noch als eigene Zahl daneben, weil die
+    Einstufung keine VO₂max-Grenze kannte — jetzt kennt sie eine.
     """
-    from services.classification import IF_SWEET_SPOT, IF_THRESHOLD
+    from services.classification import IF_SWEET_SPOT, IF_THRESHOLD, IF_VO2MAX
 
     return (
         ("sst", IF_SWEET_SPOT),
         ("threshold", IF_THRESHOLD),
-        # VO₂max hat in der Einstufung keine eigene Grenze — dort ist alles über
-        # der Schwelle VO₂max. Für die Zeitmessung ist das zu grob: Zehn Minuten
-        # bei 98 % FTP sind Schwellenarbeit, nicht VO₂max.
-        ("vo2max", 1.05),
+        ("vo2max", IF_VO2MAX),
     )
 
 
 HARTE_SCHWELLEN = _harte_schwellen()
+
+
+def harte_minuten_text(h: dict | None) -> str:
+    """Die harten Minuten als Satzteil — an einer Stelle, nicht an zwei.
+
+    Dieser Text stand wörtlich doppelt, in `core/prompt_templates.py` und in
+    `services/obsidian/notes.py`. Beide nannten dabei feste Prozentzahlen
+    („über 88 % FTP", „über 105 %"), die mit den Grenzen oben nichts zu tun
+    hatten — und „über der Schwelle" war bei der alten Grenze von 96 % schlicht
+    falsch: 96 % liegt nach Coggan *an* der Schwelle, nicht darüber.
+
+    Kumulativ, nicht additiv: Die Schwellenminuten stecken in den
+    Sweetspot-Minuten. „davon" sagt das; eine Aufzählung würde die harte Arbeit
+    doppelt zählen lassen.
+    """
+    if not h:
+        return ""
+    grenzen = dict(HARTE_SCHWELLEN)
+    teile = []
+    if h.get("sst"):
+        teile.append(f"{h['sst']} min ab {grenzen['sst'] * 100:.0f} % FTP")
+    if h.get("threshold"):
+        teile.append(
+            f"davon {h['threshold']} min an der Schwelle oder darüber "
+            f"(ab {grenzen['threshold'] * 100:.0f} %)"
+        )
+    if h.get("vo2max"):
+        teile.append(
+            f"davon {h['vo2max']} min über {grenzen['vo2max'] * 100:.0f} %"
+        )
+    return ", ".join(teile)
 
 
 def harte_minuten(session, ftp: int | None) -> dict | None:

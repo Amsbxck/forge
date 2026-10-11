@@ -273,21 +273,34 @@ def classify(
     limit: int | None = None,
     only_unclassified: bool = True,
     dry_run: bool = True,
+    rewrite_notes: bool = False,
     db: Session = Depends(get_db),
 ):
     """Ist-Daten klassifizieren und dem Plan zuordnen.
 
-    dry_run ist der Standard — der Lauf zeigt erst, was er setzen würde.
+    `dry_run` ist der Standard — der Lauf zeigt erst, was er setzen würde.
+
+    `rewrite_notes` ist zusätzlich und unabhängig davon aus. Eine bestehende
+    Abweichungsnotiz wird dann nicht ersetzt, sondern der Unterschied nur
+    gemeldet. Grund: `?only_unclassified=false&dry_run=false` hat einmal sechs
+    historische Notizen durch „ungeplantes Training" ersetzt, weil die
+    zugehörigen Wochenpläne in dieser Datenbank fehlten. `dry_run` schützt den
+    ganzen Lauf oder nichts; dieser Schalter schützt gezielt das Feld, das sich
+    nicht wiederherstellen lässt.
     """
     _require_table(db)
     from services.classification import classify_all
 
     if not dry_run:
-        return classify_all(db, limit=limit, only_unclassified=only_unclassified)
+        return classify_all(
+            db, limit=limit, only_unclassified=only_unclassified,
+            rewrite_notes=rewrite_notes,
+        )
 
     # Trockenlauf: klassifizieren, aber nichts festschreiben.
     result = classify_all(
-        db, limit=limit, only_unclassified=only_unclassified, commit=False
+        db, limit=limit, only_unclassified=only_unclassified, commit=False,
+        rewrite_notes=rewrite_notes,
     )
     db.rollback()
     result["dry_run"] = True
