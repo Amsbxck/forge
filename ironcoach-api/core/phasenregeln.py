@@ -1,0 +1,172 @@
+"""Was eine Woche je Phase tragen soll — als Leitlinie, nicht als Sperre.
+
+Im Prompt stand dafür genau **eine** Wochenvorlage, „TYPISCHE BUILD 2 WOCHE",
+und die nur fürs Rad. Für Grundlage, Build 1, Build 3, Peak und Taper gab es
+keine Entsprechung, und die Zahl der harten Einheiten kam aus vier Textstellen,
+die sich teils widersprachen („Sessions/Woche dynamisch 2–3", „Max 2
+Intensitäts-Sessions/Woche", eine HRV-Tabelle, die Vorlage selbst).
+
+Die Werte folgen den Phasentabellen aus `researched_training_structures/`:
+
+* Qualitätseinheiten je Woche: Grundlage 1, Aufbau 2, Peak 2, Taper 1–2
+  (Casado 2022, Haugen 2022, Filipas 2022 — polarisiert bzw. pyramidal mit
+  rund 80 % lockerem Umfang).
+* Mindestens 48 Stunden zwischen zwei harten Einheiten (harter Tag — leichter
+  Tag, Casado 2022).
+* Im Taper sinkt der Umfang um 41–60 %, **Intensität und Frequenz bleiben**
+  (Bosquet 2007; Metaanalyse 2023). Harte Einheiten werden kürzer, nicht
+  gestrichen — das war in der alten Fassung gar nicht ausdrückbar.
+* Intervallformate im Aufbau rotieren, weil kein Format nachweislich überlegen
+  ist (Norte 2023).
+* Beim Laufen sind VO2max-Wiederholungen ab drei Minuten kurzen vorzuziehen
+  (Fleckenstein 2025: 4×3 min ergaben 328 s über 90 % VO2max gegen 201 s bei
+  24×30 s). Das gilt **nicht** übertragbar fürs Rad, wo 30/15 gut abschneidet.
+
+Geschlüsselt wird über die Phasen**familie** (`race_types.phase_family`), nicht
+über „Base 2" oder „Build 3". Pläne unter sechzehn Wochen erzeugen unnumerierte
+Etiketten, und jede phasengebundene Regel griff dort bisher ins Leere.
+"""
+
+from __future__ import annotations
+
+from core.einheiten_bibliothek import LAUF_MIN_WIEDERHOLUNG, formate_text
+
+MIN_ABSTAND_TAGE = 2  # 48 Stunden zwischen zwei harten Einheiten
+
+
+# Je Familie: Qualitätseinheiten (von, bis), Krafteinheiten, Leitsatz, Formate.
+PHASENREGELN: dict[str, dict] = {
+    "Grundlage": {
+        "qualitaet": (1, 1),
+        "gym": 2,
+        "leitsatz": "Umfang aufbauen. Rund 80 % des Umfangs locker.",
+        "rad": ("sweet_spot", "threshold_lang"),
+        "lauf": ("tempo", "schwelle_intervalle", "steigerungen", "langer_lauf"),
+        "zusatz": "Steigerungen 1–2× pro Woche, sie kosten keine Erholung.",
+    },
+    "Base": {
+        "qualitaet": (1, 1),
+        "gym": 2,
+        "leitsatz": (
+            "Umfang aufbauen. Rund 80 % des Umfangs locker, pyramidale "
+            "Verteilung."
+        ),
+        "rad": ("sweet_spot", "threshold_lang"),
+        "lauf": ("tempo", "schwelle_intervalle", "steigerungen", "langer_lauf"),
+        "zusatz": "Steigerungen 1–2× pro Woche, sie kosten keine Erholung.",
+    },
+    "Build": {
+        "qualitaet": (2, 2),
+        "gym": 1,
+        "leitsatz": "Sweet Spot bleibt die Brot-und-Butter-Einheit.",
+        "rad": ("sweet_spot", "threshold_lang", "4x8", "4-6x5", "30/15"),
+        "lauf": ("schwelle_intervalle", "1000er", "4x4", "15/15",
+                 "steigerungen", "langer_lauf"),
+        "zusatz": (
+            "Die Rad-Formate über die Wochen **wechseln** — kein Format ist "
+            "nachweislich besser als die anderen, Abwechslung ist deshalb kein "
+            "Kompromiss. Beim **Laufen** gilt das Gegenteil: dort Wiederholungen "
+            f"ab {LAUF_MIN_WIEDERHOLUNG} bevorzugen, lange Intervalle schlagen "
+            "die kurzen deutlich."
+        ),
+    },
+    "Peak": {
+        "qualitaet": (2, 2),
+        "gym": 1,
+        "leitsatz": (
+            "Mindestens eine der beiden im Wettkampftempo. Spezifisch werden, "
+            "nicht härter."
+        ),
+        "rad": ("wettkampftempo_rad", "threshold_lang", "4x8"),
+        "lauf": ("wettkampftempo_lauf", "schwelle_intervalle", "langer_lauf"),
+        "zusatz": "Ab hier eine der beiden Schwimmeinheiten im Freiwasser.",
+    },
+    "Taper": {
+        "qualitaet": (1, 2),
+        "gym": 0,
+        "leitsatz": (
+            "Umfang um 40–60 % senken, **Intensität und Frequenz halten**. "
+            "Harte Einheiten werden kürzer, nicht gestrichen — wer die "
+            "Intensität mit herausnimmt, verliert Spritzigkeit statt sie zu "
+            "sammeln."
+        ),
+        "rad": ("schaerfe", "wettkampftempo_rad"),
+        "lauf": ("wettkampftempo_lauf", "steigerungen"),
+        "zusatz": "",
+    },
+    "Race Week": {
+        "qualitaet": (1, 1),
+        "gym": 0,
+        "leitsatz": (
+            "Eine kurze Schärfeeinheit, sonst locker. Kein Umfang, keine neue "
+            "Intensität, nichts Schweres im Kraftraum."
+        ),
+        "rad": ("schaerfe",),
+        "lauf": ("steigerungen",),
+        "zusatz": "Die Schärfeeinheit zwei bis drei Tage vor dem Rennen.",
+    },
+}
+
+# Off Season und die Grundlagenphase bringen ihre eigenen Blöcke mit
+# (`services/offseason.py`, `services/base_period.py`). Für sie gibt es hier
+# bewusst keinen Eintrag — zwei Quellen für dieselbe Vorgabe wären der nächste
+# Widerspruch.
+OHNE_PHASENTABELLE = ("Off Season",)
+
+
+def regeln_fuer(phase: str | None) -> dict | None:
+    """Die Regeln zur Phase — über die Familie, nicht über die Blocknummer."""
+    from core.race_types import phase_family
+
+    familie = phase_family(phase)
+    if not familie or familie in OHNE_PHASENTABELLE:
+        return None
+    return PHASENREGELN.get(familie)
+
+
+def prompt_block(phase: str | None, deload: bool = False) -> str:
+    """Die Phasenvorgabe als Prompt-Abschnitt."""
+    regeln = regeln_fuer(phase)
+    if not regeln:
+        return ""
+
+    von, bis = regeln["qualitaet"]
+    anzahl = f"{von}" if von == bis else f"{von}–{bis}"
+    zeilen = [
+        f"## WOCHENVORGABE DIESER PHASE ({phase})",
+        "",
+        f"- **Qualitätseinheiten: {anzahl} pro Woche.** Gezählt werden harte "
+        f"Einheiten über alle Disziplinen — Rad, Lauf und ein Brick im "
+        f"Wettkampftempo zählen mit, nicht nur das Rad.",
+        "- Mindestens **48 Stunden** zwischen zwei harten Einheiten.",
+        f"- {regeln['leitsatz']}",
+    ]
+    if regeln.get("zusatz"):
+        zeilen.append(f"- {regeln['zusatz']}")
+    if regeln["gym"]:
+        zeilen.append(
+            f"- Krafttraining **{regeln['gym']}× pro Woche** — nur als Termin "
+            f"mit Dauer, ohne Übungen und Sätze."
+        )
+    else:
+        zeilen.append("- Kein schweres Krafttraining in dieser Phase.")
+
+    if deload:
+        zeilen.append(
+            "- **Deload-Woche:** Umfang 40–50 % herunter, eine Qualitätseinheit "
+            "weniger als sonst, keine neue Intensität."
+        )
+
+    # Die Formate mit ihren Prozentwerten. Ohne sie wäre „rotiere zwischen
+    # 30/15 und 4×8" eine Anweisung ohne Zielwert — genau das, was die
+    # entfernte Zwift-Bibliothek vorher geliefert hat.
+    bibliothek = formate_text(regeln.get("rad", ()), regeln.get("lauf", ()))
+    if bibliothek:
+        zeilen.append("\n### Erlaubte Formate in dieser Phase\n" + bibliothek)
+
+    zeilen.append(
+        "\nDas sind Leitlinien, keine Sperren. Wenn du begründet abweichst, "
+        "schreibe den Grund in den `coaching_comment` — dann steht er beim "
+        "nächsten Plan mit in der Rückschau."
+    )
+    return "\n".join(zeilen)

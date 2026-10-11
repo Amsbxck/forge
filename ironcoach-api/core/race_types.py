@@ -183,6 +183,59 @@ def phase_for_week(week: int, total_weeks: int = 33) -> str:
     return "Base"
 
 
+def phase_family(phase: str | None) -> str:
+    """Der Phasenname ohne Blocknummer: „Base 2" → „Base".
+
+    Phasengebundene Regeln waren gegen die Etiketten eines 33-Wochen-Plans
+    geschrieben („ab Build 2", „Base 1-2: 2×/Woche"). `phase_for_week`
+    unterteilt aber nur Phasen ab sechs Wochen — ein 12-Wochen-Plan erzeugt
+    „Base", „Build", „Peak" ohne Nummer, und keine dieser Regeln griff dort.
+    Über die Familie greifen sie in jeder Planlänge.
+    """
+    roh = (phase or "").strip()
+    if not roh:
+        return ""
+    teile = roh.rsplit(" ", 1)
+    if len(teile) == 2 and teile[1].isdigit():
+        return teile[0]
+    return roh
+
+
+def phase_block(phase: str | None) -> int | None:
+    """Die Blocknummer einer Phase: „Base 2" → 2, „Taper" → None."""
+    teile = (phase or "").strip().rsplit(" ", 1)
+    if len(teile) == 2 and teile[1].isdigit():
+        return int(teile[1])
+    return None
+
+
+def is_deload(week: int, total_weeks: int = 33) -> bool:
+    """Ist diese Woche eine Entlastungswoche?
+
+    Eine Quelle statt zwei. Im Prompt entschied `week % 4 == 0`, während die
+    Saisonübersicht im selben Prompt die **letzte Woche jeder Phase** als
+    Deload auswies — bei 33 Wochen also W12/24/30 gegen W4/8/12/16/20/24/28/32.
+    Schlimmer: bei 12, 16, 24 und 40 Wochen ist `total_weeks % 4 == 0`, womit
+    die **Wettkampfwoche** als „Volumen −40–50 %" angekündigt wurde.
+
+    Sehr kurze Phasen bekommen keinen Deload: in einer Phase aus zwei Wochen
+    wäre die Hälfte Entlastung.
+    """
+    if week < 1 or week > total_weeks:
+        return False
+    if week == total_weeks:  # Wettkampfwoche ist nie ein Deload
+        return False
+    for _name, start, end in phase_boundaries(total_weeks):
+        if start <= week <= end:
+            if end - start + 1 < 4:
+                return False
+            # Die Taperwochen sind schon Entlastung, sie brauchen keine zweite.
+            if _name == "Taper":
+                return False
+            return week == end
+    return False
+
+
 def plan_start_for(race_date: date, total_weeks: int) -> date:
     """Beginn der Vorbereitung, sodass der Renntag in die letzte Woche fällt.
 
