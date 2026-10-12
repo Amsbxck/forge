@@ -546,24 +546,57 @@ def build_plan_prompt(
 
 ### REGELN
 - Nur **Bike → Run** (Swim → Bike erst ab der Peak-Phase)
-- Laufanteil durchgehend, **es sei denn**, die Athletenvorgaben oder der
-  Gesundheitsabschnitt verlangen Gehpausen — oder der Athlet hat darum gebeten
-- IMMER kürzer als Standalone-Lauf der gleichen Woche
-- KEINE Strides in Brick-Läufen
-- Ziel: Umgewöhnung der Beine, NICHT Pace
-- Tag nach Brick = Rest, Schwimmen oder Rad — KEIN Standalone-Lauf
+- **Der Laufanteil ist ein Lauf.** Er läuft durchgehend und steigert sich wie
+  jeder andere Lauf: Die Einzellauf-Grenze (≤ 10 % über dem längsten Lauf der
+  letzten 30 Tage) und die Wochenprogression gelten für ihn mit. Gehpausen nur,
+  wenn die Athletenvorgaben oder der Gesundheitsabschnitt sie verlangen — oder
+  der Athlet darum bittet.
+- **Geübt wird vor allem die erste Viertelstunde.** Die Veränderung von Technik
+  und Sauerstoffkosten steckt in den ersten Minuten nach dem Rad (erste 500 m;
+  bei einem Athleten noch nach 5 min). Kurze Ablaufstrecken sind deshalb
+  sinnvoll, und ein Mehrfachwechsel wiederholt genau diesen Teil.
+- **Beurteile den Brick-Lauf gegen die Pace nach dem Rad**, nicht gegen die
+  Frischpace: Bei gleichem Puls und gleichem Empfinden ist er 6–9 % langsamer.
+  Eine langsamere Pace ist hier also kein Fehler und kein Grund, das Ziel
+  herunterzusetzen.
+- **Das Rad davor mit gleichmäßiger Leistung**, keine großen Schwankungen.
+  Kleine Schwankungen (± 15 %) sind ohne Wirkung.
+- Ein Brick zählt als **Qualitätseinheit**, sobald Rad- **oder** Laufanteil im
+  Wettkampftempo oder härter liegt. Dann gilt die 48-Stunden-Regel danach wie
+  nach jeder harten Einheit. Nach einem **lockeren** Ablauf ist ein
+  eigenständiger Lauf am Folgetag zulässig.
+- Steigerungen am Ende eines **lockeren** Brick-Laufs sind möglich; in einem
+  Brick im Wettkampftempo nicht — dort ist das Tempo schon der Reiz.
 
 ### BRICK-PROGRESSION
 Nach Phase, nicht nach Wochennummer: In einem Plan unter sechzehn Wochen heißen
 die Phasen „Base", „Build" und „Peak" ohne Blocknummer, und eine auf „Base 3"
 geschlüsselte Zeile griff dort gar nicht.
 
+Gestaffelt wird über die **Intensität des Laufs**, wie es die Studientabelle
+vorgibt — nicht über Gehpausen:
+
 | Phase | Bike | Run |
 |-------|------|-----|
-| Base (späterer Teil) | 50–60min Z2 | 3×5min jog + 2min walk |
-| Build (erste Hälfte) | 60–75min Z2 + Sweet Spot | 3–4×800m–1km jog + 2min walk |
-| Build (letzter Block) | 75–90min mit Threshold-Block | 4×1km jog + 90sec walk |
-| Peak | Race-Simulation | 15–20min kontinuierlich (NUR wenn 4 Wochen schmerzfrei) |
+| Grundlage / Base | 50–75 min Z2 | 10–20 min locker (70–80 %), durchgehend |
+| Build (erste Hälfte) | 60–75 min Z2 + Sweet Spot | 15–25 min, davon ein Block im Wettkampftempo |
+| Build (letzter Block) | 75–90 min mit Schwellenblock | Wettkampftempo, oder Mehrfachwechsel: 3–4 × (10 min Rad / 5 min Lauf) |
+| Peak | Rennsimulation, gleichmäßige Leistung | Wettkampftempo, 20–30 min durchgehend |
+
+Die **Längen** in der Tabelle sind Startwerte, kein Studienergebnis: Keine Studie
+legt die beste Häufigkeit, Länge oder Wechselzahl von Bricks fest. Verbindlich
+ist die Staffelung der Intensität und die Einzellauf-Grenze — innerhalb davon
+darf der Lauf mit der Form des Athleten wachsen.
+
+**Nicht vorgesehen:** ein VO2max-Lauf direkt nach dem Rad. Keine Studie hat das
+geprüft — die untersuchte Obergrenze ist das Wettkampftempo. Wer VO2max laufen
+will, läuft sie ausgeruht als eigene Einheit.
+
+**Wenn sich die Lauftechnik nach dem Rad deutlich verändert**, ist Plyometrie
+das belegte Mittel: Sie hat die veränderte Bewegung in acht Wochen korrigiert
+(Number needed to treat = 2). Mäßig trainierte Triathleten sind davon stark
+betroffen (7 von 15), Elite gar nicht (0 von 7) — es ist also ein Zustand, der
+sich wegtrainieren lässt, keine Eigenschaft.
 
 ---
 

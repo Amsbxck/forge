@@ -151,7 +151,8 @@ Ziel 120–130 % der Schwellengeschwindigkeit.
 | **Beleg** | Haugen 2022 — Schnelligkeit in kleinen Dosen |
 
 Gerade in der Grundlage wertvoll, weil dort sonst nichts Schnelles passiert.
-**Nicht** in Brick-Läufen.
+Am Ende eines **lockeren** Brick-Laufs möglich; in einem Brick im
+Wettkampftempo nicht — dort ist das Tempo schon der Reiz.
 
 ### 15/15 als Abwechslung
 
