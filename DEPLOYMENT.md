@@ -425,10 +425,56 @@ Tag the server node with `tag:ironcoach` when it joins
 
 ## CI/CD
 
-Both platforms auto-deploy on every push:
+Both platforms auto-deploy on every push, but **over different paths** — und das
+ist der Grund, warum eines von beiden stehen bleiben kann, während das andere
+durchläuft:
 
-- **Vercel** → push to default branch redeploys the frontend
-- **Railway** → push to default branch rebuilds the backend container
+- **Vercel** hängt direkt an **GitLab** (Webhook) → Frontend
+- **Railway** hängt am **GitHub-Spiegel** (Push-Mirror) → Backend
+
+```
+GitLab main ──Webhook──────────────→ Vercel   (Frontend)
+            └─Push-Mirror─→ GitHub ─→ Railway (Backend)
+```
+
+### Wenn nur eines von beiden deployt
+
+Erst feststellen, welcher Pfad hängt, statt beide zu verdächtigen. Der Spiegel
+und die Railway-Deployments sind ohne Anmeldung sichtbar:
+
+```sh
+# Steht der Spiegel auf dem neuen Commit?
+curl -s https://api.github.com/repos/Amsbxck/forge/commits/main | jq -r .sha
+
+# Hat Railway gebaut? (Vercel taucht hier nie auf — es hängt an GitLab)
+curl -s https://api.github.com/repos/Amsbxck/forge/deployments | jq -r '.[0].sha'
+
+# Läuft das Backend auf dem neuen Commit?
+curl -s https://forge-production-e11d.up.railway.app/health
+```
+
+Beim Frontend sagt die Commit-Nummer nichts — dort prüft man am ausgelieferten
+Bundle, ob die neue Fassung wirklich darin steht. Der Edge-Cache antwortet sonst
+minutenlang mit der alten Seite (`x-vercel-cache: HIT`):
+
+```sh
+idx=$(curl -s -H 'Cache-Control: no-cache' "https://ironcoach-ai.vercel.app/?cb=$(date +%s)")
+js=$(printf '%s' "$idx" | grep -o '/assets/index-[A-Za-z0-9_-]*\.js' | head -1)
+curl -s "https://ironcoach-ai.vercel.app$js" | grep -c "<eine neue Zeichenkette>"
+```
+
+**Die Falle, die am 12.10.2026 eine halbe Stunde gekostet hat:** GitLab schaltet
+einen Webhook nach mehreren Fehlversuchen **selbst ab**. Danach feuert er auch
+bei einem fehlerfreien Push nicht mehr — Railway deployte, Vercel nicht, und im
+Repo sah alles richtig aus. Zu finden unter GitLab → **Settings → Webhooks**,
+dort steht der Haken als fehlgeschlagen; **Edit → Test → Push events** gibt ihn
+wieder frei (200 = in Ordnung, 401/403 = der Zugang dahinter ist abgelaufen,
+dann in Vercel unter Settings → Git das Repository trennen und neu verbinden).
+
+Ein Testaufruf **baut nichts** — er schickt nur eine Probelast. Nach dem
+Freigeben braucht es ein echtes Push-Ereignis oder einen **Deploy Hook**
+(Vercel → Settings → Git → Deploy Hooks): eine URL, die unabhängig vom Webhook
+einen Build auslöst. Für genau diesen Fall die robustere Leitung.
 
 For preview branches:
 - Vercel makes a preview URL per PR/branch automatically
