@@ -1,3 +1,4 @@
+import { phaseFamilie } from './phasen'
 /** Die Farbfamilien der Anwendung — eine Quelle für alle Ansichten.
  *
  *  Vorher lag dieselbe Zuordnung in fünf Dateien nebeneinander und driftete
@@ -131,8 +132,10 @@ export const PHASE_COLOR = {
 export function phaseColor(phase) {
   const name = (phase || '').toLowerCase().trim()
   if (!name) return 'var(--text-muted)'
-  for (const schluessel of ['grundlage', 'base', 'build', 'peak', 'taper', 'benchmark', 'race', 'off']) {
-    if (name.startsWith(schluessel)) return PHASE_COLOR[schluessel]
-  }
-  return ACCENT
+  // Über `phaseFamilie`, nicht über `startsWith`: Das Backend nennt die
+  // Grundlage kurz vor dem Aufbaustart "Vorbereitung auf den Aufbau", und die
+  // beginnt mit keinem der Schlüsselwörter — sie fiel durch und wurde cyan
+  // statt grün.
+  const familie = phaseFamilie(name)
+  return familie ? PHASE_COLOR[familie] : ACCENT
 }

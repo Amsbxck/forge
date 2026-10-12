@@ -7,6 +7,7 @@ import {
 import WeekCalendar from '../components/WeekCalendar'
 import PlanExport from '../components/PlanExport'
 import HealthStatus from '../components/HealthStatus'
+import PlanOptionen from '../components/PlanOptionen'
 import { montagMitVersatz } from '../utils/dates'
 import { phaseColor } from '../utils/colors'
 
@@ -429,6 +430,19 @@ export default function WeeklyPlan() {
 
           {/* Calendar */}
           <WeekCalendar days={calendarDays} onPersisted={loadPlanned} />
+
+          {/* Was sich der Athlet wünschen kann — direkt unter der Woche, weil
+              die Entscheidung dort fällt. Ein Klick schreibt den Wunsch in das
+              Feld oben, statt ihn nur nachzuschlagen. */}
+          <div className="mt-4">
+            <PlanOptionen
+              phase={plan?.plan_phase}
+              onWunsch={text => {
+                setRequests(v => (v.trim() ? `${v.trim()} ${text}` : text))
+                window.scrollTo({ top: 0, behavior: 'smooth' })
+              }}
+            />
+          </div>
         </div>
       )}
 
