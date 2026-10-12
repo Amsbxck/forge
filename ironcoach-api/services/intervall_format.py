@@ -16,8 +16,13 @@ Zwei Dinge brauchen dasselbe Wissen:
   `planned_sessions.details` — bisher las das niemand; gelesen wurden nur die
   *absolvierten* Strukturen, und die nur 14 Tage weit.
 
-Erkannt wird bewusst wenig und sicher: `4×8min`, `3×3min`, `30/15`, `40/20`.
-Was nicht sicher erkennbar ist, bleibt `None` und wird nicht geraten.
+Erkannt wird bewusst wenig und sicher: `4×8min`, `3×3min`, `30/15`, `40/20`,
+beim Laufen zusätzlich Streckenwiederholungen (`10×1000 m`, `20×400 m`) und
+`10-20-30`. Was nicht sicher erkennbar ist, bleibt `None` und wird nicht
+geraten.
+
+Beim Laufen wird **nicht** gleichwertig rotiert wie beim Rad — siehe
+`lauf_rotation`.
 """
 
 from __future__ import annotations
@@ -41,6 +46,15 @@ WIEDERHOLUNG = re.compile(
     re.IGNORECASE,
 )
 
+# "10×1000 m", "4–5×1200m", "20 x 400 m" — Laufwiederholungen über eine
+# Strecke. Bahnformate stehen fast immer so, nicht in Minuten; ohne dieses
+# Muster waren 1000er, 1200er und 400er für die Rotation unsichtbar. Drei bis
+# vier Ziffern und ein alleinstehendes „m", damit „5×6 min" nicht passt.
+STRECKE = re.compile(r"(\d+)\s*[×x]\s*(\d{3,4})\s*m\b(?!in)", re.IGNORECASE)
+
+# „10-20-30" (Gunnarsson & Bangsbo) — ein benanntes Format, kein Wechselpaar.
+ZEHN_ZWANZIG_DREISSIG = re.compile(r"\b10\s*[-–/]\s*20\s*[-–/]\s*30\b")
+
 # "@110-115% FTP", "@88% FTP"
 PROZENT = re.compile(r"@\s*(\d+)(?:\s*[-–]\s*(\d+))?\s*%")
 
@@ -60,12 +74,20 @@ class Struktur:
     prozent_min: int | None = None
     prozent_max: int | None = None
     wechsel: tuple[int, int] | None = None
+    # Laufen: Wiederholungen über eine Strecke statt über eine Dauer.
+    strecke_m: int | None = None
+    # Ein benanntes Format ohne Zahlenmuster, etwa „10-20-30".
+    benannt: str | None = None
 
     @property
     def kennung(self) -> str | None:
-        """Der kurze Name des Formats: „4x8", „30/15"."""
+        """Der kurze Name des Formats: „4x8", „30/15", „10x1000m"."""
+        if self.benannt:
+            return self.benannt
         if self.wechsel:
             return f"{self.wechsel[0]}/{self.wechsel[1]}"
+        if self.wdh and self.strecke_m:
+            return f"{self.wdh}x{self.strecke_m}m"
         if self.wdh and self.dauer_s:
             if self.dauer_s % 60 == 0:
                 return f"{self.wdh}x{self.dauer_s // 60}"
@@ -73,7 +95,8 @@ class Struktur:
         return None
 
     def __bool__(self) -> bool:
-        return bool(self.wechsel or (self.wdh and self.dauer_s))
+        return bool(self.benannt or self.wechsel
+                    or (self.wdh and (self.dauer_s or self.strecke_m)))
 
 
 def _sekunden(zahl: str, rest: str | None, einheit: str) -> int:
@@ -85,6 +108,9 @@ def aus_text(text: str | None) -> Struktur:
     """Format aus einer Freitextbeschreibung — Katalog oder Vorgabe."""
     if not text:
         return Struktur()
+
+    if ZEHN_ZWANZIG_DREISSIG.search(text):
+        return Struktur(benannt="10-20-30")
 
     wechsel = None
     if treffer := WECHSEL.search(text):
@@ -101,13 +127,23 @@ def aus_text(text: str | None) -> Struktur:
         if not (1 <= wdh <= 30 and 30 <= dauer_s <= 60 * 40):
             wdh = dauer_s = None
 
+    # Streckenwiederholungen nur, wenn keine Minutenserie erkannt wurde — eine
+    # Einheit hat ein Arbeitsformat, und „6×6 min" ist kein Bahnformat.
+    strecke_m = None
+    if not wdh and (treffer := STRECKE.search(text)):
+        anzahl, meter = int(treffer.group(1)), int(treffer.group(2))
+        # 200 m bis 3 km, 2 bis 30 Wiederholungen — sonst ist es eher eine
+        # Jahreszahl oder eine Gesamtstrecke.
+        if 2 <= anzahl <= 30 and 200 <= meter <= 3000:
+            wdh, strecke_m = anzahl, meter
+
     p_min = p_max = None
     if treffer := PROZENT.search(text):
         p_min = int(treffer.group(1))
         p_max = int(treffer.group(2) or treffer.group(1))
 
     return Struktur(wdh=wdh, dauer_s=dauer_s, prozent_min=p_min,
-                    prozent_max=p_max, wechsel=wechsel)
+                    prozent_max=p_max, wechsel=wechsel, strecke_m=strecke_m)
 
 
 def aus_vorgabe(details: dict | None, ftp: int | None = None) -> Struktur:
@@ -267,12 +303,186 @@ def letzte_formate(db, bis, wochen: int = 6, user_id: int | None = None) -> list
 
     aus = []
     for e in einheiten:
-        if (e.training_type or "").lower() not in ROTIERBAR:
+        typ = (e.training_type or "").lower()
+        if typ not in ROTIERBAR:
             continue
         kennung = aus_vorgabe(e.details, ftp).kennung
+        # Ein Tempolauf ist durchgehend und hat kein Wiederholungsmuster. Er
+        # gehört beim Laufen aber in den Schwellentopf — ohne eigene Kennung
+        # fiele er aus der Reihe, und die Rotation schlüge ihn nie vor.
+        if not kennung and typ == "tempo" and e.discipline == "run":
+            kennung = "Tempo"
         if kennung:
             aus.append((e.planned_date, e.discipline, e.training_type, kennung))
     return aus
+
+
+# ── Laufrotation ────────────────────────────────────────────────────────────
+#
+# Beim Rad ist kein Format nachweislich besser (Norte 2023), also wird
+# gleichwertig gewechselt. Beim Laufen gilt das nur zur Hälfte, und genau das
+# muss die Rotation abbilden:
+#
+#   * **Schwelle** — 5×6 min, 6×1600 m, 10×1000 m, 20–25×400 m und der
+#     Tempolauf sind gleichwertige Wege zur selben Schwellenarbeit (Casado
+#     2022/2023). Hier wird frei gewechselt wie beim Rad.
+#   * **VO2max** — Wiederholungen ab drei Minuten sind der Standard: 4×3 min
+#     ergaben 328 s über 90 % VO2max, 24×30 s nur 201 s (Fleckenstein 2025).
+#     Gewechselt wird zwischen den **langen** Formaten. 15/15 und 30/30 stehen
+#     im Dokument ausdrücklich „as variety" — also gelegentlich, nie zweimal
+#     hintereinander, und im Peak gar nicht.
+#
+# Die Schlüssel sind kanonisch: „10x1000m" und „6x1000m" sind beide 1000er.
+# Welcher Topf gilt, entscheidet der Trainingstyp der Einheit, nicht die
+# Strecke — 10×1000 m bei 95–102 % ist Schwelle, 5×1000 m bei 107–110 % VO2max.
+
+LAUF_SCHWELLE = {
+    "6-min": "5×6 min",
+    "1600er": "6×1600 m",
+    "1000er": "10×1000 m",
+    "400er": "20–25×400 m",
+    "Tempo": "Tempolauf 20–40 min",
+}
+LAUF_VO2_LANG = {
+    "1000er": "5–6×1000 m",
+    "1200er": "4–5×1200 m",
+    "4-min": "4×4 min",
+}
+LAUF_VO2_KURZ = {
+    "15/15": "15/15",
+    "30/30": "30/30",
+}
+LAUF_ZEITSPAREND = {"10-20-30": "10-20-30"}
+
+TOPF_JE_TYP = {
+    "threshold": "schwelle",
+    "tempo": "schwelle",
+    "vo2max": "vo2max",
+    "intervals": "vo2max",
+}
+
+
+def lauf_kanon(kennung: str | None) -> str | None:
+    """„10x1000m" → „1000er", „5x6" → „6-min", „15/15" bleibt. Sonst None."""
+    if not kennung:
+        return None
+    if kennung in ("15/15", "30/30", "10-20-30", "Tempo"):
+        return kennung
+    if treffer := re.fullmatch(r"\d+x(\d+)m", kennung):
+        return f"{treffer.group(1)}er"
+    if treffer := re.fullmatch(r"\d+x(\d+)(?::\d+)?", kennung):
+        return f"{treffer.group(1)}-min"
+    return None
+
+
+def _bezeichnung(schluessel: str, topf: str) -> str:
+    """Der lesbare Name — **je Topf**. „1000er" heißt in der Schwelle
+    „10×1000 m", bei VO2max „5–6×1000 m": dieselbe Strecke, eine andere
+    Einheit. Ohne den Topf bekäme die VO2max-Einheit die Schwellenvorgabe."""
+    if topf == "schwelle":
+        return LAUF_SCHWELLE.get(schluessel, schluessel)
+    for tabelle in (LAUF_VO2_LANG, LAUF_VO2_KURZ, LAUF_ZEITSPAREND):
+        if schluessel in tabelle:
+            return tabelle[schluessel]
+    return schluessel
+
+
+def _aufzaehlung(namen: list[str]) -> str:
+    if not namen:
+        return ""
+    if len(namen) == 1:
+        return namen[0]
+    return ", ".join(namen[:-1]) + " oder " + namen[-1]
+
+
+def lauf_rotation(formate: list[tuple], phase: str | None) -> list[str]:
+    """Rotationszeilen fürs Laufen, getrennt nach Schwelle und VO2max.
+
+    `formate` sind die Einträge aus `letzte_formate`, ältester zuerst.
+    """
+    from core.race_types import phase_family
+
+    familie = phase_family(phase)
+    schwelle, vo2 = [], []
+    for _tag, disziplin, typ, kennung in formate:
+        if disziplin != "run":
+            continue
+        topf = TOPF_JE_TYP.get((typ or "").lower())
+        schluessel = lauf_kanon(kennung)
+        if not topf or not schluessel:
+            continue
+        (schwelle if topf == "schwelle" else vo2).append(schluessel)
+
+    zeilen = []
+    if schwelle:
+        zeilen.append(
+            "- Zuletzt vorgegeben (Lauf, Schwelle): "
+            + " · ".join(_bezeichnung(s, "schwelle") for s in schwelle)
+        )
+        letztes = schwelle[-1]
+        # Die letzten **zwei** auslassen: Der Topf hat fünf gleichwertige
+        # Formate, und nur das letzte auszuschließen hieße, dass zwei sich
+        # abwechseln, während die übrigen drei nie drankommen.
+        zuletzt = set(schwelle[-2:])
+        andere = [n for k, n in LAUF_SCHWELLE.items() if k not in zuletzt]
+        zeilen.append(
+            f"- **Schwelle beim Laufen: diese Woche ein anderes Format als "
+            f"{_bezeichnung(letztes, 'schwelle')}** — etwa "
+            f"{_aufzaehlung(andere[:3])}. Alle bei 95–102 % mit 30–60 s Pause, "
+            f"der Tempolauf durchgehend bei 92–97 %. Die Formate sind "
+            f"gleichwertig (Casado 2022/2023), der Wechsel ist also wie beim Rad "
+            f"kein Kompromiss."
+        )
+
+    if vo2:
+        zeilen.append(
+            "- Zuletzt vorgegeben (Lauf, VO2max): "
+            + " · ".join(_bezeichnung(s, "vo2max") for s in vo2)
+        )
+        letztes = vo2[-1]
+        lang = [n for k, n in LAUF_VO2_LANG.items() if k != letztes]
+        beleg = (
+            "Wiederholungen ab drei Minuten sind beim Laufen der Standard, "
+            "anders als beim Rad: 4×3 min ergaben 328 s über 90 % VO2max, "
+            "24×30 s nur 201 s (Fleckenstein 2025)."
+        )
+        if letztes in LAUF_VO2_KURZ:
+            # War die letzte selbst kurz, gibt es kein „anderes langes" — es
+            # geht einfach zurück zu den langen.
+            zeilen.append(
+                f"- **VO2max beim Laufen: diesmal wieder ein langes Format** "
+                f"nach {letztes} — {_aufzaehlung(lang)}. {beleg}"
+            )
+        else:
+            zeilen.append(
+                f"- **VO2max beim Laufen: ein anderes langes Format als "
+                f"{_bezeichnung(letztes, 'vo2max')}** — {_aufzaehlung(lang)}. "
+                f"{beleg}"
+            )
+        # Kurz war die vorletzte, nicht die letzte — dann eigens sagen, dass
+        # noch keine neue kurze dran ist. War es die letzte, steht das schon.
+        kurz_zuletzt = [s for s in vo2[-2:] if s in LAUF_VO2_KURZ]
+        if familie == "Peak":
+            zeilen.append(
+                "- Im Peak **keine** kurzen Formate (15/15, 30/30). Ist die "
+                "Woche eng, ist 10-20-30 die zeitsparende Option (Gunnarsson & "
+                "Bangsbo 2012: Fortschritt bei 54 % weniger Umfang)."
+            )
+        elif kurz_zuletzt:
+            if letztes not in LAUF_VO2_KURZ:
+                zeilen.append(
+                    f"- Die vorletzte VO2max-Einheit war kurz "
+                    f"({', '.join(kurz_zuletzt)}) — **noch keine neue kurze.** "
+                    f"Die kurzen sind Abwechslung, kein Standard."
+                )
+        else:
+            zeilen.append(
+                "- Als gelegentliche Abwechslung ist auch 15/15 oder 30/30 "
+                "möglich, mit **kleinem** Tempounterschied zwischen schnell und "
+                "locker (Billat 2001: kleiner Unterschied 14 min bei VO2max, "
+                "extremes Format nur 7 min). Nicht zweimal hintereinander."
+            )
+    return zeilen
 
 
 def rotation_block(db, bis, phase: str | None, wochen: int = 6,
@@ -301,6 +511,11 @@ def rotation_block(db, bis, phase: str | None, wochen: int = 6,
 
     zeilen = ["\n## ABWECHSLUNG DER INTERVALLFORMATE"]
     for disziplin, reihe in sorted(je_disziplin.items()):
+        # Laufen bekommt eigene Zeilen, getrennt nach Schwelle und VO2max —
+        # eine gemeinsame Reihe würde 10×1000 m Schwelle und 5×1000 m VO2max
+        # als dasselbe lesen.
+        if disziplin == "run":
+            continue
         zeilen.append(f"- Zuletzt vorgegeben ({disziplin}): {' · '.join(reihe)}")
 
     rad = je_disziplin.get("bike", [])
@@ -317,13 +532,9 @@ def rotation_block(db, bis, phase: str | None, wochen: int = 6,
             f"überlegen, deshalb ist der Wechsel kein Kompromiss: Er hält die "
             f"Reize vollständig und die Einheiten erträglich."
         )
-    if je_disziplin.get("run"):
-        zeilen.append(
-            "- **Beim Laufen gilt das nicht gleich:** dort sind "
-            "VO2max-Wiederholungen ab drei Minuten den kurzen deutlich "
-            "überlegen. Variiere die Streckenlänge und das Gelände, nicht die "
-            "Intervalldauer nach unten."
-        )
+    zeilen.extend(lauf_rotation(formate, phase))
+    if len(zeilen) == 1:
+        return ""
     return "\n".join(zeilen) + "\n"
 
 

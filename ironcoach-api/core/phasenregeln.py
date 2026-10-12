@@ -105,8 +105,12 @@ PHASENREGELN: dict[str, dict] = {
         "gym": 1,
         "leitsatz": "Sweet Spot bleibt die Brot-und-Butter-Einheit.",
         "rad": ("sweet_spot", "threshold_lang", "4x8", "4-6x5", "30/15"),
-        "lauf": ("schwelle_intervalle", "1000er", "4x4", "15/15",
-                 "steigerungen", "langer_lauf"),
+        # Laufdokument, Aufbau: „1 threshold + 1 track VO2max — Track:
+        # 1000s/1200s/4×4, 15/15 or 30/30 as variety". Die beiden kurzen
+        # Formate stehen in der Liste, die Rotation lässt sie aber nur selten
+        # zu — siehe `services/intervall_format.lauf_rotation`.
+        "lauf": ("schwelle_intervalle", "1000er", "1200er", "4x4", "15/15",
+                 "30/30", "steigerungen", "langer_lauf"),
         "zusatz": (
             "Die Rad-Formate über die Wochen **wechseln** — kein Format ist "
             "nachweislich besser als die anderen, Abwechslung ist deshalb kein "
@@ -125,7 +129,12 @@ PHASENREGELN: dict[str, dict] = {
             "nicht härter."
         ),
         "rad": ("wettkampftempo_rad", "threshold_lang", "4x8"),
-        "lauf": ("wettkampftempo_lauf", "schwelle_intervalle", "langer_lauf"),
+        # Laufdokument, Peak: „track reps ≥ 3 min; 10-20-30 as a
+        # time-efficient option". Vorher stand hier gar kein VO2max-Laufformat,
+        # obwohl das Dokument sie im Peak ausdrücklich behält — nur die kurzen
+        # (15/15, 30/30) fallen hier weg.
+        "lauf": ("wettkampftempo_lauf", "schwelle_intervalle", "1000er",
+                 "1200er", "4x4", "10-20-30", "langer_lauf"),
         "zusatz": "Ab hier eine der beiden Schwimmeinheiten im Freiwasser.",
     },
     "Taper": {

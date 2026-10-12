@@ -175,6 +175,25 @@ Wettkampftempo nicht — dort ist das Tempo schon der Reiz.
 | **Phase** | Peak — als zeitsparende Option |
 | **Beleg** | Gunnarsson & Bangsbo 2012 |
 
+### Formatwechsel beim Laufen
+
+Die App wechselt auch beim Laufen die Formate — aber **nicht gleichwertig**
+wie beim Rad. Sie trennt zwei Töpfe:
+
+| Topf | Formate | Wie gewechselt wird |
+|---|---|---|
+| **Schwelle** | 5×6 min · 6×1600 m · 10×1000 m · 20–25×400 m · Tempolauf | frei — die Formate sind gleichwertig (Casado 2022/2023) |
+| **VO2max** | 5–6×1000 m · 4–5×1200 m · 4×4 min | zwischen den **langen** Formaten — sie sind der Standard |
+| **VO2max, Abwechslung** | 15/15 · 30/30 | gelegentlich, nie zweimal hintereinander, nicht im Peak |
+
+| | |
+|---|---|
+| **Phase** | Aufbau und Peak. Im Peak lange Wiederholungen und 10-20-30 |
+| **Warum lang** | 4×3 min ergaben 328 s über 90 % VO2max, 24×30 s nur 201 s (Fleckenstein 2025). Beim Rad ist es umgekehrt — dort schneidet 30/15 sehr gut ab |
+
+Welcher Topf gilt, entscheidet der Trainingstyp der Einheit, nicht die Strecke:
+10×1000 m bei 95–102 % ist Schwelle, 5×1000 m bei 107–110 % ist VO2max.
+
 ---
 
 ## Radspezifisches
@@ -224,7 +243,8 @@ Diese Dinge macht die App von selbst, du brauchst nicht danach zu fragen:
 
 - **Ein Doppeltag, wenn die Grundbasis sonst nicht hineinpasst** — siehe die
   Reihenfolge oben. Alle anderen Doppeltage musst du wünschen
-- **Formatrotation** beim Rad — sie liest, was zuletzt vorgegeben war
+- **Formatrotation** beim Rad und beim Laufen — sie liest, was zuletzt
+  vorgegeben war. Beim Laufen bleiben die langen VO2max-Formate der Standard
 - **Zwift-Namen** — werden nach der Planerstellung nachgetragen, wenn die
   Struktur eindeutig passt
 - **Die Einzellauf-Grenze** — steht in jedem Plan, aus dem längsten Lauf der

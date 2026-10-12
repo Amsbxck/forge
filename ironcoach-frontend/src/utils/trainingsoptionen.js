@@ -63,6 +63,17 @@ export const OPTIONEN = [
     beleg: 'Kein Format ist nachweislich besser als die anderen (Norte 2023). Der Wechsel ist deshalb kein Kompromiss.',
     wunsch: null,
   },
+  {
+    id: 'formatwechsel_lauf',
+    name: 'Formatwechsel beim Laufen',
+    gruppe: 'Belastungsverteilung',
+    art: AUTOMATISCH,
+    phasen: ['build', 'peak'],
+    kurz: 'Schwelle frei wechseln (5×6 min, 1600er, 1000er, 400er, Tempo). VO2max zwischen den langen Formaten (1000er, 1200er, 4×4).',
+    bedingung: 'läuft von selbst · 15/15 und 30/30 nur gelegentlich, nie zweimal hintereinander, nicht im Peak',
+    beleg: 'Anders als beim Rad: Wiederholungen ab drei Minuten ergaben 328 s über 90 % VO2max, 30-s-Wiederholungen nur 201 s (Fleckenstein 2025). Die Schwellenformate sind gleichwertig (Casado 2022/2023).',
+    wunsch: null,
+  },
 
   // ── Doppeltage ────────────────────────────────────────────────────────
   {

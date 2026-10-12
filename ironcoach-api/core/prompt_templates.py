@@ -583,10 +583,13 @@ vorgibt — nicht über Gehpausen:
 | Build (letzter Block) | 75–90 min mit Schwellenblock | Wettkampftempo, oder Mehrfachwechsel: 3–4 × (10 min Rad / 5 min Lauf) |
 | Peak | Rennsimulation, gleichmäßige Leistung | Wettkampftempo, 20–30 min durchgehend |
 
-Die **Längen** in der Tabelle sind Startwerte, kein Studienergebnis: Keine Studie
-legt die beste Häufigkeit, Länge oder Wechselzahl von Bricks fest. Verbindlich
-ist die Staffelung der Intensität und die Einzellauf-Grenze — innerhalb davon
-darf der Lauf mit der Form des Athleten wachsen.
+Die **Längen** stammen aus der Sitzungsbibliothek des Laufdokuments (kurzer
+Ablauf 10–20 min; Mehrfachwechsel 3–5 × (10–20 min Rad + 5–10 min Lauf)). Eine
+Studie dahinter gibt es nicht: Das Dokument sagt ausdrücklich, dass keine die
+beste Häufigkeit, Länge oder Wechselzahl festlegt, und der Mehrfachwechsel ist
+nur begründet, nicht geprüft. Verbindlich sind die Staffelung der Intensität und
+die Einzellauf-Grenze — innerhalb davon darf der Lauf mit der Form des Athleten
+wachsen.
 
 **Nicht vorgesehen:** ein VO2max-Lauf direkt nach dem Rad. Keine Studie hat das
 geprüft — die untersuchte Obergrenze ist das Wettkampftempo. Wer VO2max laufen

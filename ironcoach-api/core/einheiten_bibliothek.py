@@ -147,6 +147,12 @@ LAUF_FORMATE: dict[str, dict] = {
         "pause": "2–3 min Trabpause",
         "beleg": "Seiler & Sjursen 2002, Fleckenstein 2025",
     },
+    "1200er": {
+        "struktur": "4–5×1200 m",
+        "ziel": "105–108 % (Z5)",
+        "pause": "3 min Trabpause",
+        "beleg": "Seiler & Sjursen 2002 — die höchste Belastung bei Wiederholungen um 4 min",
+    },
     "4x4": {
         "struktur": "4×4 min",
         "ziel": "106–112 % (Z5) — etwa 95 % von vVO2max, nicht vVO2max selbst",
@@ -164,6 +170,25 @@ LAUF_FORMATE: dict[str, dict] = {
             "Billat 2001 — kleiner Unterschied ergab 14 min bei VO2max, ein "
             "extremes 110-%-Format nur 7 min. Nur als Abwechslung: bei Läufern "
             "schlagen Wiederholungen ab drei Minuten die kurzen deutlich"
+        ),
+    },
+    "30/30": {
+        "struktur": "2 × 10–12 Wiederholungen aus 30 s schnell / 30 s locker",
+        "ziel": "schnell 112–118 % (Z6), locker 60–70 %",
+        "pause": "volle Erholung zwischen den Serien",
+        "beleg": (
+            "Billat 1999 — mehr Zeit bei VO2max als ein durchgehend harter "
+            "Lauf, bei niedrigerem Laktat. Wie 15/15 nur als Abwechslung"
+        ),
+    },
+    "10-20-30": {
+        "struktur": "3–4 × 5 min aus 30 s locker / 20 s mäßig / 10 s nahe maximal",
+        "ziel": "die 10 s nahe maximal, der Rest locker bis mäßig",
+        "pause": "2 min zwischen den Blöcken",
+        "beleg": (
+            "Gunnarsson & Bangsbo 2012 — 5 km −48 s, 1500 m −21 s, VO2max +4 % "
+            "bei 54 % weniger Umfang. Die zeitsparende Option, wenn die Woche "
+            "eng ist"
         ),
     },
     "langer_lauf": {
