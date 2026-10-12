@@ -23,30 +23,42 @@ from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 
-from core.phasenregeln import BLOCK_FENSTER_WOCHEN, MIN_ABSTAND_TAGE, regeln_fuer
+from core.phasenregeln import (
+    BLOCK_FENSTER_WOCHEN,
+    MIN_ABSTAND_TAGE,
+    QUALITAET_STRENG,
+    regeln_fuer,
+)
 
-# Was als Qualitätseinheit zählt — nach **Trainingstyp**, nicht nach
-# Intensitätsstufe.
+# Gezählt wird nach **Trainingstyp**, nicht nach Intensitätsstufe, und die
+# Liste hängt an der **Phase**.
 #
-# Die Stufe ist dafür zu grob: `sweet_spot`, `tempo` und `race_pace` fallen
-# alle auf die Stufe „sweet_spot". Zählt man darüber, zählt entweder alles
-# drei mit (dann erscheint jede normale Aufbauwoche als Verstoß, weil Sweet
-# Spot dort die Brot-und-Butter-Einheit ist) oder keines (dann meldet die
-# Peak-Phase null Qualitätseinheiten, obwohl ihre Qualitätseinheiten genau die
-# Wettkampftempo-Blöcke sind — und der Prompt verlangt dann zusätzliche
-# Einheiten obendrauf).
+# Die Stufe ist zu grob: `sweet_spot`, `tempo` und `race_pace` fallen alle auf
+# „sweet_spot". Zählt man darüber, zählt entweder alles drei mit (dann erscheint
+# jede normale Aufbauwoche als Verstoß) oder keines (dann meldet die Peak-Phase
+# null Qualitätseinheiten, obwohl ihre Qualitätseinheiten genau die
+# Wettkampftempo-Blöcke sind).
 #
-# Deshalb: `race_pace` zählt, `sweet_spot` und `tempo` nicht. Eine lange
-# Ausfahrt im Wettkampftempo kostet Erholung wie eine harte Einheit, ein
-# 3×15-Minuten-Block bei 90 % nicht.
-QUALITAETS_TYPEN = ("threshold", "vo2max", "intervals", "race_pace")
+# Und die Phase entscheidet mit: In der Grundlage **ist** der Sweet Spot die
+# eine Qualitätseinheit, im Aufbau ist er die Brot-und-Butter-Einheit. Beide
+# Male dieselbe Liste zu nehmen geht nicht — die Listen stehen deshalb in
+# `core/phasenregeln.py` je Phase.
+#
+# Die strenge Liste bleibt hier als Standard: Wer `harte_einheiten` ohne Phase
+# aufruft, soll nicht stillschweigend die laxere Variante bekommen.
+QUALITAETS_TYPEN = QUALITAET_STRENG
 
 # Fällt der Typ aus (Altbestand, freie Eingabe), entscheidet die Stufe.
 HARTE_INTENSITAETEN = ("threshold", "vo2max")
 
 
-def _ist_hart(einheit) -> bool:
-    """Qualitätseinheit? Erst über den Typ, dann über die Intensitätsstufe."""
+def _ist_hart(einheit, typen: tuple[str, ...] = QUALITAETS_TYPEN) -> bool:
+    """Qualitätseinheit? Erst über den Typ, dann über die Intensitätsstufe.
+
+    `typen` kommt aus der Phase: In der Grundlage zählt der Sweet Spot mit,
+    im Aufbau nicht. Ohne Angabe gilt die strenge Liste — ein fehlender Wert
+    soll nicht stillschweigend die laxere Variante aktivieren.
+    """
     disziplin = (einheit.discipline or "").lower()
     if disziplin == "swim":
         # Schwimmen hat keine Leistungsdaten und wird extern geplant; eine
@@ -54,7 +66,7 @@ def _ist_hart(einheit) -> bool:
         return False
 
     typ = (einheit.training_type or "").lower()
-    if typ in QUALITAETS_TYPEN:
+    if typ in typen:
         return True
 
     # Ein Brick im Wettkampftempo oder härter zählt mit — die Laufdokumente
@@ -71,7 +83,8 @@ def _ist_hart(einheit) -> bool:
 
 
 def harte_einheiten(db: Session, von: date, bis: date,
-                    user_id: int | None = None) -> dict:
+                    user_id: int | None = None,
+                    phase: str | None = None) -> dict:
     """Harte Einheiten eines Zeitraums aus den **Vorgaben**.
 
     Gelesen wird die Projektion, nicht der Plan-JSON: dort steht je Woche nur
@@ -111,7 +124,12 @@ def harte_einheiten(db: Session, von: date, bis: date,
         if (e.plan_id or 0) == jung[montag_von(e.planned_date)]
     ]
 
-    harte = sorted({e.planned_date for e in einheiten if _ist_hart(e)})
+    # Welche Typen zählen, entscheidet die Phase — siehe `_ist_hart`.
+    regeln = regeln_fuer(phase) if phase else None
+    typen = (regeln or {}).get("zaehlt_als_qualitaet", QUALITAET_STRENG)
+    harte = sorted({
+        e.planned_date for e in einheiten if _ist_hart(e, typen)
+    })
     abstand = None
     if len(harte) >= 2:
         abstand = min((b - a).days for a, b in zip(harte, harte[1:]))
@@ -131,12 +149,17 @@ def prompt_block(db: Session, woche_ab: date, phase: str | None,
                  user_id: int | None = None) -> str:
     """Die Vorwoche als Satz für den Prompt. Leer, wenn es nichts zu sagen gibt."""
     vorwoche = woche_ab - timedelta(days=7)
-    form = harte_einheiten(db, vorwoche, vorwoche + timedelta(days=6), user_id)
+    form = harte_einheiten(db, vorwoche, vorwoche + timedelta(days=6),
+                           user_id, phase)
     if not form["vorhanden"]:
         return ""
 
     regeln = regeln_fuer(phase)
-    teile = [f"**Vorwoche ({vorwoche}):** {form['anzahl']} harte Einheiten"]
+    n = form["anzahl"]
+    teile = [
+        f"**Vorwoche ({vorwoche}):** {n} harte "
+        f"{'Einheit' if n == 1 else 'Einheiten'}"
+    ]
     if form["tage"]:
         teile.append("(" + ", ".join(WOCHENTAG[t.weekday()] for t in form["tage"]) + ")")
     if form["min_abstand"] is not None:
@@ -155,7 +178,7 @@ def prompt_block(db: Session, woche_ab: date, phase: str | None,
         budget = bis * BLOCK_FENSTER_WOCHEN
         fenster_start = woche_ab - timedelta(weeks=BLOCK_FENSTER_WOCHEN)
         fenster = harte_einheiten(
-            db, fenster_start, woche_ab - timedelta(days=1), user_id
+            db, fenster_start, woche_ab - timedelta(days=1), user_id, phase
         )
         verbraucht = fenster["anzahl"]
         offen = budget - verbraucht
@@ -216,7 +239,8 @@ def bericht(db: Session, woche_ab: date, phase: str | None,
     Bewusst ohne Werturteil, wenn alles passt: Eine Zeile „alles in Ordnung"
     in jeder Plananpassung wäre Rauschen.
     """
-    form = harte_einheiten(db, woche_ab, woche_ab + timedelta(days=6), user_id)
+    form = harte_einheiten(db, woche_ab, woche_ab + timedelta(days=6),
+                           user_id, phase)
     if not form["vorhanden"]:
         return None
     regeln = regeln_fuer(phase)
@@ -232,7 +256,7 @@ def bericht(db: Session, woche_ab: date, phase: str | None,
         budget = bis * BLOCK_FENSTER_WOCHEN
         fenster = harte_einheiten(
             db, woche_ab - timedelta(weeks=BLOCK_FENSTER_WOCHEN - 1),
-            woche_ab + timedelta(days=6), user_id,
+            woche_ab + timedelta(days=6), user_id, phase,
         )
         if fenster["anzahl"] > budget:
             return (

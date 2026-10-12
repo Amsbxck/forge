@@ -15,7 +15,12 @@ from datetime import date, timedelta
 
 import pytest
 
-from core.phasenregeln import BLOCK_FENSTER_WOCHEN, PHASENREGELN, prompt_block
+from core.phasenregeln import (
+    BLOCK_FENSTER_WOCHEN,
+    PHASENREGELN,
+    doppel_block,
+    prompt_block,
+)
 from services.week_shape import bericht, harte_einheiten
 
 MONTAG = date(2026, 4, 6)  # ein Montag
@@ -145,8 +150,10 @@ def test_keine_doppeltage_im_taper_und_in_der_rennwoche():
 
     assert PHASENREGELN["Taper"]["doppel"] == ()
     assert PHASENREGELN["Race Week"]["doppel"] == ()
-    text = prompt_block("Taper")
-    assert "In dieser Phase keine" in text
+    # Die Doppeltage stehen in einem eigenen Abschnitt, damit sie auch die
+    # Grundlagenphase erreichen, in der die Phasenvorgabe unterdrückt wird.
+    assert "In dieser Phase keine" in doppel_block("Taper")
+    assert "In dieser Phase keine" in doppel_block("Race Week")
 
 
 def test_jede_phase_nennt_nur_bekannte_doppelformen():
@@ -160,9 +167,11 @@ def test_jede_phase_nennt_nur_bekannte_doppelformen():
 
 def test_doppeltag_zaehlt_als_eine_qualitaetseinheit():
     """Sonst wäre ein geteilter Schwellentag doppelt im Budget."""
-    text = prompt_block("Build 2")
+    text = doppel_block("Build 2")
     assert "als **eine** Qualitätseinheit" in text
     assert "6 h Abstand" in text or "6 Stunden" in text
+    # Und der Hinweis, wann ein Doppeltag überhaupt das Mittel ist.
+    assert "nicht auf einzelne Tage passen" in text
 
 
 def test_jede_doppelform_nennt_ihren_beleg():
@@ -195,3 +204,123 @@ def test_glossar_deckt_sich_mit_den_regeln():
     # Der Mindestabstand im Glossar muss der Konstante entsprechen.
     from core.einheiten_bibliothek import DOPPEL_MIN_ABSTAND_H
     assert f"**{DOPPEL_MIN_ABSTAND_H} Stunden**" in text
+
+
+# --- Was als Qualitätseinheit zählt, hängt an der Phase -------------------
+
+def test_sweet_spot_zaehlt_in_der_grundlage_aber_nicht_im_aufbau():
+    """An einem echten Plan aufgefallen, nicht beim Lesen des Codes.
+
+    Eine Grundlagenwoche mit genau einer Sweet-Spot-Einheit auf dem Rad wurde
+    als "0 Qualitätseinheiten" gezählt — und der Prompt hätte der Folgewoche
+    geraten, die fehlende Qualität nachzuholen. Eine zusätzliche harte Einheit
+    auf eine Woche, die richtig war.
+
+    In der Grundlage **ist** der Sweet Spot die eine Qualitätseinheit (das
+    Dokument nennt dort "sweet spot / threshold long, or a light 30/15"); im
+    Aufbau ist er die Brot-und-Butter-Einheit und zählt nicht.
+    """
+    from types import SimpleNamespace
+
+    from core.phasenregeln import (
+        PHASENREGELN,
+        QUALITAET_MIT_SWEET_SPOT,
+        QUALITAET_STRENG,
+    )
+    from services.week_shape import _ist_hart
+
+    rad = SimpleNamespace(
+        discipline="bike", training_type="sweet_spot",
+        target_hr_zone="Z3", intensity="sweet_spot",
+    )
+    assert _ist_hart(rad, QUALITAET_MIT_SWEET_SPOT) is True
+    assert _ist_hart(rad, QUALITAET_STRENG) is False
+
+    for familie in ("Grundlage", "Base"):
+        assert "sweet_spot" in PHASENREGELN[familie]["zaehlt_als_qualitaet"], familie
+    for familie in ("Build", "Peak", "Taper", "Race Week"):
+        assert "sweet_spot" not in PHASENREGELN[familie]["zaehlt_als_qualitaet"], familie
+
+
+def test_ohne_phase_gilt_die_strenge_liste():
+    """Ein fehlender Wert darf nicht die laxere Variante aktivieren."""
+    from types import SimpleNamespace
+
+    from services.week_shape import QUALITAETS_TYPEN, _ist_hart
+    from core.phasenregeln import QUALITAET_STRENG
+
+    assert QUALITAETS_TYPEN == QUALITAET_STRENG
+    rad = SimpleNamespace(
+        discipline="bike", training_type="sweet_spot",
+        target_hr_zone="Z3", intensity="sweet_spot",
+    )
+    assert _ist_hart(rad) is False
+
+
+def test_jede_phase_zaehlt_ihre_eigenen_formate_mit(db):
+    """Die erlaubten Formate einer Phase müssen auch zählbar sein.
+
+    Sonst verlangt eine Phase Qualitätseinheiten, deren eigene Formate der
+    Zähler nicht als solche erkennt — genau der Fehler oben.
+    """
+    from core.phasenregeln import PHASENREGELN
+
+    # Formatschlüssel → Trainingstyp, so wie der Coach sie plant.
+    typ_je_format = {
+        "sweet_spot": "sweet_spot", "threshold_lang": "threshold",
+        "4x8": "vo2max", "4-6x5": "vo2max", "30/15": "vo2max",
+        "wettkampftempo_rad": "race_pace", "schaerfe": "race_pace",
+        "tempo": "tempo", "schwelle_intervalle": "threshold",
+        "1000er": "vo2max", "4x4": "vo2max", "15/15": "vo2max",
+        "wettkampftempo_lauf": "race_pace",
+        "steigerungen": None, "langer_lauf": None,
+    }
+    for familie, regeln in PHASENREGELN.items():
+        von, _bis = regeln["qualitaet"]
+        if von == 0:
+            continue
+        zaehlbar = regeln["zaehlt_als_qualitaet"]
+        formate = tuple(regeln.get("rad", ())) + tuple(regeln.get("lauf", ()))
+        treffer = [
+            f for f in formate
+            if typ_je_format.get(f) and typ_je_format[f] in zaehlbar
+        ]
+        assert treffer, (
+            f"{familie} verlangt {von} Qualitätseinheiten, aber keines seiner "
+            f"Formate {formate} zählt als eine"
+        )
+
+
+def test_doppeltage_erreichen_auch_die_grundlagenphase():
+    """Der Fehler, den ein echter Plan gezeigt hat.
+
+    In der Grundlagenphase wird die Phasenvorgabe unterdrückt (dort gilt
+    `services/base_period.py`), und die Doppeltage steckten darin. `base_period`
+    erwähnt sie mit keinem Wort — der Coach wusste also nichts davon. Die Woche
+    hatte alle sieben Tage belegt, für die zweite Krafteinheit war kein Tag
+    frei, und sie fiel ersatzlos aus. Mit einem Doppeltag (Schwimmen + Kraft,
+    ausdrücklich erlaubt) hätte sie gepasst.
+    """
+    from datetime import date
+
+    from core.prompt_templates import build_plan_prompt
+
+    profil = {
+        "ftp_watts": 264, "threshold_hr": 188, "max_hr": 198, "weight_kg": 78,
+        "age": 30, "z1_hr_max": 130, "z2_hr_min": 131, "z2_hr_max": 155,
+        "z3_hr_min": 156, "z3_hr_max": 172, "z4_hr_min": 173, "z4_hr_max": 188,
+        "name": "T", "total_weeks": 33, "threshold_pace_s_per_km": 286,
+        "css_pace_s_per_100m": 117, "swim_threshold_hr": 153,
+        "race_date": date(2026, 10, 18), "race_name": "T", "goal_label": "A",
+    }
+    text = build_plan_prompt(
+        athlete_profile=profil, sessions=[], hrv=[], week=-4,
+        plan_start=date(2026, 11, 9), total_weeks=33,
+        base_period="## GRUNDLAGENPHASE\n- Regel\n",
+    )
+    # Die Phasenvorgabe bleibt unterdrückt ...
+    assert "WOCHENVORGABE DIESER PHASE" not in text
+    # ... die Doppeltage stehen aber da.
+    assert "## DOPPELTAGE" in text
+    assert "schwimmen_als_zweite" in text
+    assert "nicht auf einzelne Tage passen" in text

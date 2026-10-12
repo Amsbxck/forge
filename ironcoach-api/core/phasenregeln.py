@@ -37,6 +37,23 @@ from core.einheiten_bibliothek import (
 
 MIN_ABSTAND_TAGE = 2  # 48 Stunden zwischen zwei harten Einheiten
 
+# Welche Trainingstypen als Qualitätseinheit zählen, **je Phase**.
+#
+# Das ist nicht überall dasselbe, und genau daran ist der Zähler zuerst
+# gescheitert. In der Grundlage ist der Sweet Spot die eine Qualitätseinheit —
+# das Dokument nennt dort ausdrücklich "sweet spot / threshold long, or a light
+# 30/15". Im Aufbau ist er die Brot-und-Butter-Einheit; zählte er dort mit,
+# erschiene jede normale Aufbauwoche als Verstoß gegen das Budget.
+#
+# Zuerst stand hier eine phasenblinde Liste ohne `sweet_spot`. Ein echter Plan
+# hat es gezeigt: Eine Grundlagenwoche mit genau einer Sweet-Spot-Einheit wurde
+# als "0 Qualitätseinheiten" gemeldet, und der Prompt hätte der Folgewoche
+# geraten, die fehlende Qualität nachzuholen — eine zusätzliche harte Einheit
+# auf eine Woche, die richtig war. Dieselbe Fehlerklasse wie beim
+# Wettkampftempo im Peak, nur eine Phase weiter vorn.
+QUALITAET_STRENG = ("threshold", "vo2max", "intervals", "race_pace")
+QUALITAET_MIT_SWEET_SPOT = QUALITAET_STRENG + ("sweet_spot", "tempo")
+
 # Im Aufbau nennt die Studientabelle die Menge über **vier Wochen**, nicht über
 # eine: 2 pro Woche und 5+1+1+1 ergeben beide acht harte Einheiten, aber nur
 # die Blockvariante brachte VO2max +4,6 % (Rønnestad 2014, 19 trainierte
@@ -56,6 +73,7 @@ BLOCK_FENSTER_WOCHEN = 4
 # Je Familie: Qualitätseinheiten (von, bis), Krafteinheiten, Leitsatz, Formate.
 PHASENREGELN: dict[str, dict] = {
     "Grundlage": {
+        "zaehlt_als_qualitaet": QUALITAET_MIT_SWEET_SPOT,
         "doppel": ("locker_plus_qualitaet", "langer_lauf_geteilt", "schwimmen_als_zweite"),
         "qualitaet": (1, 1),
         "gym": 2,
@@ -65,6 +83,7 @@ PHASENREGELN: dict[str, dict] = {
         "zusatz": "Steigerungen 1–2× pro Woche, sie kosten keine Erholung.",
     },
     "Base": {
+        "zaehlt_als_qualitaet": QUALITAET_MIT_SWEET_SPOT,
         "doppel": ("locker_plus_qualitaet", "langer_lauf_geteilt", "schwimmen_als_zweite"),
         "qualitaet": (1, 1),
         "gym": 2,
@@ -77,6 +96,7 @@ PHASENREGELN: dict[str, dict] = {
         "zusatz": "Steigerungen 1–2× pro Woche, sie kosten keine Erholung.",
     },
     "Build": {
+        "zaehlt_als_qualitaet": QUALITAET_STRENG,
         "doppel": ("locker_plus_qualitaet", "langer_lauf_geteilt", "doppelschwelle_leicht", "schwimmen_als_zweite"),
         "qualitaet": (2, 2),
         # Das Vierwochenfenster gilt nur hier — siehe BLOCK_FENSTER_WOCHEN.
@@ -95,6 +115,7 @@ PHASENREGELN: dict[str, dict] = {
         ),
     },
     "Peak": {
+        "zaehlt_als_qualitaet": QUALITAET_STRENG,
         "doppel": ("locker_plus_qualitaet", "doppelschwelle_leicht", "schwimmen_als_zweite"),
         "qualitaet": (2, 2),
         "gym": 1,
@@ -107,6 +128,7 @@ PHASENREGELN: dict[str, dict] = {
         "zusatz": "Ab hier eine der beiden Schwimmeinheiten im Freiwasser.",
     },
     "Taper": {
+        "zaehlt_als_qualitaet": QUALITAET_STRENG,
         "doppel": (),
         "qualitaet": (1, 2),
         "gym": 0,
@@ -121,6 +143,7 @@ PHASENREGELN: dict[str, dict] = {
         "zusatz": "",
     },
     "Race Week": {
+        "zaehlt_als_qualitaet": QUALITAET_STRENG,
         "doppel": (),
         "qualitaet": (1, 1),
         "gym": 0,
@@ -149,6 +172,39 @@ def regeln_fuer(phase: str | None) -> dict | None:
     if not familie or familie in OHNE_PHASENTABELLE:
         return None
     return PHASENREGELN.get(familie)
+
+
+def doppel_block(phase: str | None) -> str:
+    """Die Doppeltage einer Phase — als **eigener** Abschnitt.
+
+    Getrennt von `prompt_block`, weil die Phasenvorgabe in der Grundlage
+    unterdrückt wird (dort gilt `services/base_period.py`) und die Doppeltage
+    dadurch unsichtbar waren. An einem echten Plan hat sich das gezeigt: Die
+    Woche hatte alle sieben Tage belegt, für die zweite Krafteinheit war kein
+    Tag frei — und der Coach konnte den Doppeltag nicht einsetzen, weil er
+    nichts davon wusste. Das Dokument erlaubt Schwimmen + Kraft ausdrücklich.
+    """
+    regeln = regeln_fuer(phase)
+    if not regeln:
+        return ""
+    erlaubt = regeln.get("doppel", ())
+    if not erlaubt:
+        return (
+            "## DOPPELTAGE\nIn dieser Phase keine — zwei Einheiten an einem "
+            "Tag erhöhen die Tageslast, und darum geht es hier nicht mehr.\n"
+        )
+    return (
+        "## DOPPELTAGE\n\n"
+        + doppel_text(erlaubt)
+        + "\n\n**Wann ein Doppeltag die Antwort ist:** wenn die Einheiten der "
+        "Woche nicht auf einzelne Tage passen. Ein Ruhetag ist kein Platz, der "
+        "sich für eine weitere Einheit opfern lässt — dann gehören zwei "
+        "Einheiten auf einen Tag. Schwimmen ist dafür der beste Partner: Es "
+        "erzeugt keine Stoßbelastung, und Schwimmen + Kraft am selben Tag "
+        "beansprucht verschiedene Muskeln. Ebenso, wenn die Einzellauf-Grenze "
+        "bindet: ein langer Lauf auf zwei Einheiten geteilt bleibt je Einheit "
+        "darunter.\n"
+    )
 
 
 def prompt_block(phase: str | None, deload: bool = False) -> str:
@@ -204,15 +260,9 @@ def prompt_block(phase: str | None, deload: bool = False) -> str:
     if bibliothek:
         zeilen.append("\n### Erlaubte Formate in dieser Phase\n" + bibliothek)
 
-    # Doppeltage standen nirgends im Code, obwohl beide Dokumente Regeln dafür
-    # haben. Wer sie sich wünschte, bekam eine Antwort ohne Grundlage.
-    if (doppel := doppel_text(regeln.get("doppel", ()))):
-        zeilen.append("\n### Doppeltage in dieser Phase\n" + doppel)
-    elif regeln.get("doppel") == ():
-        zeilen.append(
-            "\n### Doppeltage\nIn dieser Phase keine — zwei Einheiten an einem "
-            "Tag erhöhen die Tageslast, und darum geht es hier nicht mehr."
-        )
+    # Die Doppeltage stehen in `doppel_block` und werden getrennt gerendert —
+    # sie müssen auch die Grundlagenphase erreichen, in der diese Vorgabe hier
+    # unterdrückt wird.
 
     zeilen.append(
         "\nDas sind Leitlinien, keine Sperren. Wenn du begründet abweichst, "

@@ -491,8 +491,16 @@ def build_plan_prompt(
     # „Build 2" existierte und nur das Rad kannte. In Grundlage und Off Season
     # bleibt sie leer — dort gilt der eigene Block, und zwei Quellen für
     # dieselbe Vorgabe wären der nächste Widerspruch.
+    from core.phasenregeln import doppel_block as doppel_prompt
     from core.phasenregeln import prompt_block as phasen_prompt
     phasen_block = "" if (base_block or offseason_block) else phasen_prompt(phase, deload)
+    # Die Doppeltage getrennt, weil sie **auch** in der Grundlagenphase gelten.
+    # An einem echten Plan aufgefallen: Dort war die Phasenvorgabe unterdrückt
+    # und `base_period.py` erwähnt Doppeltage nicht — der Coach wusste nichts
+    # davon. Die Woche hatte alle sieben Tage belegt, für die zweite
+    # Krafteinheit war kein Tag frei, und sie fiel ersatzlos aus. Mit einem
+    # Doppeltag (Schwimmen + Kraft, ausdrücklich erlaubt) hätte sie gepasst.
+    doppel_block = "" if offseason_block else doppel_prompt(phase)
     wochenform_block = wochenform or ""
     day_names = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
     week_days = [(day_names[i], str(week_start + timedelta(days=i))) for i in range(7)]
@@ -575,6 +583,7 @@ Ein Wert **über** der Spanne ist nicht besser als grün, er ist grün — nur e
 belegt. Er ist kein Grund, zusätzlich zu belasten.
 
 {phasen_block}
+{doppel_block}
 {wochenform_block}
 ## Aktuelle Position
 - Aktuelle Woche: {"Off Season, " + str(week - total_weeks) + ". Woche nach dem Saisonziel" if offseason_block else "Grundlagenphase — zählt nicht als Vorbereitungswoche" if base_block else f"{week}/{total_weeks}"}
