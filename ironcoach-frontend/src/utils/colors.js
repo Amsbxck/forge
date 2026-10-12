@@ -82,6 +82,30 @@ export const HEALTH_COLOR = {
 export const HR_ZONE_COLOR = ['#3b82f6', '#22c55e', '#eab308', '#f97316', '#ef4444']
 export const HR_ZONE_LABEL = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5']
 
+/** Trainingsbereiche nach **Zonennummer**, 1 bis 7.
+ *
+ *  Z1–Z5 sind die Pulsskala oben. Z6 (vVO2max) und Z7 (Steigerungen) gibt es
+ *  nur beim Laufen und setzen die Rampe nach oben fort: dunkler werdendes
+ *  Rot. Nicht Fuchsia, Violett oder Pink — die tragen schon Brick, Rad und
+ *  Lauf, und eine Zone in Sportartfarbe läse sich als Sportart.
+ *
+ *  Eigene Tabelle statt `HR_ZONE_COLOR` zu verlängern: `HRZoneChart`
+ *  zeichnet über dessen Länge, und zwei angehängte Einträge erschienen dort
+ *  als Pulszonen, die es nicht gibt.
+ *
+ *  Nach Nummer, nicht nach Zeilenposition: Beim Laufen ist Z2 in zwei Zeilen
+ *  geteilt, und die zweite bekäme nach Position die Farbe von Z3.
+ */
+export const ZONE_COLOR = {
+  1: HR_ZONE_COLOR[0],
+  2: HR_ZONE_COLOR[1],
+  3: HR_ZONE_COLOR[2],
+  4: HR_ZONE_COLOR[3],
+  5: HR_ZONE_COLOR[4],
+  6: '#be123c',
+  7: '#881337',
+}
+
 export const ACCENT = '#00d4ff'
 
 // --- Erledigt ----------------------------------------------------------------

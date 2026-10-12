@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { updateProfile } from '../services/api'
-import { HR_ZONE_COLOR } from '../utils/colors'
+import { getProfileZones, updateProfile } from '../services/api'
+import { ZONE_COLOR } from '../utils/colors'
 
 /** Die sieben Grenzen in der Reihenfolge, in der sie aufsteigen müssen. */
 const GRENZEN = [
@@ -8,11 +8,17 @@ const GRENZEN = [
   'z3_hr_min', 'z3_hr_max', 'z4_hr_min', 'z4_hr_max',
 ]
 
-/** Die fünf Bereiche, einmal benannt für alle drei Spalten.
+/** Die fünf Pulsbereiche — nur für die Pulsspalte.
  *
- *  Zone 1 ist derselbe Bereich, ob er in Schlägen, Sekunden oder Watt
- *  ausgedrückt wird. Drei getrennte Listen mit denselben Namen hätten
- *  irgendwann auseinandergelegen.
+ *  Pace und Watt kommen nicht mehr von hier, sondern vom Server
+ *  (`GET /api/profile/zones`). Sie standen vorher als Kopie in dieser Datei,
+ *  „bewusst gespiegelt", und sind davon abgedriftet: Beim Rad stand die
+ *  Z3/Z4-Grenze noch bei 90/91 %, die das Backend längst auf Coggans 94/95 %
+ *  korrigiert hatte, und beim Laufen fehlten vVO2max und Steigerungen. Der
+ *  Athlet sah andere Bereiche als die, nach denen geplant wurde.
+ *
+ *  Der Puls bleibt hier, weil er keine abgeleitete Größe ist: Die Grenzen
+ *  stehen als Felder im Profil und werden in dieser Spalte bearbeitet.
  */
 const STUFEN = [
   { label: 'Z1', name: 'Regeneration' },
@@ -28,30 +34,6 @@ const PULS_FELDER = [
   { von: 'z3_hr_min', bis: 'z3_hr_max' },
   { von: 'z4_hr_min', bis: 'z4_hr_max' },
   { von: 'z4_hr_max', bis: null },
-]
-
-/** Anteile der Schwellenpace und der FTP — dieselbe Einteilung wie im
- *  Coach-Prompt (`services/zones.py`).
- *
- *  Bewusst hier gespiegelt und nicht vom Server geholt: Es ist eine
- *  Darstellung, kein zweiter Rechenweg. Ändert sich die Einteilung, muss sie
- *  an beiden Stellen geändert werden — dafür steht sie in der Server-Datei
- *  ausdrücklich als Konvention markiert.
- */
-const LAUF = [
-  { unten: 1.29, oben: null },
-  { unten: 1.14, oben: 1.29 },
-  { unten: 1.06, oben: 1.13 },
-  { unten: 1.00, oben: 1.05 },
-  { unten: 0.94, oben: 0.99 },
-]
-
-const RAD = [
-  { unten: 0.00, oben: 0.55 },
-  { unten: 0.56, oben: 0.75 },
-  { unten: 0.76, oben: 0.90 },
-  { unten: 0.91, oben: 1.05 },
-  { unten: 1.06, oben: 1.20 },
 ]
 
 const mmss = (s) => `${Math.floor(Math.round(s) / 60)}:${String(Math.round(s) % 60).padStart(2, '0')}`
@@ -87,16 +69,19 @@ function Kopf({ titel, einheit, children }) {
 function Zeilen({ daten }) {
   return (
     <div className="space-y-1.5">
-      {daten.map(({ label, name, wert }, i) => {
-        const farbe = HR_ZONE_COLOR[i]
+      {daten.map(({ label, zone, name, wert }) => {
+        // Nach Zonennummer, nicht nach Zeilenposition: Beim Laufen ist Z2 in
+        // zwei Zeilen geteilt, und die Balkenbreite steht in allen drei Spalten
+        // auf derselben Skala Z1–Z7 — dieselbe Zone, derselbe Balken.
+        const farbe = ZONE_COLOR[zone] ?? ZONE_COLOR[1]
         return (
-          <div key={label} className="flex items-center gap-2.5">
+          <div key={`${label}-${name}`} className="flex items-center gap-2.5">
             <span className="w-6 text-[10px] font-mono font-bold flex-shrink-0"
                   style={{ color: farbe }}>
               {label}
             </span>
             <span className="h-2.5 rounded-sm flex-shrink-0"
-                  style={{ width: `${18 + (i / 4) * 22}px`, background: farbe, opacity: 0.8 }} />
+                  style={{ width: `${18 + ((zone - 1) / 6) * 22}px`, background: farbe, opacity: 0.8 }} />
             <span className="text-xs text-[var(--text-secondary)] flex-shrink-0">{name}</span>
             <span className="ml-auto font-mono text-xs text-[#e8eaf0] tabular-nums whitespace-nowrap">
               {wert}
@@ -113,11 +98,23 @@ export default function ZoneEditor({ profile, onSaved }) {
   const [werte, setWerte] = useState({})
   const [fehler, setFehler] = useState(null)
   const [speichert, setSpeichert] = useState(false)
+  const [zonen, setZonen] = useState(null)
 
   useEffect(() => {
     if (!profile) return
     setWerte(Object.fromEntries(GRENZEN.map(k => [k, profile[k] ?? ''])))
   }, [profile])
+
+  // Neu laden, wenn sich eine Bezugsgröße ändert — nach einem Test oder einer
+  // Eingabe stehen sonst die Bereiche des alten Werts da.
+  useEffect(() => {
+    if (!profile) return
+    let abgebrochen = false
+    getProfileZones()
+      .then(({ data }) => { if (!abgebrochen) setZonen(data) })
+      .catch(() => { if (!abgebrochen) setZonen({ lauf: [], rad: [], schwimm: [] }) })
+    return () => { abgebrochen = true }
+  }, [profile?.threshold_pace_s_per_km, profile?.ftp_watts, profile?.css_pace_s_per_100m])
 
   if (!profile) return null
 
@@ -165,28 +162,13 @@ export default function ZoneEditor({ profile, onSaved }) {
     const wert = von === null ? `≤ ${profile.z1_hr_max}`
       : bis === null ? `> ${profile[von]}`
       : `${profile[von]}–${profile[bis]}`
-    return { label, name, wert, anteil: i / 4 }
+    return { label, zone: i + 1, name, wert }
   })
 
-  const laufZeilen = pace ? STUFEN.map(({ label, name }, i) => {
-    const { unten, oben } = LAUF[i]
-    return {
-      label, name, anteil: i / 4,
-      wert: oben === null
-        ? `> ${mmss(pace * unten)}`
-        : `${mmss(pace * oben)}–${mmss(pace * unten)}`,
-    }
-  }) : null
-
-  const radZeilen = ftp ? STUFEN.map(({ label, name }, i) => {
-    const { unten, oben } = RAD[i]
-    return {
-      label, name, anteil: i / 4,
-      wert: unten === 0
-        ? `≤ ${Math.round(ftp * oben)}`
-        : `${Math.round(ftp * unten)}–${Math.round(ftp * oben)}`,
-    }
-  }) : null
+  // Vom Server, aus derselben Tabelle wie der Prompt. Leer, solange er
+  // antwortet — dann lieber nichts als eine Kopie, die abweichen kann.
+  const laufZeilen = pace && zonen?.lauf?.length ? zonen.lauf : null
+  const radZeilen = ftp && zonen?.rad?.length ? zonen.rad : null
 
   return (
     <div className="rounded-xl border border-[#1e2228] bg-[#111318]">
@@ -231,7 +213,7 @@ export default function ZoneEditor({ profile, onSaved }) {
               <div className="space-y-2">
                 {STUFEN.map(({ label }, i) => {
                   const { von, bis } = PULS_FELDER[i]
-                  const farbe = HR_ZONE_COLOR[i]
+                  const farbe = ZONE_COLOR[i + 1]
                   return (
                     <div key={label} className="flex items-center gap-2">
                       <span className="w-6 text-[10px] font-mono font-bold" style={{ color: farbe }}>
@@ -271,7 +253,9 @@ export default function ZoneEditor({ profile, onSaved }) {
           <Kopf titel="LAUFPACE" einheit="/km">
             {pace ? `Schwelle ${mmss(pace)}` : 'keine Schwellenpace'}
           </Kopf>
-          {laufZeilen ? <Zeilen daten={laufZeilen} /> : (
+          {laufZeilen ? <Zeilen daten={laufZeilen} /> : pace ? (
+            <p className="text-xs text-[var(--text-muted)]">Bereiche werden geladen…</p>
+          ) : (
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
               Noch keine Schwellenpace hinterlegt. Nach einem Schwellenlauf
               oder Benchmark-Test stehen hier die Bereiche.
@@ -285,7 +269,21 @@ export default function ZoneEditor({ profile, onSaved }) {
             {ftp ? `FTP ${ftp}` : 'keine FTP'}
           </Kopf>
 
-          {radZeilen ? <Zeilen daten={radZeilen} /> : (
+          {radZeilen ? (
+            <>
+              <Zeilen daten={radZeilen} />
+              {/* Sweet Spot ist keine eigene Zone, sondern das obere Ende von
+                  Z3 — und die Brot-und-Butter-Einheit im Aufbau. Ohne diese
+                  Zeile müsste man ihn aus der Z3-Spanne selbst herausrechnen. */}
+              {zonen?.sweet_spot && (
+                <p className="text-[11px] text-[var(--text-secondary)] mt-2.5 font-mono tabular-nums">
+                  Sweet Spot {zonen.sweet_spot} · oberes Z3
+                </p>
+              )}
+            </>
+          ) : ftp ? (
+            <p className="text-xs text-[var(--text-muted)]">Bereiche werden geladen…</p>
+          ) : (
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
               Noch keine FTP hinterlegt.
             </p>

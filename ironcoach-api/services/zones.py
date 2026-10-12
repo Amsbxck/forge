@@ -156,6 +156,74 @@ def rad_zonen(ftp: int | None) -> list[dict]:
     ]
 
 
+def _zeile(name: str, wert: str) -> dict:
+    """„Z2 ruhig zügig" → Kennung, Zonennummer, Name, Wert ohne Einheit.
+
+    Die Zonennummer steht getrennt, weil zwei Zeilen dieselbe tragen können:
+    Z2 ist beim Laufen in „locker" und „ruhig zügig" geteilt — zwei Absichten
+    in einem Bereich, beide grün. Nach der Zeilenposition gefärbt, bekäme die
+    zweite Hälfte die Farbe von Z3.
+    """
+    kennung, _, rest = name.partition(" ")
+    return {
+        "label": kennung,
+        "zone": int(kennung[1:]) if kennung[1:].isdigit() else None,
+        "name": rest,
+        "wert": wert,
+    }
+
+
+def anzeige(profile) -> dict:
+    """Die Bereiche für die Profilseite — aus **derselben** Tabelle wie der Prompt.
+
+    Vorher hielt das Frontend eine eigene Kopie der Grenzen und rechnete selbst.
+    Die Kopie ist abgedriftet, genau wie ihr eigener Kommentar es vorhersagte:
+    Beim Rad stand dort noch die Z3/Z4-Grenze bei 90/91 %, die hier längst auf
+    Coggans 94/95 % korrigiert ist, und beim Laufen fehlten Z6 und Z7 sowie die
+    Teilung von Z2. Der Athlet sah also andere Bereiche als die, nach denen der
+    Coach plant.
+
+    Die Einheit steht nicht im Wert: Sie steht einmal im Spaltenkopf.
+    """
+    pace = getattr(profile, "threshold_pace_s_per_km", None)
+    ftp = getattr(profile, "ftp_watts", None)
+    css = getattr(profile, "css_pace_s_per_100m", None)
+
+    lauf = []
+    if pace:
+        for z in lauf_zonen(pace):
+            wert = f"> {z['bis']}" if z["von"] is None else f"{z['von']}–{z['bis']}"
+            lauf.append(_zeile(z["name"], wert))
+
+    rad = []
+    if ftp:
+        for name, unten, oben in RAD_ZONEN:
+            wert = (
+                f"≤ {int(ftp * oben)}" if unten == 0
+                else f"{int(ftp * unten)}–{int(ftp * oben)}"
+            )
+            rad.append(_zeile(name, wert))
+
+    schwimm = []
+    if css:
+        for name, unten, oben in SCHWIMM_ZONEN:
+            wert = (
+                f"> {mmss(css + unten)}" if oben is None
+                else f"{mmss(css + unten)}–{mmss(css + oben)}"
+            )
+            schwimm.append(_zeile(name, wert))
+
+    ss_von, ss_bis = RAD_SWEET_SPOT
+    return {
+        "lauf": lauf,
+        "rad": rad,
+        "schwimm": schwimm,
+        "sweet_spot": (
+            f"{int(ftp * ss_von)}–{int(ftp * ss_bis)}" if ftp else None
+        ),
+    }
+
+
 # Nach ungefähr drei Monaten sind die Bereiche überholt — bei einem Athleten
 # im Aufbau nach unten, nach einer Pause nach oben. Beides ist schädlich: Zu
 # niedrige Schwellen bremsen die Entwicklung, zu hohe erzeugen Einheiten, die

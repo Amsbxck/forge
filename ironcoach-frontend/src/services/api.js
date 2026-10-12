@@ -66,6 +66,7 @@ export const getPmc = () => api.get('/api/metrics/pmc')
 // weil die Prüfung die Leistungsdaten mehrerer Fahrten liest.
 export const getFtpCheck = () => api.get('/api/metrics/ftp-check')
 export const getProfile = () => api.get('/api/profile')
+export const getProfileZones = () => api.get('/api/profile/zones')
 export const updateProfile = (data) => api.patch('/api/profile', data)
 export const getIntakeStatus = () => api.get('/api/profile/intake')
 export const submitIntake = (data) => api.post('/api/profile/intake', data)

@@ -264,6 +264,23 @@ def get_profile(db: Session = Depends(get_db)):
     return _profile_out(db, profile)
 
 
+@router.get("/profile/zones")
+def get_profile_zones(db: Session = Depends(get_db)):
+    """Die Trainingsbereiche zur Anzeige — gerechnet, nicht gespiegelt.
+
+    Die Profilseite hielt eine eigene Kopie der Grenzen und ist davon
+    abgedriftet (siehe `services/zones.anzeige`). Jetzt kommen die Bereiche
+    aus derselben Tabelle wie der Prompt; eine zweite Stelle, die man beim
+    Ändern vergessen kann, gibt es nicht mehr.
+    """
+    from services.zones import anzeige
+
+    profile = resolve_profile(db)
+    if not profile:
+        return {"lauf": [], "rad": [], "schwimm": [], "sweet_spot": None}
+    return anzeige(profile)
+
+
 class IntakeIn(BaseModel):
     """Werte, die ein Athlet beim Einstieg schon kennt.
 
