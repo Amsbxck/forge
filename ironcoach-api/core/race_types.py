@@ -183,6 +183,27 @@ def phase_for_week(week: int, total_weeks: int = 33) -> str:
     return "Base"
 
 
+# Phasennamen, die nicht von `phase_for_week` stammen und deshalb durch die
+# Nummernlogik unten unverändert hindurchfallen. Beide werden gespeichert und
+# später wieder gelesen:
+#
+#   * `base_period.phase_label` schreibt „Vorbereitung auf den Aufbau" in die
+#     Wochen vor dem Aufbau. `PHASENREGELN` hat dafür keinen Schlüssel, also
+#     gab `regeln_fuer` dort `None` — keine Qualitätsvorgabe, keine
+#     Kraftvorgabe, keine Doppeltage. Gemessen an echten Plänen: genau die
+#     Wochen, in denen die Kraftvorgabe reihenweise verfehlt wurde.
+#   * „Off Season · Formerhalt" sollte über `OHNE_PHASENTABELLE` ausgeschlossen
+#     werden, traf dort aber nie zu, weil die Familie den Zusatz behielt. Das
+#     Ergebnis war zufällig richtig (`PHASENREGELN.get` gab ebenfalls `None`) —
+#     jetzt ist es die Regel, die es sein sollte.
+#
+# Das Frontend macht dieselbe Abbildung in `src/utils/phasen.js`.
+PHASEN_ALIAS = {
+    "Vorbereitung auf den Aufbau": "Grundlage",
+    "Off Season · Formerhalt": "Off Season",
+}
+
+
 def phase_family(phase: str | None) -> str:
     """Der Phasenname ohne Blocknummer: „Base 2" → „Base".
 
@@ -191,10 +212,14 @@ def phase_family(phase: str | None) -> str:
     unterteilt aber nur Phasen ab sechs Wochen — ein 12-Wochen-Plan erzeugt
     „Base", „Build", „Peak" ohne Nummer, und keine dieser Regeln griff dort.
     Über die Familie greifen sie in jeder Planlänge.
+
+    Zusätzlich die gespeicherten Namen aus `PHASEN_ALIAS` — siehe dort, warum.
     """
     roh = (phase or "").strip()
     if not roh:
         return ""
+    if roh in PHASEN_ALIAS:
+        return PHASEN_ALIAS[roh]
     teile = roh.rsplit(" ", 1)
     if len(teile) == 2 and teile[1].isdigit():
         return teile[0]

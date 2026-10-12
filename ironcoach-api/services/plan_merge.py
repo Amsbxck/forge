@@ -18,6 +18,11 @@ Zwei Grenzen, die nicht verhandelbar sind:
   * **Absolvierte Tage bleiben ebenfalls.** Sie hängen an einer echten Einheit.
     Die Vorgabe nachträglich auf das zu setzen, was gemacht wurde, erzeugte
     eine perfekte Planerfüllung, die nie stattgefunden hat.
+
+Ein Doppeltag erscheint als **zwei Einträge mit demselben Datum** — das Schema
+trägt eine Sportart je Eintrag, also ist das die einzige Form, in der ein
+zweiter Termin am selben Tag für die Zähler und den Soll/Ist-Abgleich sichtbar
+wird. Wer einen solchen Tag ändert, liefert alle seine Einträge zusammen.
 """
 
 import logging
@@ -53,17 +58,42 @@ def merge_days(
 
     inhalt = dict(basis_content or {})
     tage = [dict(t) for t in (inhalt.get("days") or [])]
-    nach_datum = {_als_datum(t.get("date")): i for i, t in enumerate(tage)}
 
-    uebernommen: list[str] = []
-    abgewiesen: list[str] = []
+    # Ein Datum kann mehrere Einträge tragen — ein Doppeltag ist genau das.
+    # Deshalb Reihenfolge der Daten plus Liste je Datum, nicht ein Index je
+    # Datum: `{datum: index}` behielt bei zwei Einträgen nur den letzten, und
+    # eine Änderung an diesem Tag ersetzte dann stillschweigend die falsche
+    # Hälfte.
+    reihenfolge: list[date | None] = []
+    bestand: dict[date | None, list[dict]] = {}
+    for t in tage:
+        tag = _als_datum(t.get("date"))
+        if tag not in bestand:
+            bestand[tag] = []
+            reihenfolge.append(tag)
+        bestand[tag].append(t)
 
+    # Die gelieferten Tage nach Datum bündeln. Ein geliefertes Datum ersetzt
+    # **alle** bisherigen Einträge dieses Datums — dieselbe Vollersetzung wie
+    # bisher, nur auf den ganzen Tag bezogen. Wer einen Doppeltag will, liefert
+    # beide Hälften zusammen; wer aus zwei Einheiten eine macht, liefert eine.
+    # Die Alternative, auf (Datum, Sportart) zu schlüsseln, hätte das Ändern
+    # der Sportart eines Tages zerstört: aus „Lauf wird Rad" wäre „Lauf **und**
+    # Rad" geworden.
+    gebuendelt: dict[date | None, list[dict]] = {}
+    ungueltig: list[str] = []
     for neu in neue_tage:
         tag = _als_datum(neu.get("date"))
         if tag is None:
-            abgewiesen.append(f"{neu.get('day') or '?'} (kein gültiges Datum)")
+            ungueltig.append(f"{neu.get('day') or '?'} (kein gültiges Datum)")
             continue
-        if tag not in nach_datum:
+        gebuendelt.setdefault(tag, []).append(dict(neu))
+
+    uebernommen: list[str] = []
+    abgewiesen: list[str] = list(ungueltig)
+
+    for tag, gruppe in gebuendelt.items():
+        if tag not in bestand:
             # Ein Datum außerhalb dieser Woche gehört in einen anderen Plan.
             # Es hier anzuhängen ergäbe eine Woche mit acht Tagen.
             abgewiesen.append(f"{tag} (liegt nicht in dieser Woche)")
@@ -79,8 +109,8 @@ def merge_days(
         # Feld für Feld wäre gefährlicher: Bleibt aus dem alten Tag ein
         # Wattblock stehen, während der neue ein Lauf ist, trägt die Einheit
         # Vorgaben aus zwei verschiedenen Sportarten.
-        tage[nach_datum[tag]] = dict(neu)
+        bestand[tag] = gruppe
         uebernommen.append(str(tag))
 
-    inhalt["days"] = tage
+    inhalt["days"] = [t for tag in reihenfolge for t in bestand[tag]]
     return inhalt, uebernommen, abgewiesen

@@ -111,7 +111,20 @@ DAY_SCHEMA = {
     "type": "object",
     "properties": {
         "day": {"type": "string", "description": "Wochentag auf Deutsch, z.B. Montag"},
-        "date": {"type": "string", "description": "YYYY-MM-DD"},
+        # Ein Doppeltag ist zwei Einträge mit demselben Datum. Das Schema
+        # trägt eine Sportart je Eintrag, also ist das die einzige Form, in
+        # der die zweite Einheit für die Zähler und den Soll/Ist-Abgleich
+        # überhaupt existiert. Ohne diesen Satz schrieb das Modell
+        # „Schwimmen + Kraft" in einen Eintrag mit `session_type: swim` und
+        # die Kraft in die Notiz — unsichtbar für alles, was zählt.
+        "date": {
+            "type": "string",
+            "description": (
+                "YYYY-MM-DD. Ein Doppeltag erscheint als ZWEI Einträge mit "
+                "demselben Datum, je Einheit einer — nie zwei Einheiten in "
+                "einem Eintrag."
+            ),
+        },
         "session_type": {
             "type": "string",
             "enum": DISCIPLINES,
@@ -276,7 +289,9 @@ UPDATE_PLAN_TOOL = {
     "description": (
         "Erstellt oder aktualisiert den Wochentrainingsplan basierend auf dem Chat-Gespräch. "
         "IMMER alle 7 Tage (Montag–Sonntag) mit vollständigen details liefern — auch die Tage, "
-        "die unverändert bleiben. Ein Plan ohne komplette days-Liste wird verworfen."
+        "die unverändert bleiben. Ein Plan ohne komplette days-Liste wird verworfen. "
+        "Ein Doppeltag erscheint als zwei Einträge mit demselben Datum; die Liste hat dann "
+        "mehr als 7 Einträge, aber weiterhin alle 7 Daten."
     ),
     "input_schema": PLAN_TOOL["input_schema"],
 }
@@ -399,7 +414,7 @@ async def chat_with_coach(
 **HEUTE: {today_str}**  ← Nutze immer dieses Datum als Referenz. "Gestern" = {(_date.fromordinal(today.toordinal() - 1)).isoformat()}.
 
 Athletenkontext: {positions_text}, Phase: {current_week_context.get('phase', 'Base')}, {ftp_text}Ziel: {ziel_text}.
-{abschnitt(current_week_context.get("offseason_block"))}{abschnitt(current_week_context.get("base_block"))}{abschnitt(current_week_context.get("health"))}{abschnitt(current_week_context.get("races"))}{abschnitt(current_week_context.get("constraints_block"))}{abschnitt(current_week_context.get("zones"))}{abschnitt(current_week_context.get("phasen"))}{abschnitt(current_week_context.get("wochenform"))}
+{abschnitt(current_week_context.get("offseason_block"))}{abschnitt(current_week_context.get("base_block"))}{abschnitt(current_week_context.get("health"))}{abschnitt(current_week_context.get("races"))}{abschnitt(current_week_context.get("constraints_block"))}{abschnitt(current_week_context.get("zones"))}{abschnitt(current_week_context.get("phasen"))}{abschnitt(current_week_context.get("vorrang"))}{abschnitt(current_week_context.get("wochenform"))}
 
 **Aktuelle HRV (heute):** {latest_hrv_str}
 
@@ -445,12 +460,17 @@ Athletenkontext: {positions_text}, Phase: {current_week_context.get('phase', 'Ba
      abgewiesen. Ändere nur, was noch vor dem Athleten liegt.
    - Jeder gelieferte Tag braucht `date`, `session_type`, `training_type`,
      `targets` und ausgefüllte `details` — er ersetzt den bisherigen komplett.
+   - Ein geliefertes Datum ersetzt **alle** Einträge dieses Datums. Für einen Doppeltag
+     also beide Hälften zusammen liefern; wer nur eine liefert, hat danach nur eine.
 
    **`update_training_plan` — nur für eine ganze Woche.** Wenn es für die Woche
    noch keinen Plan gibt oder die Woche vollständig neu aufgebaut werden soll.
    Dann gilt STRIKT:
    - **Alle 7 Tage** (Montag bis Sonntag) mit `day`, `date` (YYYY-MM-DD) und `session_type`
      (`rest|bike|run|swim|gym|brick`) — auch unveränderte Tage komplett wiederholen.
+   - **Ein Doppeltag sind zwei Einträge mit demselben `date`**, je Einheit einer. Die Liste
+     hat dann acht oder neun Einträge für dieselben sieben Daten. Nie zwei Einheiten in
+     einen Eintrag schreiben — die zweite wäre für die Auswertung nicht vorhanden.
    - **Jeder Trainingstag braucht ausgefüllte `details`** im Format unten (Rad mit `blocks`
      inkl. Watt/RPM/Dauer/Zone, Lauf mit Pace und Ziel-HR). Ohne `details` sieht der Athlet
      im Wochenplan keine Vorgaben.

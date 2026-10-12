@@ -5,9 +5,31 @@ die der Coach plant, wenn du danach fragst — aber nicht unbedingt von selbst
 vorschlägt. Jede Zeile nennt die Bedingungen: in welcher Phase sie möglich ist,
 was die HRV dafür sagen muss, und worauf der Beleg beruht.
 
-**Wie du etwas wünschst:** im Chat sagen, oder im Feld „Besondere Wünsche" bei
-der Planerstellung. Der Coach kennt die Bedingungen unten und sagt Nein, wenn
-sie nicht erfüllt sind — er soll sie dir dann auch nennen.
+**Wie du etwas wünschst:** im Chat sagen, im Feld „Besondere Wünsche" bei der
+Planerstellung tippen — oder in der Plan-Kachel **anklicken**. Über dem
+Eingabefeld steht eine Reihe Knöpfe für die Formen, die eine Woche anders
+aussehen lassen: die Doppeltage und die Blockwoche. Klick und Text wirken
+zusammen; was abgeschickt wird, steht als Zeile darunter.
+
+Keine Knöpfe gibt es für die Intervallformate — welches Format eine Woche
+bekommt, wechselt die App von selbst (siehe „Formatwechsel" unten). Ein Knopf
+daneben wäre eine zweite Quelle für dieselbe Entscheidung.
+
+Der Coach kennt die Bedingungen unten und sagt Nein, wenn sie nicht erfüllt
+sind — er soll sie dir dann auch nennen.
+
+**Was gilt, wenn nicht alles hineinpasst.** Dein Wunsch und die Grundbasis der
+Phase passen nicht immer beide in eine Woche. Dann gilt diese Reihenfolge:
+
+1. Gesundheit und Verletzung — sie überschreiben alles.
+2. Mindestens ein vollständiger Ruhetag bleibt.
+3. Die Grundbasis der Phase steht: ihre Qualitätseinheiten und ihre
+   Krafteinheiten. Sie wird **nicht** gestrichen, um Platz für einen Wunsch zu
+   machen.
+4. Passt sie nicht in die verbleibenden Tage, setzt der Coach **von selbst**
+   einen Doppeltag ein — Schwimmen + Kraft zuerst. Du musst nicht darum bitten.
+5. Erst dann wird der Wunsch gekürzt, und du liest im Kommentar, was gekürzt
+   wurde und warum.
 
 **Was „HRV normal" heißt:** innerhalb deiner Normalspanne oder darüber, und
 ohne fallende Tendenz über drei Tage. Bei Garmin-Band: innerhalb der Spanne,
@@ -52,6 +74,16 @@ wählen; die App zählt über vier Wochen und hält die Folgewochen dann dünn.
 Zwei Einheiten an einem Tag, mindestens **6 Stunden** auseinander. Die
 Studien benutzten 6,5 bis 10 Stunden — die Konstante ist der untere Rand
 des Untersuchten, nicht gerundet.
+
+Im Plan erscheint ein Doppeltag als **zwei Einträge am selben Datum**, jeder
+mit eigener Dauer und eigenen Vorgaben. Das ist nicht nur Darstellung: Nur so
+zählt die zweite Einheit beim Soll/Ist-Abgleich und bei der Prüfung, ob die
+Kraftvorgabe erfüllt ist.
+
+**Einen Fall baut der Coach von selbst ein:** wenn die Grundbasis der Phase
+nicht mehr in die freien Tage passt. Dann ist der Doppeltag die Antwort, nicht
+das Streichen der Einheit — und auch nicht der Ruhetag. Alle anderen Formen
+unten musst du wünschen.
 
 ### Locker morgens + Qualität abends
 
@@ -189,6 +221,8 @@ abgesenkter Intensität ist keine VO2max-Einheit mehr.
 
 Diese Dinge macht die App von selbst, du brauchst nicht danach zu fragen:
 
+- **Ein Doppeltag, wenn die Grundbasis sonst nicht hineinpasst** — siehe die
+  Reihenfolge oben. Alle anderen Doppeltage musst du wünschen
 - **Formatrotation** beim Rad — sie liest, was zuletzt vorgegeben war
 - **Zwift-Namen** — werden nach der Planerstellung nachgetragen, wenn die
   Struktur eindeutig passt

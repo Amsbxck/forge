@@ -52,6 +52,86 @@ def _plan_text(plan: WeeklyPlan, rows: list[PlannedSession]) -> str:
     return "\n".join(zeilen)
 
 
+def systemprompt(db: Session, plan: WeeklyPlan, rows: list,
+                 zonen: str = "") -> str:
+    """Der Systemprompt der Tagesanpassung.
+
+    Eigene Funktion, damit er sich ohne Modellaufruf rendern und prüfen lässt.
+    Nötig geworden, weil hier genau die Bausteine gefehlt haben, die der
+    Plan-Prompt längst hatte: Dieser Prompt war handgeschrieben und importierte
+    `core.phasenregeln` nicht — keine Phasenvorgabe, keine Doppeltage, keine
+    Rangordnung. Seine einzige Strukturregel war „nicht zwei harte
+    hintereinander". Ein Wunsch „nutze einen Doppeltag" ging damit an einen
+    Coach, der von Doppeltagen nichts wusste; dieselbe Lücke hat hier schon
+    einmal die Pacevorgaben gekostet.
+
+    Die Blöcke werden **importiert, nicht abgeschrieben** — zwei Fassungen
+    desselben Textes laufen auseinander.
+    """
+    from core.phasenregeln import doppel_block, vorrang_block
+    from services.week_shape import grundbasis
+
+    phase = plan.plan_phase
+    regel_bloecke = "\n".join(
+        b for b in (doppel_block(phase), vorrang_block(phase)) if b
+    )
+
+    # Der Stand der Grundbasis **vor** dem Aufruf. Das ist der wirksame Teil:
+    # Eine Tagesänderung, die die letzte Krafteinheit entfernt, lässt sich so
+    # verhindern, statt sie hinterher zu melden.
+    stand = ""
+    try:
+        gb = grundbasis(db, plan.week_start, plan.week_end,
+                        user_id=plan.user_id, phase=phase)
+        if gb["vorhanden"]:
+            frei = gb.get("freie_tage") or []
+            stand = (
+                f"\n## Stand der Grundbasis in dieser Woche\n"
+                f"Krafttraining **{gb['gym']} von {gb['gym_soll']}**, "
+                f"{gb['einheiten']} Einheiten auf {gb['trainingstage']} Tagen, "
+                f"{gb['ruhetage']} Tage ohne Einheit"
+                + (
+                    " (" + ", ".join(str(t) for t in frei) + ")"
+                    if frei else ""
+                )
+                + ".\n"
+            )
+    except Exception as e:  # pragma: no cover - Auskunft darf nie die Änderung reissen
+        logger.warning("Grundbasis für die Anpassung nicht ermittelt: %s", e)
+
+    return f"""Du passt einzelne Tage eines bestehenden Wochenplans an.
+
+## Der Plan dieser Woche ({plan.week_start} bis {plan.week_end}, Phase {plan.plan_phase})
+{_plan_text(plan, rows)}
+
+## Werte des Athleten
+{zonen}
+{stand}
+{regel_bloecke}
+
+## Auftrag
+Setze den Wunsch des Athleten um, indem du `adjust_training_days` aufrufst.
+
+- **Nur die Tage liefern, die sich ändern.** Alles andere bleibt unberührt und
+  muss nicht wiederholt werden. Das ist der Zweck dieses Wegs.
+- Tage, die mit [ABSOLVIERT] markiert sind, und Tage in der Vergangenheit nicht
+  anfassen — sie werden ohnehin abgewiesen.
+- Jeder gelieferte Tag braucht `date`, `session_type`, `training_type`,
+  `targets` und ausgefüllte `details`; er ersetzt den bisherigen komplett.
+- **Ein geliefertes Datum ersetzt alle Einträge dieses Datums.** Ein Doppeltag
+  sind zwei Einträge mit demselben `date` — wer ihn ändert, liefert beide
+  Hälften; wer einen Doppeltag anlegt, liefert zwei Einträge für diesen Tag.
+- Bleibt die Wochenstruktur sinnvoll: Wer einen harten Tag verschiebt, setzt
+  nicht zwei harte hintereinander. (Ausnahme ist allein eine ausdrücklich
+  geplante Blockwoche — die wird aber nicht hier, sondern mit einem neuen
+  Wochenplan erzeugt.)
+- **Die Grundbasis oben nicht verletzen.** Entfernt die Änderung die letzte
+  Krafteinheit oder die einzige Qualitätseinheit der Woche, setze sie auf einem
+  anderen Tag wieder ein — wenn nötig als Doppeltag — und sage es im Satz
+  dazu. Den Wunsch nur dann kürzen, wenn beides nicht geht.
+- Antworte knapp, ein bis zwei Sätze."""
+
+
 async def tage_anpassen(db: Session, plan: WeeklyPlan, wunsch: str) -> dict:
     """Den Wunsch auf die Tage dieses Plans anwenden.
 
@@ -103,26 +183,7 @@ async def tage_anpassen(db: Session, plan: WeeklyPlan, wunsch: str) -> dict:
             f"Puls."
         )
 
-    system = f"""Du passt einzelne Tage eines bestehenden Wochenplans an.
-
-## Der Plan dieser Woche ({plan.week_start} bis {plan.week_end}, Phase {plan.plan_phase})
-{_plan_text(plan, rows)}
-
-## Werte des Athleten
-{zonen}
-
-## Auftrag
-Setze den Wunsch des Athleten um, indem du `adjust_training_days` aufrufst.
-
-- **Nur die Tage liefern, die sich ändern.** Alles andere bleibt unberührt und
-  muss nicht wiederholt werden. Das ist der Zweck dieses Wegs.
-- Tage, die mit [ABSOLVIERT] markiert sind, und Tage in der Vergangenheit nicht
-  anfassen — sie werden ohnehin abgewiesen.
-- Jeder gelieferte Tag braucht `date`, `session_type`, `training_type`,
-  `targets` und ausgefüllte `details`; er ersetzt den bisherigen komplett.
-- Bleibt die Wochenstruktur sinnvoll: Wer einen harten Tag verschiebt, setzt
-  nicht zwei harte hintereinander.
-- Antworte knapp, ein bis zwei Sätze."""
+    system = systemprompt(db, plan, rows, zonen)
 
     client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
     antwort = await client.messages.create(
@@ -185,10 +246,34 @@ Setze den Wunsch des Athleten um, indem du `adjust_training_days` aufrufst.
     except Exception as e:  # pragma: no cover
         logger.warning("Plan-Note nach Anpassung nicht geschrieben: %s", e)
 
+    # Die Woche nach der Änderung nachzählen.
+    #
+    # Hier prüfte bisher **nichts**: `services/week_shape.py` wurde weder von
+    # hier noch von `plan_merge` gerufen. Eine Tagesänderung, die die letzte
+    # Krafteinheit entfernt, fiel damit niemandem auf.
+    #
+    # Nach `project_plan` und in eigenem `try`: Die Projektion schluckt jede
+    # Ausnahme, ein Zähler darin wäre unsichtbar ausgefallen — und er liest die
+    # projizierten Zeilen, muss also danach laufen.
+    befund = None
+    try:
+        from services.week_shape import nach_anpassung
+        befund = nach_anpassung(db, neu.week_start, neu.week_end,
+                                plan.plan_phase, user_id=neu.user_id)
+    except Exception as e:  # pragma: no cover - Auskunft darf die Änderung nie reissen
+        logger.warning("Wochenform nach Anpassung nicht geprüft: %s", e)
+
+    if befund:
+        # In beides: `adjustments_applied` ist das Protokoll, `hinweis` ist das
+        # Einzige, was das Frontend im Moment der Änderung anzeigt. Nur im
+        # Protokoll wäre der Befund genau dann unsichtbar, wenn er zählt.
+        neu.adjustments_applied = (neu.adjustments_applied or []) + [befund]
+        db.commit()
+
     return {
         "status": "angepasst",
         "plan_id": neu.id,
         "geaendert": uebernommen,
         "abgewiesen": abgewiesen,
-        "hinweis": " ".join(text),
+        "hinweis": " ".join(text + ([befund] if befund else [])),
     }

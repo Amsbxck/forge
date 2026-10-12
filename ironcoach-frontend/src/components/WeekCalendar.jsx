@@ -613,7 +613,12 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
 
           return (
             <div
-              key={day.date || i}
+              // Nicht `day.date`: ein Doppeltag sind zwei Einträge mit
+              // demselben Datum, und zwei gleiche Keys lassen React die
+              // Karten verwechseln — beim Ziehen landete die Änderung dann
+              // auf der anderen Hälfte. Die Zeilen-`id` ist eindeutig, wo
+              // sie existiert; sonst Datum plus Position.
+              key={day.id ?? `${day.date || 'tag'}-${i}`}
               draggable={!isSaving}
               onDragStart={() => onDragStart(i)}
               onDragOver={(e) => onDragOver(e, i)}

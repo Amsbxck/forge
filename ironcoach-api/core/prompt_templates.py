@@ -493,6 +493,7 @@ def build_plan_prompt(
     # dieselbe Vorgabe wären der nächste Widerspruch.
     from core.phasenregeln import doppel_block as doppel_prompt
     from core.phasenregeln import prompt_block as phasen_prompt
+    from core.phasenregeln import vorrang_block as vorrang_prompt
     phasen_block = "" if (base_block or offseason_block) else phasen_prompt(phase, deload)
     # Die Doppeltage getrennt, weil sie **auch** in der Grundlagenphase gelten.
     # An einem echten Plan aufgefallen: Dort war die Phasenvorgabe unterdrückt
@@ -501,6 +502,14 @@ def build_plan_prompt(
     # Krafteinheit war kein Tag frei, und sie fiel ersatzlos aus. Mit einem
     # Doppeltag (Schwimmen + Kraft, ausdrücklich erlaubt) hätte sie gepasst.
     doppel_block = "" if offseason_block else doppel_prompt(phase)
+    # Die Rangordnung ebenfalls getrennt — und **ohne** die Unterdrückung
+    # oben. `phasen_block` schweigt in der Grundlage und `doppel_block` endet
+    # früh in Taper und Wettkampfwoche; die Frage „was fällt weg, wenn nicht
+    # alles hineinpasst" stellt sich aber in jeder Phase. Sie leer zu lassen
+    # heißt, sie genau dort weglassen, wo an echten Plänen die Kraftvorgabe
+    # reihenweise verfehlt wurde. Nur die Off Season bleibt außen vor, weil
+    # `services/offseason.py` ihre Vorgaben selbst mitbringt.
+    vorrang_block = "" if offseason_block else vorrang_prompt(phase)
     wochenform_block = wochenform or ""
     day_names = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
     week_days = [(day_names[i], str(week_start + timedelta(days=i))) for i in range(7)]
@@ -584,6 +593,7 @@ belegt. Er ist kein Grund, zusätzlich zu belasten.
 
 {phasen_block}
 {doppel_block}
+{vorrang_block}
 {wochenform_block}
 ## Aktuelle Position
 - Aktuelle Woche: {"Off Season, " + str(week - total_weeks) + ". Woche nach dem Saisonziel" if offseason_block else "Grundlagenphase — zählt nicht als Vorbereitungswoche" if base_block else f"{week}/{total_weeks}"}
@@ -624,6 +634,8 @@ hinterher selbst ein — such keinen aus und erfinde keinen.
  
 ## Besondere Wünsche
 {requests if requests else "Keine."}
+
+{'' if not requests else "**Gewicht dieser Wünsche:** Sie sind verbindlich, soweit sie mit der Grundbasis vereinbar sind — nimm sie nicht als Anregung. Kollidieren sie mit ihr, gilt die Rangordnung weiter oben: der Wunsch wird **zuletzt** gekürzt, aber er wird gekürzt, nicht die Grundbasis. Was du gekürzt hast, gehört in `coaching_comment`."}
  
 ---
  
@@ -725,6 +737,11 @@ selbst — hier ist Struktur ausdrücklich erwünscht.
 Erstelle den Plan für **Woche {week}** ({week_start} – {week_end}).
 
 {'🔄 DELOAD-WOCHE: Volumen -40-50%, keine neue Intensität!' if deload else ''}
+
+**Ein Doppeltag sind zwei Einträge mit demselben `date`** — je Einheit einer, mit
+eigener `session_type`, eigenen `targets` und eigenen `details`. Die Liste hat dann
+mehr als sieben Einträge für dieselben sieben Daten. Zwei Einheiten in einem
+Eintrag zu beschreiben macht die zweite für die Auswertung unsichtbar.
 
 **Antworte NUR mit JSON:**
 

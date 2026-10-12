@@ -182,6 +182,25 @@ def bloecke(db: Session, user=None, fakten: dict | None = None) -> dict:
             is_deload(fakten["week"], fakten["total_weeks"]),
         )
 
+    def _vorrang():
+        """Die Rangordnung bei Platzmangel — im Chat **auch** in der Grundlage.
+
+        Anders als `_phasen` ohne Unterdrückung: Der Chat ist laut
+        `TRAININGSOPTIONEN.md` einer der beiden Wege, auf denen ein Athlet
+        einen Wunsch äußert („kann ich diese Woche statt Kraft lieber …"), und
+        die Frage, was dann wegfällt, stellt sich in jeder Phase. `_phasen`
+        schweigt in der Grundlage, und `doppel_block` rendert der Chat gar
+        nicht — ohne diesen Baustein beantwortete der Coach im Gespräch also
+        genau die Frage ohne Rangordnung, um die es hier geht.
+
+        Nur die Off Season bleibt außen vor, wie überall: dort bringt
+        `services/offseason.py` die Vorgaben selbst mit.
+        """
+        if fakten["offseason"]:
+            return ""
+        from core.phasenregeln import vorrang_block
+        return vorrang_block(fakten["phase"])
+
     def _wochenform():
         """Harte Einheiten der Vorwoche und die Formatrotation."""
         from core.prompt_templates import get_week_dates
@@ -206,6 +225,7 @@ def bloecke(db: Session, user=None, fakten: dict | None = None) -> dict:
     return {
         "zones": sicher("zonen", _zonen),
         "phasen": sicher("phasen", _phasen),
+        "vorrang": sicher("vorrang", _vorrang),
         "wochenform": sicher("wochenform", _wochenform),
         "season_history": sicher("verlauf", _verlauf),
         "quality": sicher("auffaellig", _auffaellig),

@@ -8,8 +8,10 @@ import WeekCalendar from '../components/WeekCalendar'
 import PlanExport from '../components/PlanExport'
 import HealthStatus from '../components/HealthStatus'
 import PlanOptionen from '../components/PlanOptionen'
+import WunschKnoepfe from '../components/WunschKnoepfe'
 import { montagMitVersatz } from '../utils/dates'
 import { phaseColor } from '../utils/colors'
+import { OPTIONEN, wunschText } from '../utils/trainingsoptionen'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
 const LABEL = 'text-xs font-mono tracking-widest text-[var(--text-secondary)]'
@@ -63,6 +65,22 @@ export default function WeeklyPlan() {
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [requests, setRequests] = useState('')
+  // Angeklickte Wünsche für diese Woche, als Menge von Options-Kennungen.
+  //
+  // Nicht als Text im Eingabefeld: Ein Abwählen müsste dort einen Satz aus
+  // dem String herausschneiden, und wer den Text zwischendurch bearbeitet,
+  // bekommt Bruch — der halb gelöschte Satz ginge wörtlich an das Modell.
+  // Zusammengesetzt wird erst beim Absenden (`wunschText`).
+  //
+  // Absichtlich nicht gespeichert: Jede Woche beginnt mit leerer Auswahl.
+  const [gewaehlt, setGewaehlt] = useState(() => new Set())
+  // Die Phase, wenn noch kein Plan existiert — sonst wären die Knöpfe genau
+  // bei der ersten Planerstellung unsichtbar. `/api/metrics/week` liefert die
+  // Phase der **laufenden** Woche; beim Vorblättern über eine Phasengrenze
+  // kann sie um eine Stufe daneben liegen. Für die beiden Knopfarten (Doppeltag
+  // in jeder Phase außer Taper und Wettkampfwoche, Blockwoche im Aufbau) ist
+  // das tragbar — der Coach prüft die Bedingung ohnehin selbst.
+  const [metrikPhase, setMetrikPhase] = useState(null)
   const [error, setError] = useState(null)
   // Versatz in Kalenderwochen: 0 = laufende, -1 = vorige, +1 = kommende.
   //
@@ -127,9 +145,10 @@ export default function WeeklyPlan() {
     setGenerating(true)
     setError(null)
     try {
-      const { data } = await adjustPlanDays(requests, zielMontag)
+      const { data } = await adjustPlanDays(wunschText(gewaehlt, requests), zielMontag)
       if (data.status === 'angepasst') {
         setRequests('')
+        setGewaehlt(new Set())
         setHinweis({
           ok: true,
           text: `${data.geaendert.length} Tag(e) angepasst: ${data.geaendert.join(', ')}`
@@ -152,8 +171,10 @@ export default function WeeklyPlan() {
     setError(null)
     try {
       // Für die Woche, die gerade angezeigt wird — nicht blind für heute.
-      const resp = await generatePlan(requests, zielMontag)
+      const resp = await generatePlan(wunschText(gewaehlt, requests), zielMontag)
       setPlan(resp.data)
+      setRequests('')
+      setGewaehlt(new Set())
       // Danach die Einheiten derselben Woche nachladen. Vorher stand hier
       // `loadPlanned(null)`: Der neue Plan erschien in der Kachel, während
       // darunter noch die Einheiten der vorigen Woche standen — es sah aus,
@@ -167,6 +188,46 @@ export default function WeeklyPlan() {
   }
 
   useEffect(() => { load(versatz) }, [versatz, load])
+
+  // Die Phase für die Knopfreihe, wenn noch kein Plan vorliegt. Einmal beim
+  // Öffnen; sie ändert sich nicht im Minutentakt, und ein Fehlschlag darf die
+  // Seite nicht beeinträchtigen — dann fehlen eben die Knöpfe.
+  useEffect(() => {
+    let abgebrochen = false
+    getWeekMetrics()
+      .then(({ data }) => { if (!abgebrochen) setMetrikPhase(data?.phase ?? null) })
+      .catch(() => {})
+    return () => { abgebrochen = true }
+  }, [])
+
+  // Welche Phase die Knöpfe filtert: die des Plans, sonst die der Metriken.
+  const knopfPhase = plan?.plan_phase || metrikPhase
+
+  // Eine Blockwoche ist eine **ganze** Woche, keine Tagesänderung.
+  //
+  // `/plan/anpassen` liefert nur geänderte Tage und verlangt ausdrücklich,
+  // nicht zwei harte Einheiten hintereinander zu setzen — das Gegenteil einer
+  // Blockwoche mit fünf. Ein solcher Wunsch muss deshalb über einen neuen
+  // Wochenplan laufen, auch wenn schon einer existiert.
+  const ganzeWocheGewaehlt = useMemo(
+    () => OPTIONEN.some(o => o.ganzeWoche && gewaehlt.has(o.id)),
+    [gewaehlt]
+  )
+
+  const absenden = () => {
+    if (plan && ganzeWocheGewaehlt) {
+      const ok = window.confirm(
+        'Eine Blockwoche verändert die ganze Woche, nicht einzelne Tage — '
+        + 'der Plan dieser Woche wird dafür neu erstellt. Fortfahren?'
+      )
+      if (!ok) return
+      return generate()
+    }
+    return plan ? anpassen() : generate()
+  }
+
+  const absendbar = !generating
+    && (!plan || requests.trim() !== '' || gewaehlt.size > 0)
 
   const shownWeek = plan?.week_number ?? currentWeek
   // Gibt es für die betrachtete Woche keinen Plan, ist keine Wochennummer
@@ -260,11 +321,25 @@ export default function WeeklyPlan() {
         </div>
 
         <div className="flex gap-2 items-center flex-wrap">
+          <WunschKnoepfe
+            phase={knopfPhase}
+            gewaehlt={gewaehlt}
+            freitext={requests}
+            onToggle={id => setGewaehlt(v => {
+              const n = new Set(v)
+              n.has(id) ? n.delete(id) : n.add(id)
+              return n
+            })}
+          />
           <input
             value={requests}
             onChange={e => setRequests(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && !generating && generate()}
-            placeholder="Special requests (optional)"
+            // Vorher rief Enter **immer** `generate()` — auch bei
+            // vorhandenem Plan, wo der Knopf daneben anpasst. Wer „Donnerstag
+            // tauschen" eintippte und Enter drückte, bekam die ganze Woche neu
+            // geschrieben. Jetzt derselbe Weg wie der Knopf.
+            onKeyDown={e => { if (e.key === 'Enter' && absendbar) absenden() }}
+            placeholder="Besondere Wünsche (optional)"
             className="rounded-lg px-3 py-2 text-sm font-mono text-[#e8eaf0] placeholder-[var(--text-muted)] outline-none transition-colors w-64"
             style={{
               background: '#111318',
@@ -274,10 +349,15 @@ export default function WeeklyPlan() {
             onBlur={e => { e.target.style.borderColor = '#1e2228' }}
           />
           <button
-            onClick={plan ? anpassen : generate}
-            disabled={generating || (plan && !requests.trim())}
+            onClick={absenden}
+            // Ein gewählter Knopf allein reicht. Vorher hing die Freigabe
+            // ausschließlich am Freitext — die Knöpfe hätten den Knopf nie
+            // aktiviert und wären bei vorhandenem Plan wirkungslos geblieben.
+            disabled={!absendbar}
             title={plan
-              ? `Beschreibe im Feld links, was sich ändern soll — nur diese Tage werden angefasst (${zielSpanne})`
+              ? (ganzeWocheGewaehlt
+                ? `Blockwoche: die Woche ${zielSpanne} wird neu erstellt`
+                : `Wünsche anklicken oder eintippen — nur die betroffenen Tage werden angefasst (${zielSpanne})`)
               : `Plan für die Woche ${zielSpanne} erzeugen`}
             className="relative px-4 py-2 rounded-lg text-sm font-mono font-bold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             style={{
@@ -303,7 +383,8 @@ export default function WeeklyPlan() {
               </span>
             ) : (
               <span className="flex items-center gap-2">
-                {plan ? 'TAGE ANPASSEN' : 'PLAN ERSTELLEN'}
+                {!plan ? 'PLAN ERSTELLEN'
+                  : ganzeWocheGewaehlt ? 'WOCHE NEU ERSTELLEN' : 'TAGE ANPASSEN'}
                 <span className="font-normal text-[11px] opacity-70">{zielSpanne}</span>
               </span>
             )}
@@ -432,13 +513,21 @@ export default function WeeklyPlan() {
           <WeekCalendar days={calendarDays} onPersisted={loadPlanned} />
 
           {/* Was sich der Athlet wünschen kann — direkt unter der Woche, weil
-              die Entscheidung dort fällt. Ein Klick schreibt den Wunsch in das
-              Feld oben, statt ihn nur nachzuschlagen. */}
+              die Entscheidung dort fällt. Ein Klick übernimmt den Wunsch nach
+              oben, statt ihn nur nachzuschlagen. */}
           <div className="mt-4">
             <PlanOptionen
-              phase={plan?.plan_phase}
-              onWunsch={text => {
-                setRequests(v => (v.trim() ? `${v.trim()} ${text}` : text))
+              phase={knopfPhase}
+              onWunsch={o => {
+                // Hat die Form einen Knopf in der Reihe oben, wird dieser
+                // gesetzt — nicht Text angehängt. Sonst zeigten Panel und
+                // Knopfreihe verschiedene Zustände für dieselbe Entscheidung,
+                // und ein Abwählen wirkte nur an einer der beiden Stellen.
+                if (o.kuerzel) {
+                  setGewaehlt(v => new Set(v).add(o.id))
+                } else {
+                  setRequests(v => (v.trim() ? `${v.trim()} ${o.wunsch}` : o.wunsch))
+                }
                 window.scrollTo({ top: 0, behavior: 'smooth' })
               }}
             />

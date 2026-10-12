@@ -82,10 +82,13 @@ def _ist_hart(einheit, typen: tuple[str, ...] = QUALITAETS_TYPEN) -> bool:
     return False
 
 
-def harte_einheiten(db: Session, von: date, bis: date,
-                    user_id: int | None = None,
-                    phase: str | None = None) -> dict:
-    """Harte Einheiten eines Zeitraums aus den **Vorgaben**.
+def _montag_von(tag: date) -> date:
+    return tag - timedelta(days=tag.weekday())
+
+
+def _einheiten(db: Session, von: date, bis: date,
+               user_id: int | None = None) -> list | None:
+    """Die Vorgaben eines Zeitraums — je Woche nur der jüngste Plan.
 
     Gelesen wird die Projektion, nicht der Plan-JSON: dort steht je Woche nur
     der jüngste Plan, also das, was am Ende gegolten hat.
@@ -94,8 +97,16 @@ def harte_einheiten(db: Session, von: date, bis: date,
     Gefiltert wurde auf den **einen** jüngsten `plan_id` über den ganzen
     Bereich. Bei einer Woche stimmt das — nach der Projektion gibt es dort nur
     einen Plan. Über vier Wochen hätte es drei Wochen stillschweigend
-    weggeworfen, weil jede Woche ihren eigenen Plan hat. Deshalb jetzt der
-    jüngste Plan **je Woche**, so wie `season_summary._einhaltung` es macht.
+    weggeworfen, weil jede Woche ihren eigenen Plan hat. Deshalb der jüngste
+    Plan **je Woche**, so wie `season_summary._einhaltung` es macht.
+
+    `None` heißt „nicht lesbar" (keine Projektionstabelle) und ist von einer
+    leeren Liste zu unterscheiden: Die eine bedeutet „keine Auskunft möglich",
+    die andere „die Woche ist leer".
+
+    Gemeinsam genutzt von `harte_einheiten` und `grundbasis`. Zwei Kopien
+    dieses Filters gäbe es damit immer noch (`season_summary`), eine dritte
+    wäre die nächste Abweichung.
     """
     from models import PlannedSession
 
@@ -109,20 +120,26 @@ def harte_einheiten(db: Session, von: date, bis: date,
     try:
         einheiten = abfrage.all()
     except Exception:  # pragma: no cover - ohne Projektionstabelle gibt es nichts
-        return {"anzahl": 0, "tage": [], "min_abstand": None, "vorhanden": False}
-
-    def montag_von(tag: date) -> date:
-        return tag - timedelta(days=tag.weekday())
+        return None
 
     jung: dict[date, int] = {}
     for e in einheiten:
-        m = montag_von(e.planned_date)
+        m = _montag_von(e.planned_date)
         if (e.plan_id or 0) > jung.get(m, -1):
             jung[m] = e.plan_id or 0
-    einheiten = [
+    return [
         e for e in einheiten
-        if (e.plan_id or 0) == jung[montag_von(e.planned_date)]
+        if (e.plan_id or 0) == jung[_montag_von(e.planned_date)]
     ]
+
+
+def harte_einheiten(db: Session, von: date, bis: date,
+                    user_id: int | None = None,
+                    phase: str | None = None) -> dict:
+    """Harte Einheiten eines Zeitraums aus den **Vorgaben**."""
+    einheiten = _einheiten(db, von, bis, user_id)
+    if einheiten is None:
+        return {"anzahl": 0, "tage": [], "min_abstand": None, "vorhanden": False}
 
     # Welche Typen zählen, entscheidet die Phase — siehe `_ist_hart`.
     regeln = regeln_fuer(phase) if phase else None
@@ -142,7 +159,113 @@ def harte_einheiten(db: Session, von: date, bis: date,
     }
 
 
+def grundbasis(db: Session, von: date, bis: date,
+               user_id: int | None = None,
+               phase: str | None = None) -> dict:
+    """Trägt die Woche die Grundbasis der Phase — und ist überhaupt Platz?
+
+    Gezählt wird, was bisher **nichts** gezählt hat: Krafteinheiten.
+    `PHASENREGELN[...]["gym"]` wurde an genau einer Stelle gelesen und dort nur
+    als Prompt-Text gerendert. An acht echten Wochen gemessen verfehlten sieben
+    die Kraftvorgabe, und nur **eine** davon war wirklich voll — in den anderen
+    gab es freie Tage. Es fehlte also nicht Platz, sondern ein Zähler.
+
+    Zwei Entscheidungen, die den Unterschied machen:
+
+      * **Krafteinheiten werden als Zeilen gezählt, nicht als Tage.** Anders
+        als harte Einheiten, bei denen der 48-Stunden-Abstand nach *Tagen*
+        fragt. Ein Doppeltag Schwimmen + Kraft wäre über Tage gezählt eine
+        Einheit, und genau dieser Doppeltag ist das Mittel, mit dem die
+        Kraftvorgabe gehalten werden soll — der Zähler hätte sein eigenes
+        Mittel nicht gesehen.
+      * **Trainingstage und Ruhetage getrennt.** Nur so lässt sich „die Woche
+        ist voll, es braucht einen Doppeltag" von „es war Platz, die Einheit
+        ist schlicht ausgefallen" unterscheiden. Das sind verschiedene
+        Probleme mit verschiedenen Antworten, und sieben von acht Wochen waren
+        der zweite Fall.
+
+    Berichtet, lehnt nichts ab — wie das ganze Modul. `vorhanden` ist falsch,
+    wenn es nichts zu sagen gibt: keine Projektion, keine Woche, oder eine
+    Phase ohne Kraftvorgabe (Taper, Wettkampfwoche). Ohne diese letzte
+    Bedingung meldete jede Taperwoche „0 von 0 Krafteinheiten".
+    """
+    regeln = regeln_fuer(phase) if phase else None
+    gym_soll = (regeln or {}).get("gym")
+
+    einheiten = _einheiten(db, von, bis, user_id)
+    if not einheiten:
+        return {
+            "gym": 0, "gym_soll": gym_soll, "trainingstage": 0, "ruhetage": 0,
+            "einheiten": 0, "freie_tage": [], "vorhanden": False,
+        }
+
+    # Ruhetage werden als Zeile projiziert, zählen hier also mit. Ein Tag ohne
+    # jede Zeile wäre ebenfalls frei — deshalb über die Daten des Zeitraums,
+    # nicht über die Ruhetagszeilen.
+    belegt = {e.planned_date for e in einheiten
+              if (e.discipline or "").lower() != "rest"}
+    alle_tage = [von + timedelta(days=i) for i in range((bis - von).days + 1)]
+    frei = [t for t in alle_tage if t not in belegt]
+
+    gym = sum(1 for e in einheiten if (e.discipline or "").lower() == "gym")
+
+    return {
+        "gym": gym,
+        "gym_soll": gym_soll,
+        "trainingstage": len(belegt),
+        "ruhetage": len(frei),
+        # Einheiten, nicht Zeilen: ein Ruhetag ist keine Einheit.
+        "einheiten": sum(1 for e in einheiten
+                         if (e.discipline or "").lower() != "rest"),
+        "freie_tage": frei,
+        "vorhanden": bool(gym_soll),
+    }
+
+
 WOCHENTAG = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+
+
+def _kraftluecke(gb: dict) -> str | None:
+    """Die verfehlte Kraftvorgabe als Satz. `None`, wenn sie gehalten wurde.
+
+    Ein Satz, zwei Leser (`prompt_block` und `bericht`) — zwei Formulierungen
+    desselben Befunds wären zwei Wahrheiten über dieselbe Woche.
+
+    Der Satz **unterscheidet** die beiden Lagen, weil sie verschiedene
+    Antworten haben: War die Woche voll, ist der Doppeltag die Lösung; war Platz
+    frei, ist die Einheit einfach ausgefallen und braucht keinen Doppeltag,
+    sondern einen Tag.
+
+    Wichtig dabei: **Ein** freier Tag ist der Ruhetag, nicht Platz. Die
+    Rangordnung in `core/phasenregeln.vorrang_block` schützt ihn ausdrücklich.
+    Ihn hier als freie Fläche zu melden hieße, dem Coach genau das
+    vorzuschlagen, was zwei Abschnitte weiter oben verboten ist. Erst ab zwei
+    freien Tagen war wirklich Platz.
+    """
+    if not gb.get("vorhanden"):
+        return None
+    soll = gb["gym_soll"]
+    ist = gb["gym"]
+    if ist >= soll:
+        return None
+
+    kern = (
+        f"Krafttraining: **{ist} von {soll}** — die Vorgabe dieser Phase ist "
+        f"nicht erfüllt."
+    )
+    frei = gb.get("freie_tage") or []
+    if len(frei) >= 2:
+        tage = ", ".join(WOCHENTAG[t.weekday()] for t in frei)
+        return (
+            f"{kern} Dabei war Platz: {tage} ohne Einheit — einer davon ist der "
+            f"Ruhetag, die übrigen waren frei. Es brauchte also keinen "
+            f"Doppeltag, nur einen Tag."
+        )
+    return (
+        f"{kern} Die Woche war voll (ein Ruhetag, sonst alles belegt) — "
+        f"**das** ist der Fall für einen Doppeltag (Schwimmen + Kraft), nicht "
+        f"für das Streichen der Einheit."
+    )
 
 
 def prompt_block(db: Session, woche_ab: date, phase: str | None,
@@ -227,6 +350,15 @@ def prompt_block(db: Session, woche_ab: date, phase: str | None,
             "weiter auseinander legen."
         )
 
+    # Die Kraftvorgabe der Vorwoche. Der Teil, der die stillen Fälle sichtbar
+    # macht: An acht echten Wochen verfehlten sieben sie, und niemandem fiel es
+    # auf, weil nichts sie gezählt hat.
+    luecke = _kraftluecke(
+        grundbasis(db, vorwoche, vorwoche + timedelta(days=6), user_id, phase)
+    )
+    if luecke:
+        hinweise.append(luecke)
+
     return "\n## RÜCKSCHAU AUF DIE WOCHENFORM\n" + satz + (
         " " + " ".join(hinweise) if hinweise else ""
     ) + "\n"
@@ -238,7 +370,48 @@ def bericht(db: Session, woche_ab: date, phase: str | None,
 
     Bewusst ohne Werturteil, wenn alles passt: Eine Zeile „alles in Ordnung"
     in jeder Plananpassung wäre Rauschen.
+
+    Zwei Befunde, die unabhängig voneinander auftreten können: die harten
+    Einheiten (Anzahl und Abstand) und die Kraftvorgabe. Deshalb werden sie
+    getrennt erhoben und zusammengesetzt — die Kraftlücke darf nicht daran
+    hängen, dass die Qualitätsprüfung nichts zu melden hatte.
     """
+    kraft = _kraftluecke(
+        grundbasis(db, woche_ab, woche_ab + timedelta(days=6), user_id, phase)
+    )
+    qualitaet = _qualitaetsbericht(db, woche_ab, phase, user_id)
+    teile = [t for t in (qualitaet, kraft) if t]
+    return " ".join(teile) if teile else None
+
+
+def nach_anpassung(db: Session, von: date, bis: date, phase: str | None,
+                   user_id: int | None = None,
+                   heute: date | None = None) -> str | None:
+    """Der Befund nach einer Tagesänderung — und **nur**, wenn er noch hilft.
+
+    Unterschied zu `bericht`: Dort ist die ganze Woche neu erzeugt, hier wurden
+    einzelne Tage geändert. `services/plan_merge.py` weist vergangene und
+    absolvierte Tage ausdrücklich ab — am Samstag lässt sich an der Woche
+    nichts mehr reparieren. „Krafttraining 1 von 2" wäre dann ein Vorwurf für
+    etwas, das niemand mehr ändern kann.
+
+    Deshalb schweigt diese Funktion, wenn in der Woche kein Tag mehr vor dem
+    Athleten liegt. Dasselbe Muster wie die Blockunterdrückung in
+    `prompt_block`: Das Urteil entfällt, wo das Mittel dagegen fehlt.
+    """
+    heute = heute or date.today()
+    if bis < heute:
+        return None
+
+    kraft = _kraftluecke(grundbasis(db, von, bis, user_id, phase))
+    qualitaet = _qualitaetsbericht(db, von, phase, user_id)
+    teile = [t for t in (qualitaet, kraft) if t]
+    return " ".join(teile) if teile else None
+
+
+def _qualitaetsbericht(db: Session, woche_ab: date, phase: str | None,
+                       user_id: int | None = None) -> str | None:
+    """Anzahl und Abstand der harten Einheiten der erzeugten Woche."""
     form = harte_einheiten(db, woche_ab, woche_ab + timedelta(days=6),
                            user_id, phase)
     if not form["vorhanden"]:

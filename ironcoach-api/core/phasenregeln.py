@@ -30,6 +30,7 @@ Etiketten, und jede phasengebundene Regel griff dort bisher ins Leere.
 from __future__ import annotations
 
 from core.einheiten_bibliothek import (
+    DOPPEL_MIN_ABSTAND_H,
     LAUF_MIN_WIEDERHOLUNG,
     doppel_text,
     formate_text,
@@ -204,6 +205,107 @@ def doppel_block(phase: str | None) -> str:
         "beansprucht verschiedene Muskeln. Ebenso, wenn die Einzellauf-Grenze "
         "bindet: ein langer Lauf auf zwei Einheiten geteilt bleibt je Einheit "
         "darunter.\n"
+    )
+
+
+def vorrang_block(phase: str | None) -> str:
+    """Was gilt, wenn Wunsch und Grundbasis nicht beide hineinpassen.
+
+    Gemessen an acht echten Wochen: sieben verfehlten die Kraftvorgabe, und nur
+    **eine** davon war wirklich voll. In den anderen gab es freie Tage. Es gab
+    also nicht zu wenig Platz, sondern keine Rangordnung — in keinem Prompt
+    stand, was wegfällt, wenn nicht alles hineinpasst. `## Besondere Wünsche`
+    ist eine nackte Überschrift ohne Gewichtung, und die Kraftvorgabe steht als
+    eine Zeile tief im Regelabschnitt.
+
+    **Eigener Abschnitt, nicht ein Absatz in `doppel_block`** — aus drei
+    nachgeprüften Gründen:
+
+      * `doppel_block` endet früh, wenn die Phase keine Doppeltage erlaubt.
+        Taper und Wettkampfwoche bekämen damit gar keine Rangordnung, und das
+        sind die Phasen, in denen ein Wunsch am häufigsten gegen den Plan
+        steht.
+      * `prompt_templates` unterdrückt `doppel_block` in der Off Season.
+      * Der Chat baut seinen Kontext getrennt (`services/coach_context.py`) und
+        rendert `doppel_block` überhaupt nicht — der Chat ist aber laut
+        `TRAININGSOPTIONEN.md` einer der beiden Wege, auf denen ein Wunsch
+        überhaupt geäußert wird.
+
+    Deshalb hat diese Funktion **keinen** leeren Rückgabeweg außer der Off
+    Season, wo `services/offseason.py` die Vorgabe selbst mitbringt. Ohne
+    Phasentabelle bleiben die Stufen stehen, nur ohne Zahlen.
+
+    Zum Ruhetag: Dass er über der Phasenvorgabe steht, ist eine Entscheidung
+    des Athleten, nicht ein Studienergebnis. Eine Mindestzahl gab es im Code
+    bisher nirgends — ohne sie wäre „der Ruhetag bleibt" eine Regel ohne Maß,
+    die der Coach mit null oder drei Ruhetagen gleich gut erfüllt. Deshalb
+    steht hier **einer**.
+    """
+    from core.race_types import phase_family
+
+    if phase_family(phase) in OHNE_PHASENTABELLE:
+        return ""
+
+    regeln = regeln_fuer(phase)
+    if regeln:
+        von, bis = regeln["qualitaet"]
+        if von == bis:
+            qual = f"**{von} Qualitätseinheit**" if von == 1 else f"**{von} Qualitätseinheiten**"
+        else:
+            qual = f"**{von}–{bis} Qualitätseinheiten**"
+        gym = regeln["gym"]
+        if gym == 0:
+            kraft = "**kein schweres Krafttraining**"
+        elif gym == 1:
+            kraft = "**1 Krafteinheit**"
+        else:
+            kraft = f"**{gym} Krafteinheiten**"
+        basis = f"{qual} und {kraft} in dieser Phase"
+        doppel = regeln.get("doppel", ())
+    else:
+        basis = "die Wochenvorgabe dieser Phase"
+        doppel = ()
+
+    stufen = [
+        "**Gesundheit und Verletzung.** Sie überschreiben alles, auch alles "
+        "Folgende.",
+        "**Mindestens ein vollständiger Ruhetag** bleibt stehen. Er ist "
+        "keine freie Fläche, die sich für eine Einheit opfern lässt.",
+        f"**Die Grundbasis der Phase steht:** {basis}. Sie wird **nicht** "
+        f"gestrichen, um Platz für einen Wunsch zu machen — auch dann nicht, "
+        f"wenn der Wunsch konkreter formuliert ist als sie.",
+    ]
+    # Stufe 4 nur, wo die Phasentabelle etwas über Doppeltage sagt. Ohne
+    # Tabelle (etwa „Benchmark") wäre sowohl „nutze einen Doppeltag" als auch
+    # „Doppeltage sind hier kein Mittel" erfunden — die Stufe fällt dann weg,
+    # statt eine Behauptung aufzustellen, für die es keine Grundlage gibt.
+    if doppel:
+        stufen.append(
+            "**Passt sie nicht in die verbleibenden Tage, setze einen "
+            "Doppeltag ein — von selbst, ohne dass der Athlet darum bittet.** "
+            "Schwimmen + Kraft zuerst: Schwimmen erzeugt keine Stoßbelastung "
+            "und beansprucht andere Muskeln als Kraft. Ein Doppeltag sind zwei "
+            "Einträge mit demselben Datum, mindestens "
+            f"{DOPPEL_MIN_ABSTAND_H} Stunden auseinander."
+        )
+    elif regeln:
+        stufen.append(
+            "In dieser Phase sind Doppeltage **kein** Mittel — die Tageslast "
+            "soll hier nicht mehr steigen. Passt die Grundbasis nicht in die "
+            "Woche, geht es direkt zur nächsten Stufe."
+        )
+    stufen.append(
+        "**Erst wenn auch das nicht reicht, kürze den Wunsch** — nicht die "
+        "Grundbasis. Und schreibe in `coaching_comment`, was du gekürzt hast "
+        "und warum. Eine stillschweigend weggelassene Wunscheinheit ist "
+        "schlimmer als eine begründet abgelehnte: Der Athlet geht sonst von "
+        "einem Plan aus, den es nicht gibt."
+    )
+
+    return (
+        "## RANGORDNUNG, WENN NICHT ALLES HINEINPASST\n\n"
+        + "\n".join(f"{i}. {s}" for i, s in enumerate(stufen, 1))
+        + "\n"
     )
 
 
