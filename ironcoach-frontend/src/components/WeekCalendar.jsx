@@ -568,6 +568,157 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
     }
   }
 
+  // Ein Tag kann mehrere Einheiten tragen — ein Doppeltag sind zwei Einträge
+  // mit demselben Datum. Das Raster hat aber genau sieben Spalten, und jede
+  // Karte spannt alle Zeilen: Bekam jede Einheit ihre eigene Karte, fanden die
+  // achte und neunte keinen Platz mehr, der Browser legte rechts neue Spalten
+  // an, und die Woche lief aus dem Bild.
+  //
+  // Deshalb eine Spalte je **Tag**. Der flache Index jeder Einheit wird
+  // mitgeführt: Ziehen und Tauschen arbeiten weiter über `days[i]`, und eine
+  // zweite Einheit lässt sich genauso verschieben wie die erste.
+  const gruppen = []
+  {
+    const nachDatum = new Map()
+    days.forEach((day, i) => {
+      const schluessel = day.date ?? `ohne-datum-${i}`
+      if (!nachDatum.has(schluessel)) {
+        const g = { datum: day.date ?? null, schluessel, eintraege: [] }
+        nachDatum.set(schluessel, g)
+        gruppen.push(g)
+      }
+      nachDatum.get(schluessel).eintraege.push({ day, i })
+    })
+    // Nach Datum, falls die Einträge nicht sortiert ankommen — der Rohplan
+    // aus dem Modell garantiert keine Reihenfolge.
+    gruppen.sort((a, b) => (a.datum && b.datum ? a.datum.localeCompare(b.datum) : 0))
+  }
+
+  /** Was unter den Kennzahlen einer Einheit steht: Verschiebung, Ersatz oder
+   *  Notiz, der Ersatz-Knopf und die Details. Für die erste und jede weitere
+   *  Einheit eines Tages derselbe Block — zwei Fassungen liefen auseinander. */
+  const detailsBlock = (day) => (
+    <>
+      {/* Verschoben — zeigt den ursprünglichen Termin wie eine Anzeigetafel */}
+      {day.moved_from_date && day.moved_from_date !== day.date && (
+        <div className="text-[9px] font-mono text-[var(--text-muted)] tracking-wide mb-1">
+          ↳ ursprünglich {day.moved_from_date.slice(5)}
+        </div>
+      )}
+      {day.status === 'replaced' && day.replacement ? (
+        /* Der Ersatz tritt an die Stelle der Vorgabe, statt darunter
+           zu stehen: Was an dem Tag passiert ist, ist der Ersatz —
+           die geplante Einheit ist nur noch Herkunft. */
+        <div className="rounded-lg border px-2 py-1.5 mb-1"
+             style={{ borderColor: '#f59e0b55', background: '#f59e0b14' }}>
+          <div className="text-[9px] font-mono tracking-widest mb-0.5"
+               style={{ color: '#f59e0b' }}>
+            STATTDESSEN
+          </div>
+          <p className="text-xs text-[#e8eaf0] leading-snug">{day.replacement}</p>
+          {day.replacement_min > 0 && (
+            <div className="text-[10px] font-mono text-[var(--text-secondary)] mt-0.5">
+              {day.replacement_min} min
+            </div>
+          )}
+          <button
+            onClick={() => nimmErsatzZurueck(day.id)}
+            className="text-[10px] font-mono text-[var(--text-secondary)] hover:text-[#e8eaf0] mt-1 underline"
+          >
+            zurücknehmen
+          </button>
+        </div>
+      ) : (
+        day.notes && (
+          <p className="text-xs text-[var(--text-secondary)] leading-relaxed">{day.notes}</p>
+        )
+      )}
+      {persistent && day.id != null && day.session_type !== 'rest'
+        && day.status !== 'replaced' && day.status !== 'completed' && (
+        <button
+          onClick={() => setErsetze(day)}
+          className="block text-left text-[9px] font-mono tracking-widest uppercase text-[var(--text-muted)] hover:text-[#f59e0b] transition-colors mt-1 whitespace-nowrap"
+        >
+          + ERSETZT
+        </button>
+      )}
+      <DetailsSection details={day.details} sessionType={day.session_type} />
+    </>
+  )
+
+  /** Jede weitere Einheit eines Tages, kompakt unter der ersten.
+   *
+   *  Eigene Ziehgriffe, und die Ereignisse gehen nicht an die Karte darüber
+   *  weiter — sonst zöge man immer die erste Einheit des Tages, egal wo man
+   *  anfasst. */
+  const weitereEinheit = (day, i, nr) => {
+    const c = getColors(day.session_type)
+    const erledigt = day.status === 'completed' && day.session_type !== 'rest'
+    const ersetzt = day.status === 'replaced'
+    const ziehend = dragIndex === i
+    const darueber = overIndex === i && dragIndex !== i
+    const speichernd = day.id != null && savingIds.includes(day.id)
+    const blinkend = day.id != null && flashIds.includes(day.id)
+    return (
+      <div
+        key={day.id ?? `${day.date}-${i}`}
+        draggable={!speichernd}
+        onDragStart={(e) => { e.stopPropagation(); onDragStart(i) }}
+        onDragOver={(e) => { e.stopPropagation(); onDragOver(e, i) }}
+        onDrop={(e) => { e.stopPropagation(); onDrop(i) }}
+        onDragEnd={(e) => { e.stopPropagation(); onDragEnd() }}
+        className="mt-3 rounded-lg border p-2.5 space-y-1.5 transition-all"
+        style={{
+          borderColor: darueber || blinkend ? '#00d4ff'
+            : (ersetzt ? `${ERSETZT_COLOR}77`
+              : (erledigt ? `${DONE_COLOR}66` : c.border)),
+          background: darueber ? '#00d4ff0d'
+            : (ersetzt ? `${ERSETZT_COLOR}1f`
+              : (erledigt ? `${DONE_COLOR}1c` : c.bg)),
+          opacity: ziehend ? 0.4 : (speichernd ? 0.6 : 1),
+          cursor: speichernd ? 'progress' : 'grab',
+          animation: blinkend ? 'savedPulse 0.9s ease-out' : 'none',
+        }}
+      >
+        <div className="flex justify-between items-center gap-2">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-widest"
+                style={{ color: c.text }}>
+            {day.session_type}
+          </span>
+          <span className="flex items-center gap-1.5">
+            {erledigt && (
+              <span className="text-[9px] font-mono font-bold tracking-widest px-1.5 py-0.5 rounded"
+                    style={{ background: `${DONE_COLOR}22`, border: `1px solid ${DONE_COLOR}66`, color: DONE_COLOR }}
+                    title="Absolviert und dem Plan zugeordnet">
+                ✓
+              </span>
+            )}
+            <span className="text-[9px] font-mono tracking-widest text-[var(--text-muted)]">
+              {nr}. EINHEIT
+            </span>
+          </span>
+        </div>
+        {day.training_type && !['rest', 'brick'].includes(day.training_type) && (
+          <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-secondary)]">
+            {day.training_type.replace(/_/g, ' ')}
+          </div>
+        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          <IntensityBadge
+            intensity={day.intensity}
+            fallbackLabel={day.training_type}
+            sessionType={day.session_type}
+          />
+          {day.duration_min > 0 && (
+            <span className="text-xs font-mono text-[var(--text-secondary)]">{day.duration_min} min</span>
+          )}
+        </div>
+        <TargetsReadout targets={day.targets} showZone={!INTENSITY_META[day.intensity]} />
+        {detailsBlock(day)}
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -591,7 +742,11 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
       )}
 
       <div className="week-grid">
-        {days.map((day, i) => {
+        {gruppen.map(({ datum, schluessel, eintraege }) => {
+          // Die erste Einheit des Tages ist die volle Karte, über das
+          // Untergitter mit allen sieben Spalten ausgerichtet. Weitere stehen
+          // darunter in derselben Spalte.
+          const [{ day, i }, ...weitere] = eintraege
           const colors = getColors(day.session_type)
           // Der heutige Tag bekommt einen Schein statt nur einer Kante: in
           // sieben gleich aussehenden Karten sucht man ihn sonst jedes Mal.
@@ -613,12 +768,9 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
 
           return (
             <div
-              // Nicht `day.date`: ein Doppeltag sind zwei Einträge mit
-              // demselben Datum, und zwei gleiche Keys lassen React die
-              // Karten verwechseln — beim Ziehen landete die Änderung dann
-              // auf der anderen Hälfte. Die Zeilen-`id` ist eindeutig, wo
-              // sie existiert; sonst Datum plus Position.
-              key={day.id ?? `${day.date || 'tag'}-${i}`}
+              // Eine Spalte je Datum: eindeutig und stabil, auch beim Ziehen —
+              // das tauscht Inhalte, nicht Tage.
+              key={schluessel}
               draggable={!isSaving}
               onDragStart={() => onDragStart(i)}
               onDragOver={(e) => onDragOver(e, i)}
@@ -661,13 +813,20 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
                       ✓
                     </span>
                   )}
+                  {weitere.length > 0 && (
+                    <span className="text-[9px] font-mono font-bold tracking-widest px-1.5 py-0.5 rounded"
+                          style={{ background: '#00d4ff14', border: '1px solid #00d4ff44', color: '#00d4ff' }}
+                          title={`${weitere.length + 1} Einheiten an diesem Tag`}>
+                      ×{weitere.length + 1}
+                    </span>
+                  )}
                   {istHeute ? (
                     <span className="text-[9px] font-mono tracking-widest px-1.5 py-0.5 rounded"
                           style={{ background: `${colors.text}1e`, border: `1px solid ${colors.text}55`, color: colors.text }}>
                       HEUTE
                     </span>
                   ) : (
-                    <span className="text-[10px] font-mono text-[var(--text-muted)]">{day.date?.slice(5)}</span>
+                    <span className="text-[10px] font-mono text-[var(--text-muted)]">{datum?.slice(5)}</span>
                   )}
                 </span>
               </div>
@@ -679,7 +838,7 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
               <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-secondary)]">
                 {day.training_type && !['rest', 'brick'].includes(day.training_type)
                   ? day.training_type.replace(/_/g, ' ')
-                  : ' '}
+                  : ' '}
               </div>
 
               <div>
@@ -691,7 +850,7 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
               </div>
 
               <div className="text-xs font-mono text-[var(--text-secondary)]">
-                {day.duration_min > 0 ? `${day.duration_min} min` : ' '}
+                {day.duration_min > 0 ? `${day.duration_min} min` : ' '}
               </div>
 
               <div>
@@ -699,50 +858,8 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
               </div>
 
               <div>
-                {/* Verschoben — zeigt den ursprünglichen Termin wie eine Anzeigetafel */}
-                {day.moved_from_date && day.moved_from_date !== day.date && (
-                  <div className="text-[9px] font-mono text-[var(--text-muted)] tracking-wide mb-1">
-                    ↳ ursprünglich {day.moved_from_date.slice(5)}
-                  </div>
-                )}
-                {day.status === 'replaced' && day.replacement ? (
-                  /* Der Ersatz tritt an die Stelle der Vorgabe, statt darunter
-                     zu stehen: Was an dem Tag passiert ist, ist der Ersatz —
-                     die geplante Einheit ist nur noch Herkunft. */
-                  <div className="rounded-lg border px-2 py-1.5 mb-1"
-                       style={{ borderColor: '#f59e0b55', background: '#f59e0b14' }}>
-                    <div className="text-[9px] font-mono tracking-widest mb-0.5"
-                         style={{ color: '#f59e0b' }}>
-                      STATTDESSEN
-                    </div>
-                    <p className="text-xs text-[#e8eaf0] leading-snug">{day.replacement}</p>
-                    {day.replacement_min > 0 && (
-                      <div className="text-[10px] font-mono text-[var(--text-secondary)] mt-0.5">
-                        {day.replacement_min} min
-                      </div>
-                    )}
-                    <button
-                      onClick={() => nimmErsatzZurueck(day.id)}
-                      className="text-[10px] font-mono text-[var(--text-secondary)] hover:text-[#e8eaf0] mt-1 underline"
-                    >
-                      zurücknehmen
-                    </button>
-                  </div>
-                ) : (
-                  day.notes && (
-                    <p className="text-xs text-[var(--text-secondary)] leading-relaxed">{day.notes}</p>
-                  )
-                )}
-                {persistent && day.id != null && day.session_type !== 'rest'
-                  && day.status !== 'replaced' && day.status !== 'completed' && (
-                  <button
-                    onClick={() => setErsetze(day)}
-                    className="block text-left text-[9px] font-mono tracking-widest uppercase text-[var(--text-muted)] hover:text-[#f59e0b] transition-colors mt-1 whitespace-nowrap"
-                  >
-                    + ERSETZT
-                  </button>
-                )}
-                <DetailsSection details={day.details} sessionType={day.session_type} />
+                {detailsBlock(day)}
+                {weitere.map(({ day: d, i: j }, n) => weitereEinheit(d, j, n + 2))}
               </div>
             </div>
           )
