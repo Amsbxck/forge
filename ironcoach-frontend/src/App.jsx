@@ -11,6 +11,7 @@ import Profile from './pages/Profile'
 import SyncButton from './components/SyncButton'
 import Login from './pages/Login'
 import { ResetPage, VerifyPage } from './pages/AuthAction'
+import BestaetigungsSperre from './components/BestaetigungsSperre'
 import { getMe, getToken, logoutEverywhere, setToken, setUnauthorizedHandler } from './services/api'
 
 const navItems = [
@@ -62,6 +63,14 @@ export default function App() {
 
   if (user === false) {
     return <Login onAuthenticated={setUser} />
+  }
+
+  // Unbestätigte Adresse: das Fenster statt der App. `=== true`, damit ein
+  // älteres Backend ohne dieses Feld niemanden aussperrt. Ob jemand gesperrt
+  // ist, entscheidet allein der Server (`core.deps.bestaetigung_noetig`) —
+  // Admins und Betrieb ohne Mailversand sind dort ausgenommen.
+  if (user.bestaetigung_noetig === true) {
+    return <BestaetigungsSperre konto={user} onBestaetigt={setUser} onAbmelden={logout} />
   }
 
   return (

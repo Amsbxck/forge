@@ -53,6 +53,31 @@ def require_user(db: Session = Depends(get_db)) -> User:
     return user
 
 
+def bestaetigung_noetig(user: User | None) -> bool:
+    """Muss dieser Nutzer erst seine E-Mail bestätigen, bevor er in die App darf?
+
+    Die eine Stelle, an der das entschieden wird. Das Bestätigungsfenster vor
+    der App und die Sperre des Einstiegsfensters lesen beide hier — zwei
+    eigene Regeln wären der nächste Ort, an dem sie auseinanderlaufen.
+
+    Nein, wenn
+      * es gar keine Anmeldung gibt (lokaler Einzelplatzbetrieb),
+      * der Nutzer Admin ist — er ist der Notschalter für alle anderen und
+        darf deshalb selbst nie ausgesperrt sein,
+      * kein Mailversand eingerichtet ist: Ohne ihn käme die Bestätigungsmail
+        nie an, und jeder neue Nutzer wäre für immer gesperrt.
+    """
+    from services.mail import mail_configured
+
+    return bool(
+        settings.AUTH_REQUIRED
+        and user is not None
+        and user.email_verified_at is None
+        and not user.is_admin
+        and mail_configured()
+    )
+
+
 def get_profile(db: Session, user: User | None = None) -> AthleteProfile | None:
     """Athletenprofil des Nutzers.
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
-  deleteAccount, exportAccount, getMe, logoutEverywhere, resendVerification, setToken,
+  adminVerifyEmail, deleteAccount, exportAccount, getMe, logoutEverywhere,
+  resendVerification, setToken,
 } from '../services/api'
 import Modal from './Modal'
 
@@ -34,15 +35,49 @@ export default function AccountSection({ onLoggedOut }) {
   useEffect(() => { getMe().then(({ data }) => setKonto(data)).catch(() => {}) }, [])
 
   const bestaetigungSenden = async () => {
-    setBusy(true); setFehler(null)
+    setBusy(true); setFehler(null); setHinweis(null)
     try {
       const { data } = await resendVerification()
-      setHinweis(data.status === 'bereits_bestaetigt'
-        ? 'Deine Adresse ist bereits bestätigt.'
-        : 'Bestätigungsmail verschickt. Der Link gilt 48 Stunden.')
-      setKonto(k => (data.status === 'bereits_bestaetigt' ? { ...k, email_verified: true } : k))
+      if (data.status === 'nicht_konfiguriert') {
+        setFehler('Auf diesem Server ist kein Mailversand eingerichtet — eine Bestätigungsmail kann nicht verschickt werden.')
+      } else if (data.status === 'bereits_bestaetigt') {
+        setHinweis('Deine Adresse ist bereits bestätigt.')
+        setKonto(k => ({ ...k, email_verified: true }))
+      } else if (data.angenommen) {
+        setHinweis(`Bestätigungsmail verschickt. Der Link gilt ${data.gueltig_stunden || 48} Stunden.`)
+      } else {
+        // Vorher stand hier in jedem Fall „verschickt" — auch wenn der
+        // Mailanbieter abgelehnt hatte.
+        setFehler('Die Mail konnte nicht verschickt werden. Versuche es in ein paar Minuten erneut.')
+      }
     } catch (err) { setFehler(fehlerText(err, 'Versand fehlgeschlagen')) }
     finally { setBusy(false) }
+  }
+
+  // Notschalter für Admins: ein Konto von Hand bestätigen, wenn der
+  // Mailanbieter ablehnt und jemand deshalb vor dem Bestätigungsfenster
+  // festsitzt. Die Produktionsdatenbank ist von außen nicht erreichbar —
+  // ohne diesen Weg bliebe er ausgesperrt, bis der Versand wieder läuft.
+  const [fremdeAdresse, setFremdeAdresse] = useState('')
+  // Eigene Rückmeldung direkt unter dem Feld — die allgemeine steht unter den
+  // Kontoknöpfen und auf dem Telefon weit weg von der Eingabe.
+  const [adminMeldung, setAdminMeldung] = useState(null)   // { ok, text }
+  const kontoBestaetigen = async () => {
+    const adresse = fremdeAdresse.trim()
+    if (!adresse) return
+    setBusy(true); setAdminMeldung(null)
+    try {
+      const { data } = await adminVerifyEmail(adresse)
+      setAdminMeldung({
+        ok: true,
+        text: data.status === 'bereits_bestaetigt'
+          ? `${data.email} war bereits bestätigt.`
+          : `${data.email} ist jetzt bestätigt und kommt in die App.`,
+      })
+      setFremdeAdresse('')
+    } catch (err) {
+      setAdminMeldung({ ok: false, text: fehlerText(err, 'Bestätigen fehlgeschlagen') })
+    } finally { setBusy(false) }
   }
 
   const datenLaden = async () => {
@@ -103,6 +138,41 @@ export default function AccountSection({ onLoggedOut }) {
                   style={{ background: '#f59e0b18', border: '1px solid #f59e0b40', color: '#f59e0b' }}>
             {busy ? '…' : 'ERNEUT SENDEN'}
           </button>
+        </div>
+      )}
+
+      {konto.is_admin && (
+        <div className="mt-4 rounded-lg px-3 py-3" style={{ background: '#0d0f17', border: '1px solid #1e2228' }}>
+          <label htmlFor="admin-bestaetigen" className={LABEL}>
+            ADMIN · KONTO VON HAND BESTÄTIGEN
+          </label>
+          <p className="text-[11px] text-[var(--text-muted)] leading-relaxed mb-2">
+            Für den Fall, dass die Bestätigungsmail nicht ankommt und jemand
+            deshalb nicht in die App kommt.
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <input
+              id="admin-bestaetigen"
+              type="email"
+              value={fremdeAdresse}
+              onChange={e => setFremdeAdresse(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !busy) kontoBestaetigen() }}
+              placeholder="adresse@beispiel.de"
+              className={`${FIELD} flex-1 min-w-[12rem]`}
+              style={FIELD_STYLE}
+            />
+            <button onClick={kontoBestaetigen} disabled={busy || !fremdeAdresse.trim()}
+                    className="text-[10px] font-mono tracking-wide px-3 py-2 rounded-lg disabled:opacity-40"
+                    style={{ background: '#00d4ff15', border: '1px solid #00d4ff33', color: '#00d4ff' }}>
+              BESTÄTIGEN
+            </button>
+          </div>
+          {adminMeldung && (
+            <div className="text-[10px] font-mono mt-2"
+                 style={{ color: adminMeldung.ok ? '#00d4ff' : '#ef4444' }}>
+              {adminMeldung.text}
+            </div>
+          )}
         </div>
       )}
 

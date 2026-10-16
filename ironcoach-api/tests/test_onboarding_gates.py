@@ -42,6 +42,11 @@ def angemeldet(monkeypatch, konto):
     from core.security import create_access_token
 
     monkeypatch.setattr(settings, "AUTH_REQUIRED", True)
+    # Mit eingerichtetem Mailversand: Ohne ihn verlangt die App keine
+    # Bestätigung mehr (`core.deps.bestaetigung_noetig`) — die Mail käme nie
+    # an, und jeder neue Nutzer wäre für immer gesperrt.
+    monkeypatch.setattr(settings, "MAIL_FROM", "coach@test.local")
+    monkeypatch.setattr(settings, "MAIL_API_KEY", "test-key")
     token = create_access_token(konto.id, konto.email)
     return {"Authorization": f"Bearer {token}"}
 

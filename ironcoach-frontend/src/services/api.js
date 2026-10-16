@@ -102,6 +102,10 @@ export const getPlanByWeek = (week) => api.get(`/api/plan/${week}`)
 // Über den Montag statt über die Wochennummer: Die Nummer ist vor dem
 // Beginn des Aufbaus für jedes Datum 1, damit liesse sich nicht blättern.
 export const getPlanByMonday = (montag) => api.get(`/api/plan/am/${montag}`)
+// Den Plan einer Woche stornieren — alle Fassungen, Einheiten und die
+// Obsidian-Notiz. 30 s: Der Server begrenzt den Obsidian-Teil selbst, aber
+// über Tailscale kann der Verbindungsaufbau trotzdem einige Sekunden dauern.
+export const cancelPlan = (montag) => api.delete(`/api/plan/am/${montag}`, { timeout: 30000 })
 export const downloadPlanPDF = (week) =>
   api.get(`/api/plan/${week}/pdf`, { responseType: 'blob' })
 
@@ -200,6 +204,8 @@ export const resetPassword = (token, newPassword) =>
   api.post('/api/auth/reset-password', { token, new_password: newPassword })
 export const verifyEmail = (token) => api.post('/api/auth/verify-email', { token })
 export const resendVerification = () => api.post('/api/auth/resend-verification')
+// Notschalter für Admins: ein Konto ohne Mail von Hand bestätigen.
+export const adminVerifyEmail = (email) => api.post('/api/auth/admin/verify', { email })
 export const logoutEverywhere = () => api.post('/api/auth/logout')
 export const exportAccount = () => api.get('/api/auth/export')
 export const deleteAccount = (password, confirm) =>

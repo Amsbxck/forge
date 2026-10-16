@@ -80,7 +80,7 @@ export function VerifyPage({ onAuthenticated }) {
           <div className="text-xl font-black text-[#e8eaf0]" style={DISPLAY}>LINK UNGÜLTIG</div>
           <Fehler text={fehler} />
           <p className="text-[11px] font-mono text-[var(--text-muted)] leading-relaxed">
-            Melde dich an und fordere im Profil eine neue Bestätigung an.
+            Melde dich an — dort kannst du direkt eine neue Mail anfordern.
           </p>
           <a href="/" className="block text-center py-2.5 rounded-lg text-sm font-mono font-bold tracking-wide"
              style={{ background: '#00d4ff20', border: '1px solid #00d4ff44', color: '#00d4ff' }}>

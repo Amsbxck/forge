@@ -341,11 +341,12 @@ def intake_status(
     # Einzelplatzbetrieb (AUTH_REQUIRED=false) wird keine Adresse bestätigt,
     # weil es keinen Anmeldeweg gibt — die Sperre würde das Fenster dort für
     # immer zurückhalten.
-    from core.config import settings
+    # Dieselbe Regel wie das Bestätigungsfenster vor der App — sonst wartete
+    # das Einstiegsfenster bei einem Admin oder ohne Mailversand auf eine
+    # Bestätigung, die die App gar nicht verlangt.
+    from core.deps import bestaetigung_noetig
 
-    unbestaetigt = bool(
-        settings.AUTH_REQUIRED and user is not None and user.email_verified_at is None
-    )
+    unbestaetigt = bestaetigung_noetig(user)
 
     return {
         "faellig": profile.intake_done_at is None and not unbestaetigt,

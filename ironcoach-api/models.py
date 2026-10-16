@@ -33,6 +33,14 @@ class User(Base):
     # anmelden und der eigentliche Inhaber bekommt das nie mit.
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime)
 
+    # Ob die letzte Bestätigungsmail beim Mailanbieter angenommen wurde:
+    # gesendet | fehlgeschlagen | nicht_konfiguriert. Die Willkommensmail geht
+    # im Hintergrund raus; scheiterte sie, landete der Nutzer bisher in der App
+    # und wartete auf eine Mail, die nie kam. Mit diesem Feld sagt ihm das
+    # Bestätigungsfenster gleich, dass er eine neue anfordern muss.
+    verify_mail_status: Mapped[str | None] = mapped_column(String)
+    verify_mail_at: Mapped[datetime | None] = mapped_column(DateTime)
+
     # Ausgegebene Tokens gelten nur, wenn sie nach diesem Zeitpunkt erstellt
     # wurden. Ein JWT lässt sich nicht einsammeln — über diese Marke werden
     # alle Sitzungen auf einmal ungültig: beim Abmelden, beim Passwortwechsel

@@ -6,9 +6,10 @@ from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from core.deps import require_user
+from core.deps import bestaetigung_noetig, require_user
 from core.security import (
     create_access_token, hash_action_token, hash_password, lock_duration,
     new_action_token, verify_password,
@@ -58,6 +59,13 @@ class TokenOut(BaseModel):
     user_id: int
     email: str
     name: str | None
+    # Ohne diese Felder kam eine Sperre beim Anmelden gar nicht an: Login,
+    # Registrierung und Bestätigungslink reichen genau diese Antwort an die
+    # Oberfläche weiter, und dort stand nichts über die Bestätigung.
+    email_verified: bool = False
+    bestaetigung_noetig: bool = False
+    is_admin: bool = False
+    verify_mail_status: str | None = None
 
 
 def _token_for(user: User) -> TokenOut:
@@ -66,6 +74,10 @@ def _token_for(user: User) -> TokenOut:
         user_id=user.id,
         email=user.email,
         name=user.name,
+        email_verified=user.email_verified_at is not None,
+        bestaetigung_noetig=bestaetigung_noetig(user),
+        is_admin=bool(user.is_admin),
+        verify_mail_status=user.verify_mail_status,
     )
 
 
@@ -130,8 +142,10 @@ def register(
 
     # Im Hintergrund: ein langsamer oder kaputter Mailserver darf die
     # Registrierung nicht aufhalten, und ein Fehlschlag ist kein Grund, ein
-    # bereits angelegtes Konto zu verwerfen.
-    background.add_task(send_welcome, user.email, user.name, verify_token)
+    # bereits angelegtes Konto zu verwerfen. Das Ergebnis wird aber
+    # festgehalten — scheiterte die Mail, sagt das Bestätigungsfenster es dem
+    # Nutzer gleich, statt ihn auf eine Mail warten zu lassen, die nie kommt.
+    background.add_task(_willkommen_senden, user.id, user.email, user.name, verify_token)
 
     return _token_for(user)
 
@@ -212,23 +226,28 @@ def me(user: User = Depends(require_user)):
         "name": user.name,
         "email_verified": user.email_verified_at is not None,
         "is_admin": bool(user.is_admin),
+        "bestaetigung_noetig": bestaetigung_noetig(user),
+        "verify_mail_status": user.verify_mail_status,
+        "verify_mail_at": user.verify_mail_at.isoformat() if user.verify_mail_at else None,
     }
 
 
 # --- Einmal-Token ------------------------------------------------------------
 
-def _issue_action(db: Session, user: User, kind: str, hours: int) -> str:
+def _issue_action(db: Session, user: User, kind: str, hours: int,
+                  entwerten: bool = True) -> str:
     """Neues Einmal-Token anlegen und den Klartext zurückgeben.
 
     Offene Token derselben Art werden entwertet: sonst blieben ältere Links
     aus früheren Anforderungen gültig, und ein abgefangener alter Link
     öffnete das Konto noch Stunden später.
+
+    `entwerten=False` verschiebt das auf später — für das erneute Senden der
+    Bestätigungsmail, wo die alten Links erst fallen dürfen, wenn die neue
+    Mail tatsächlich angenommen wurde.
     """
-    db.query(AuthAction).filter(
-        AuthAction.user_id == user.id,
-        AuthAction.kind == kind,
-        AuthAction.used_at.is_(None),
-    ).update({"used_at": datetime.utcnow()})
+    if entwerten:
+        _andere_entwerten(db, user, kind)
 
     klartext, token_hash = new_action_token()
     db.add(AuthAction(
@@ -239,6 +258,51 @@ def _issue_action(db: Session, user: User, kind: str, hours: int) -> str:
     ))
     db.commit()
     return klartext
+
+
+def _andere_entwerten(db: Session, user: User, kind: str,
+                      ausser_hash: str | None = None) -> None:
+    abfrage = db.query(AuthAction).filter(
+        AuthAction.user_id == user.id,
+        AuthAction.kind == kind,
+        AuthAction.used_at.is_(None),
+    )
+    if ausser_hash is not None:
+        abfrage = abfrage.filter(AuthAction.token_hash != ausser_hash)
+    abfrage.update({"used_at": datetime.utcnow()}, synchronize_session=False)
+
+
+def _versandstatus(user: User, angenommen: bool) -> None:
+    from services.mail import mail_configured
+
+    user.verify_mail_status = (
+        "gesendet" if angenommen
+        else "fehlgeschlagen" if mail_configured()
+        else "nicht_konfiguriert"
+    )
+    user.verify_mail_at = datetime.utcnow()
+
+
+def _willkommen_senden(user_id: int, email: str, name: str | None,
+                       token: str) -> None:
+    """Willkommensmail im Hintergrund — und festhalten, ob sie ankam.
+
+    Läuft nach der Antwort, wenn die Datenbanksitzung der Anfrage schon
+    geschlossen ist; deshalb eine eigene.
+    """
+    import database
+
+    angenommen = send_welcome(email, name, token)
+    sitzung = database.SessionLocal()
+    try:
+        nutzer = sitzung.get(User, user_id)
+        if nutzer is not None:
+            _versandstatus(nutzer, angenommen)
+            sitzung.commit()
+    except Exception as e:  # pragma: no cover - darf die Registrierung nie stören
+        logger.warning("Versandstatus nicht gespeichert für Nutzer %s: %s", user_id, e)
+    finally:
+        sitzung.close()
 
 
 def _consume_action(db: Session, token: str, kind: str) -> User:
@@ -283,17 +347,104 @@ def verify_email(body: TokenIn, db: Session = Depends(get_db)):
     return _token_for(user)
 
 
+# Mindestabstand zwischen zwei angeforderten Bestätigungsmails. Das Senden
+# läuft jetzt synchron, und der Mailanbieter hat ein Kontingent — ein
+# ungeduldiger Doppelklick soll keine zweite Mail auslösen.
+NEUSENDEN_SPERRE_S = 60
+
+
 @router.post("/auth/resend-verification")
 def resend_verification(
-    background: BackgroundTasks,
     db: Session = Depends(get_db),
     user: User = Depends(require_user),
 ):
+    """Bestätigungsmail erneut senden — und sagen, ob sie angenommen wurde.
+
+    Vorher lief das im Hintergrund und meldete immer „verschickt", auch wenn
+    der Mailanbieter ablehnte. Das Bestätigungsfenster zeigte dann einen
+    Haken für eine Mail, die nie unterwegs war. Jetzt wird synchron gesendet.
+
+    „angenommen", nicht „zugestellt": Der Anbieter hat die Mail angenommen;
+    ob sie im Postfach landet, weiß hier niemand.
+
+    Scheitert der Versand, bleiben die alten Links gültig. Vorher wurden sie
+    schon beim Anfordern entwertet — ein Willkommenslink, der doch angekommen
+    war, hörte dann wegen einer gescheiterten neuen Mail auf zu funktionieren.
+    """
+    from core.security import hash_action_token
+    from services.mail import mail_configured
+
     if user.email_verified_at is not None:
-        return {"status": "bereits_bestaetigt"}
-    token = _issue_action(db, user, "email_verify", VERIFY_HOURS)
-    background.add_task(send_verification, user.email, user.name, token)
-    return {"status": "verschickt", "gueltig_stunden": VERIFY_HOURS}
+        return {"status": "bereits_bestaetigt", "angenommen": True}
+    if not mail_configured():
+        return {"status": "nicht_konfiguriert", "angenommen": False}
+
+    zuletzt = (
+        db.query(AuthAction)
+        .filter(AuthAction.user_id == user.id, AuthAction.kind == "email_verify")
+        .order_by(AuthAction.created_at.desc())
+        .first()
+    )
+    if zuletzt is not None and zuletzt.created_at and (
+        datetime.utcnow() - zuletzt.created_at
+    ).total_seconds() < NEUSENDEN_SPERRE_S:
+        raise HTTPException(
+            status_code=429,
+            detail="Bitte warte eine Minute, bevor du eine neue Mail anforderst.",
+        )
+
+    token = _issue_action(db, user, "email_verify", VERIFY_HOURS, entwerten=False)
+    angenommen = send_verification(user.email, user.name, token)
+    neu_hash = hash_action_token(token)
+    if angenommen:
+        _andere_entwerten(db, user, "email_verify", ausser_hash=neu_hash)
+    else:
+        # Den neuen Link, der nie verschickt wurde, sofort entwerten — die
+        # alten bleiben.
+        db.query(AuthAction).filter(AuthAction.token_hash == neu_hash).update(
+            {"used_at": datetime.utcnow()}, synchronize_session=False,
+        )
+    _versandstatus(user, angenommen)
+    db.commit()
+    return {
+        "status": "verschickt" if angenommen else "fehlgeschlagen",
+        "angenommen": angenommen,
+        "gueltig_stunden": VERIFY_HOURS,
+    }
+
+
+class AdminBestaetigenIn(BaseModel):
+    email: str
+
+
+@router.post("/auth/admin/verify")
+def admin_bestaetigen(
+    body: AdminBestaetigenIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Notschalter: ein Konto von Hand als bestätigt markieren.
+
+    Für den Fall, dass der Mailanbieter ablehnt und ein neuer Nutzer deshalb
+    vor dem Bestätigungsfenster festsitzt. Die Produktionsdatenbank ist von
+    außen nicht erreichbar; ohne diesen Weg bliebe er ausgesperrt, bis der
+    Versand wieder läuft. Nur für Admins.
+    """
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Nur für Admins")
+    adresse = (body.email or "").strip().lower()
+    # Exakter Vergleich ohne Groß/Klein, nicht `ilike`: Dort wirken `_` und
+    # `%` als Platzhalter — „max_m@…" traf „maxXm@…", und „%" hätte ein
+    # beliebiges Konto bestätigt.
+    ziel = db.query(User).filter(func.lower(User.email) == adresse).first()
+    if ziel is None:
+        raise HTTPException(status_code=404, detail=f"Kein Konto mit der Adresse {adresse}")
+    if ziel.email_verified_at is not None:
+        return {"status": "bereits_bestaetigt", "email": ziel.email}
+    ziel.email_verified_at = datetime.utcnow()
+    db.commit()
+    logger.info("Konto %s von Admin %s von Hand bestätigt", ziel.id, user.id)
+    return {"status": "bestaetigt", "email": ziel.email}
 
 
 # --- Passwort vergessen ------------------------------------------------------
