@@ -77,18 +77,93 @@ def montag_ab(tag: date) -> date:
     return tag + timedelta(days=(7 - tag.weekday()) % 7)
 
 
+def letzte_testwoche(db: Session, heute: date | None = None,
+                     user_id: int | None = None) -> date | None:
+    """Beginn der letzten Testwoche, die die 90-Tage-Sperre auslöst — oder None.
+
+    Bisher sperrte nur eine **Messung** (`zones_updated_at`). Ein neuer
+    Athlet hat keine, also sperrte für ihn nichts: Wer zweimal auf „Testwoche
+    planen" drückte, bekam zwei — so geschehen bei einem echten Onboarding.
+    Jetzt zählt auch eine **geplante** Testwoche.
+
+    Was zählt:
+      * eine Testwoche ab dieser Woche (geplant oder laufend) — immer,
+      * eine vergangene nur, wenn darin wirklich getestet wurde (eine Einheit
+        erledigt oder zugeordnet). Eine verstrichene, nie gelaufene Testwoche
+        lässt sich nicht stornieren — sie sperrte sonst 90 Tage, ohne dass je
+        etwas gemessen wurde.
+
+    `user_id` zusätzlich zum Mandantenfilter, wie in `plan_projection`: Der
+    Filter greift nur, wenn der Kontext gesetzt ist.
+    """
+    from models import PlannedSession, WeeklyPlan
+
+    heute = heute or date.today()
+    # Der Montag **dieser** Woche, nicht `montag_ab` — der liefert ab
+    # Dienstag den nächsten Montag, und eine laufende, noch nicht getestete
+    # Testwoche galt dann als vergangen: Man konnte die nächste buchen.
+    diese_woche = heute - timedelta(days=heute.weekday())
+    abfrage = db.query(WeeklyPlan).filter(
+        WeeklyPlan.plan_phase == "Benchmark",
+        WeeklyPlan.week_start >= heute - timedelta(days=TAGE_BIS_NEUTEST),
+    )
+    if user_id is not None:
+        abfrage = abfrage.filter(WeeklyPlan.user_id == user_id)
+
+    zaehlt = []
+    for plan in abfrage.all():
+        if plan.week_start >= diese_woche:
+            zaehlt.append(plan.week_start)
+            continue
+        getestet = (
+            db.query(PlannedSession)
+            .filter(
+                PlannedSession.plan_id == plan.id,
+                (PlannedSession.status == "completed")
+                | (PlannedSession.matched_session_id.isnot(None)),
+            )
+            .first()
+        )
+        if getestet is not None:
+            zaehlt.append(plan.week_start)
+    return max(zaehlt) if zaehlt else None
+
+
 def pruefe(db: Session, ziel_datum: date | None = None,
-           heute: date | None = None, gemessen_am: date | None = None) -> dict:
+           heute: date | None = None, gemessen_am: date | None = None,
+           testwoche_am: date | None = None) -> dict:
     """Kann die Testwoche in der kommenden Woche liegen?
 
     Gibt immer einen Termin zurück, auch bei einer Sperre — dann den frühesten
     sinnvollen. Ein blosses „geht nicht" ließe den Athleten ohne nächsten
     Schritt zurück.
+
+    `testwoche_am` ist der Beginn einer bereits geplanten oder gelaufenen
+    Testwoche (`letzte_testwoche`). Übergeben statt hier abgefragt, damit die
+    übrigen Prüfungen rein bleiben und ohne Datenbankstand testbar sind.
     """
     heute = heute or date.today()
     start = naechster_montag(heute)
     gruende: list[str] = []
     frueheste = start
+
+    # --- Schon eine Testwoche geplant oder gelaufen ---
+    if testwoche_am is not None:
+        frei = testwoche_am + timedelta(days=TAGE_BIS_NEUTEST)
+        if start < frei:
+            frueheste = max(frueheste, montag_ab(frei))
+            if testwoche_am >= heute - timedelta(days=heute.weekday()):
+                gruende.append(
+                    f"Für die Woche ab {testwoche_am} ist bereits eine Testwoche "
+                    f"geplant. Die nächste ist ab {montag_ab(frei)} sinnvoll — "
+                    f"oder storniere die geplante im Wochenplan."
+                )
+            else:
+                gruende.append(
+                    f"Deine letzte Testwoche begann am {testwoche_am}. Ein neuer "
+                    f"Maximaltest misst so kurz danach fast dasselbe; fällig wird "
+                    f"er ab {montag_ab(frei)}."
+                )
 
     # --- Zurückliegender Wettkampf ---
     letztes = (
@@ -153,7 +228,12 @@ def pruefe(db: Session, ziel_datum: date | None = None,
                 f"davor gibt es nichts mehr zu messen, was sich noch auswirkt — "
                 f"und ein harter Test kostet Frische."
             )
-            frueheste = naechster_montag(ziel_datum + timedelta(days=SPERRE_NACH_RENNEN))
+            # Den späteren Termin nehmen, nicht überschreiben: Liegt schon eine
+            # Testwoche oder eine frische Messung vor, reicht deren Sperre
+            # womöglich weiter — der Knopf böte sonst einen Termin an, der
+            # dann abgelehnt wird.
+            frueheste = max(frueheste, naechster_montag(
+                ziel_datum + timedelta(days=SPERRE_NACH_RENNEN)))
 
     return {
         "moeglich": not gruende,

@@ -14,6 +14,7 @@ wurde.
 import logging
 from datetime import date, datetime, timedelta
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from models import AthleteProfile, TrainingSession
@@ -44,6 +45,11 @@ logger = logging.getLogger(__name__)
 # Mit 0.98 ergäbe sich eine Schwelle bei 94 % der HFmax, mit 0.95 bei 91 %.
 # Üblich sind 85–92 %.
 BENCHMARK_PHASE = "Benchmark"
+
+# Namensraum der Datenbanksperre beim Anlegen einer Testwoche. Eine feste,
+# beliebige Zahl; sie trennt diese Sperre von anderen, die künftig mit
+# derselben Nutzer-ID gesperrt werden könnten.
+BENCHMARK_SPERRE_NS = 36001
 
 SCHWELLEN_FAKTOR = 0.95
 
@@ -192,17 +198,57 @@ def create_benchmark_plan(db: Session, user=None):
     profile = get_profile(db, user)
     goal = get_active_goal(db, user)
     sport = goal.sport if goal else "triathlon"
+    uid = user.id if user else (profile.user_id if profile else None)
+
+    # Je Athlet nur ein Anlegevorgang gleichzeitig.
+    #
+    # Die Prüfung „gibt es diese Woche schon einen Plan?" weiter unten las
+    # und schrieb ohne Sperre dazwischen. Zwei Klicks kurz hintereinander
+    # lasen beide „noch keiner" und legten beide einen an — passiert bei
+    # einem echten Onboarding. Die Sperre gilt bis zum Ende der Transaktion,
+    # also bis zum `commit` unten oder bis die Anfrage endet; die zweite
+    # Anfrage wartet, liest danach den Plan der ersten und gibt ihn zurück.
+    #
+    # Bewusst keine Datenbankregel „eine Testwoche je Woche": Eine Anpassung
+    # der Testwoche legt eine weitere Fassung mit derselben Phase an
+    # (`services/plan_adjust.py`, `routers/chat.py`) — die Regel brächte
+    # jede Anpassung zum Absturz. `text()` ist kein SELECT im Sinne des
+    # Mandantenfilters und läuft an ihm vorbei.
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(:ns, :uid)"),
+        {"ns": BENCHMARK_SPERRE_NS, "uid": uid or 0},
+    )
 
     # Die kommende Woche, nicht das Startdatum des Plans. Für einen neuen
     # Athleten war beides dasselbe; für jeden anderen liegt das Startdatum in
     # der Vergangenheit, und der Test landete in einer längst vergangenen
     # Woche — sichtbar für niemanden.
     from core.race_types import season_state
-    from services.benchmark_timing import entzerren, naechster_montag, pruefe
+    from services.benchmark_timing import (
+        entzerren, letzte_testwoche, naechster_montag, pruefe,
+    )
+
+    # Ein zweiter Klick auf dieselbe Woche ist kein Fehler, sondern dieselbe
+    # Absicht: Er bekommt den bestehenden Plan zurück, nicht eine Sperre.
+    ziel_montag = naechster_montag()
+    schon_da = (
+        db.query(WeeklyPlan)
+        .filter(WeeklyPlan.week_start == ziel_montag,
+                WeeklyPlan.plan_phase == BENCHMARK_PHASE,
+                WeeklyPlan.user_id == uid)
+        .order_by(WeeklyPlan.generated_at.desc())
+        .first()
+    )
+    if schon_da is not None:
+        return schon_da, False
 
     ziel_datum = getattr(goal, "race_date", None)
     gemessen = getattr(profile, "zones_updated_at", None)
-    lage = pruefe(db, ziel_datum, gemessen_am=gemessen.date() if gemessen else None)
+    lage = pruefe(
+        db, ziel_datum,
+        gemessen_am=gemessen.date() if gemessen else None,
+        testwoche_am=letzte_testwoche(db, user_id=uid),
+    )
     if not lage["moeglich"]:
         # Kein stiller Plan zu einem Termin, der schadet: Der Aufrufer bekommt
         # die Gründe und den frühesten sinnvollen Termin zurück.
@@ -228,9 +274,11 @@ def create_benchmark_plan(db: Session, user=None):
     # des Aufbaus für jedes Datum 1: Die Testwoche hätte dann dieselbe Nummer
     # wie ein längst bestehender Plan, und statt sie anzulegen käme dieser
     # fremde Plan zurück.
+    # Ausdrücklich nach Nutzer gefiltert: Der Mandantenfilter greift nur mit
+    # gesetztem Kontext, und ohne ihn kam hier der Plan eines anderen zurück.
     existing = (
         db.query(WeeklyPlan)
-        .filter(WeeklyPlan.week_start == start)
+        .filter(WeeklyPlan.week_start == start, WeeklyPlan.user_id == uid)
         .order_by(WeeklyPlan.generated_at.desc())
         .first()
     )
@@ -238,7 +286,7 @@ def create_benchmark_plan(db: Session, user=None):
         return existing, False
 
     plan = WeeklyPlan(
-        user_id=user.id if user else (profile.user_id if profile else None),
+        user_id=uid,
         week_number=woche,
         week_start=start,
         week_end=start + timedelta(days=6),
@@ -262,11 +310,23 @@ def create_benchmark_plan(db: Session, user=None):
         ),
         adjustments_applied=["Benchmark-Woche"],
     )
+    # Plan und Projektion in **einer** Transaktion. Die Sperre oben gilt bis
+    # zu deren Ende; stand hier zuerst ein `commit` und danach die Projektion,
+    # war die Sperre dazwischen schon frei — ein Storno aus einem zweiten Tab
+    # konnte genau dort den frisch gespeicherten Plan löschen, und die
+    # Projektion lief dann ins Leere. `project_plan` speichert selbst, und
+    # scheitert sie, rollt es auch den Plan zurück: lieber keine Testwoche als
+    # eine ohne Einheiten.
     db.add(plan)
+    db.flush()
+    plan_id = plan.id
+    project_plan(db, plan)
+    # Fehlt die Projektionstabelle, kehrt `project_plan` ohne Speichern zurück.
     db.commit()
+    if db.query(WeeklyPlan.id).filter(WeeklyPlan.id == plan_id).first() is None:
+        raise RuntimeError("Testwoche konnte nicht angelegt werden — die Projektion ist gescheitert.")
     db.refresh(plan)
 
-    project_plan(db, plan)
     try:
         from services.obsidian.plan_note import sync_plan_note
         sync_plan_note(db, plan)

@@ -437,19 +437,28 @@ def benchmark_timing(db: Session = Depends(get_db), user: User | None = Depends(
     kann. Erst nach dem Anlegen zu erfahren, dass es nicht geht, wäre eine
     vermeidbare Sackgasse.
     """
-    from core.deps import get_active_goal
-    from services.benchmark_timing import pruefe
+    from datetime import date as _date
 
-    from core.deps import get_profile
+    from core.deps import get_active_goal, get_profile
+    from services.benchmark_timing import (
+        faelligkeit, letzte_testwoche, pruefe,
+    )
 
     goal = get_active_goal(db, user)
     profil = get_profile(db, user)
     gemessen = getattr(profil, "zones_updated_at", None)
+    uid = user.id if user else getattr(profil, "user_id", None)
+    testwoche = letzte_testwoche(db, user_id=uid)
     lage = pruefe(
         db, getattr(goal, "race_date", None),
         gemessen_am=gemessen.date() if gemessen else None,
+        testwoche_am=testwoche,
     )
-    from services.benchmark_timing import faelligkeit
+    # Eine geplante (oder laufende) Testwoche — die Oberfläche zeigt dann
+    # „geplant ab …" statt eines Knopfs, der nur eine Sperre auslöst.
+    geplant_ab = (
+        testwoche if testwoche and testwoche >= montag_von(_date.today()) else None
+    )
 
     stand = faelligkeit(gemessen.date() if gemessen else None)
     return {
@@ -457,12 +466,17 @@ def benchmark_timing(db: Session = Depends(get_db), user: User | None = Depends(
         "start": str(lage["start"]) if lage["start"] else None,
         "frueheste": str(lage["frueheste"]) if lage["frueheste"] else None,
         "gruende": lage["gruende"],
+        "geplant_ab": str(geplant_ab) if geplant_ab else None,
         # Wann der nächste Test ansteht. Die Oberfläche zeigt das an, damit
         # niemand erst beim Anlegen erfährt, dass es noch zu früh ist — und
         # damit die Woche vorher freigehalten werden kann.
         "faellig_am": str(stand["faellig_am"]) if stand["faellig_am"] else None,
         "tage_bis_faellig": stand["tage_hin"],
-        "vorwarnung": stand["text"] if stand["vorwarnung"] else None,
+        # Keine Mahnung „Testwoche steht an", solange eine geplant ist — sie
+        # forderte sonst zu etwas auf, das schon erledigt ist.
+        "vorwarnung": (
+            stand["text"] if stand["vorwarnung"] and not geplant_ab else None
+        ),
     }
 
 

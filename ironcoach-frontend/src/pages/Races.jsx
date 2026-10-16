@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   getRaceTypes, getActiveGoal, createGoal,
   getRaces, createRace, deleteRace,
@@ -439,7 +440,15 @@ export default function Races() {
     } finally { setBusy(null) }
   }
 
+  // Eine Anfrage zur Zeit. `disabled` allein genügt nicht: Zwei Klicks im
+  // selben Takt kommen beide durch, bevor React den Knopf neu zeichnet — so
+  // entstanden bei einem echten Onboarding zwei Testwochen. Der Server sperrt
+  // inzwischen ebenfalls; das hier verhindert schon die zweite Anfrage.
+  const legtAn = useRef(false)
+
   const planBenchmark = async () => {
+    if (legtAn.current) return
+    legtAn.current = true
     setBusy('plan')
     setError(null)
     try {
@@ -460,8 +469,24 @@ export default function Races() {
       } else {
         setError(d || 'Testwoche konnte nicht angelegt werden')
       }
-    } finally { setBusy(null) }
+    } finally {
+      legtAn.current = false
+      setBusy(null)
+      // Den Sperrzustand neu laden: Nach dem Anlegen ist der Knopf gesperrt
+      // („geplant ab …"), nach einer Sperre stimmt der angezeigte Grund.
+      getBenchmarkTiming().then(({ data }) => setTestTermin(data)).catch(() => {})
+    }
   }
+
+  // Gesperrt, solange eine Testwoche geplant ist oder die 90 Tage seit der
+  // letzten laufen. Schlägt die Abfrage fehl, bleibt der Knopf frei — der
+  // Server prüft ohnehin und antwortet mit dem Grund.
+  const testGesperrt = testTermin?.moeglich === false
+  const testKnopf = busy === 'plan' ? 'LEGT AN…'
+    : testTermin?.geplant_ab ? `GEPLANT AB ${formatTag(testTermin.geplant_ab).toUpperCase()}`
+    : testGesperrt && testTermin?.frueheste ? `AB ${formatTag(testTermin.frueheste).toUpperCase()}`
+    : testGesperrt ? 'GESPERRT'
+    : 'TESTWOCHE PLANEN'
 
   const countdown = useMemo(() => (goal ? daysUntil(goal.race_date) : null), [goal])
 
@@ -831,7 +856,23 @@ export default function Races() {
               {/* Wann der nächste Test ansteht — sonst erfährt man erst beim
                   Anlegen, dass es noch zu früh ist, und hat die Woche
                   womöglich schon verplant. */}
-              {testTermin?.vorwarnung ? (
+              {/* Reihenfolge: geplant, dann gesperrt, erst dann die Mahnung.
+                  Umgekehrt stand „plane die nächste Testwoche ein" neben
+                  einem gesperrten Knopf, und der Grund nur im Tooltip — den
+                  es auf dem Telefon nicht gibt. */}
+              {testTermin?.geplant_ab ? (
+                <p className="text-[11px] font-mono mt-2 leading-relaxed max-w-md text-[var(--text-secondary)]">
+                  Testwoche geplant ab {formatTag(testTermin.geplant_ab)}.{' '}
+                  <Link to="/plan" className="underline hover:text-[#00d4ff]">
+                    Im Wochenplan ansehen oder stornieren
+                  </Link>
+                </p>
+              ) : testGesperrt && testTermin?.gruende?.length ? (
+                <p className="text-[11px] font-mono mt-2 leading-relaxed max-w-md"
+                   style={{ color: '#f59e0b' }}>
+                  {testTermin.gruende.join(' ')}
+                </p>
+              ) : testTermin?.vorwarnung ? (
                 <p className="text-[11px] font-mono mt-2 leading-relaxed max-w-md"
                    style={{ color: '#f59e0b' }}>
                   {testTermin.vorwarnung}
@@ -844,10 +885,11 @@ export default function Races() {
               ) : null}
             </div>
             <div className="flex gap-2 flex-wrap">
-              <button onClick={planBenchmark} disabled={busy === 'plan'}
-                      className="px-3 py-2 rounded-lg text-xs font-mono tracking-wide text-[var(--text-secondary)] disabled:opacity-40"
+              <button onClick={planBenchmark} disabled={busy === 'plan' || testGesperrt}
+                      title={testGesperrt ? (testTermin?.gruende || []).join(' ') : undefined}
+                      className="px-3 py-2 rounded-lg text-xs font-mono tracking-wide text-[var(--text-secondary)] disabled:opacity-40 disabled:cursor-not-allowed"
                       style={{ background: '#111318', border: '1px solid #1e2228' }}>
-                {busy === 'plan' ? 'LEGT AN…' : 'TESTWOCHE PLANEN'}
+                {testKnopf}
               </button>
               <button onClick={checkZones} disabled={busy === 'derive'}
                       className="px-3 py-2 rounded-lg text-xs font-mono tracking-wide text-[#00d4ff] disabled:opacity-40"
