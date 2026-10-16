@@ -30,7 +30,15 @@ RACE_TYPES: dict[str, dict[str, dict]] = {
         "olympic": {
             "label": "Olympisch",
             "swim_km": 1.5, "bike_km": 40, "run_km": 10,
-            "weeks": 16,
+            # 20 statt 16. Bei 16 Wochen fiel der Taper mit der Wettkampfwoche
+            # zusammen — es gab keine einzige eigene Taperwoche. Gängig sind
+            # 16–24 Wochen; 20 liegt in der Mitte und ergibt Base 1–7,
+            # Build 8–14, Peak 15–18, Taper 19, Wettkampf 20.
+            #
+            # Gilt für neue Ziele. Bestehende tragen ihre Dauer im Ziel
+            # (`plan_weeks`); welche davon umgestellt werden, entscheidet
+            # Migration 038.
+            "weeks": 20,
         },
         "middle": {
             "label": "Mitteldistanz (70.3)",
