@@ -215,10 +215,11 @@ class ObsidianClient:
             raise ObsidianError("Obsidian erreichbar, aber API-Key wird abgelehnt")
         return data
 
-    def get_note(self, path: str) -> str | None:
+    def get_note(self, path: str, retries: int = 2) -> str | None:
         """Note-Inhalt, oder None wenn sie nicht existiert."""
         response = self._request(
-            "GET", f"/vault/{path}", headers=self._headers({"Accept": "text/markdown"})
+            "GET", f"/vault/{path}", retries=retries,
+            headers=self._headers({"Accept": "text/markdown"}),
         )
         if response.status_code == 404:
             return None
@@ -247,7 +248,7 @@ class ObsidianClient:
 
     # --- Schreiben ---------------------------------------------------------
 
-    def put_note(self, path: str, content: str) -> None:
+    def put_note(self, path: str, content: str, retries: int = 2) -> None:
         """Note anlegen oder vollständig ersetzen.
 
         Ersetzt kompromisslos — Aufrufer müssen vorher mergen. Der Schutz
@@ -255,7 +256,7 @@ class ObsidianClient:
         und nicht hier, damit diese Schicht dumm und testbar bleibt.
         """
         response = self._request(
-            "PUT", f"/vault/{path}",
+            "PUT", f"/vault/{path}", retries=retries,
             headers=self._headers({"Content-Type": "text/markdown"}),
             content=content.encode("utf-8"),
         )
@@ -271,13 +272,18 @@ class ObsidianClient:
         if response.status_code >= 400:
             raise ObsidianError(f"APPEND {path}: {response.status_code} {response.text[:200]}")
 
-    def delete_note(self, path: str) -> bool:
+    def delete_note(self, path: str, retries: int = 2) -> bool:
         """Note löschen. True wenn sie weg ist, False wenn sie nie existierte.
 
-        Wird nur für Korrekturen benutzt (falsch klassifizierte Einheit, deren
-        Note im falschen Ordner liegt) — nie im regulären Sync-Pfad.
+        Wird für Korrekturen benutzt (falsch klassifizierte Einheit, deren
+        Note im falschen Ordner liegt) und beim Stornieren eines Wochenplans —
+        nie im regulären Sync-Pfad.
+
+        `retries` lässt sich senken, wo ein Mensch auf die Antwort wartet: Mit
+        drei Versuchen à 20 s Verbindungsaufbau hielt ein nicht erreichbarer
+        Tresor eine Anfrage über eine Minute auf.
         """
-        response = self._request("DELETE", f"/vault/{path}")
+        response = self._request("DELETE", f"/vault/{path}", retries=retries)
         if response.status_code == 404:
             return False
         if response.status_code >= 400:

@@ -330,3 +330,99 @@ def verwaiste_plannoten_einordnen(
         ergebnis.append({"von": quelle, "nach": ziel, "status": "verschoben"})
 
     return ergebnis
+
+
+# --- Stornieren -------------------------------------------------------------
+
+_VORLAGE_EIGENES = "<!-- Alles ab hier gehört dir. IronCoach fasst diesen Bereich nie an. -->"
+
+
+def hat_eigene_notizen(inhalt: str) -> bool:
+    """Steht in der Plannotiz etwas, das der Athlet selbst geschrieben hat?
+
+    Abgezogen wird alles, was IronCoach erzeugt: Frontmatter, der verwaltete
+    Block, die Wochenüberschrift, die Überschrift „## Notizen" und der
+    Hinweiskommentar darunter. Bleibt danach Text übrig, gehört er dem
+    Athleten — und darf beim Stornieren nicht verschwinden.
+    """
+    _fm, body = note_utils._parse_frontmatter(inhalt)
+    rest = note_utils._MANAGED_RE.sub("", body).replace(_VORLAGE_EIGENES, "")
+    for zeile in rest.splitlines():
+        z = zeile.strip()
+        if not z or z.startswith("# Woche") or z == "## Notizen":
+            continue
+        return True
+    return False
+
+
+def ohne_plan_block(inhalt: str, hinweis: str) -> str:
+    """Die Notiz ohne den Planinhalt; an seine Stelle tritt `hinweis`.
+
+    Die Markierungen bleiben stehen, nur ihr Inhalt wird ersetzt. Ohne sie
+    hielte `sync_plan_note` die Notiz für eine, aus der der Athlet den Block
+    absichtlich entfernt hat, und ließe sie für immer in Ruhe — ein neu
+    erstellter Plan für dieselbe Woche käme dann nie in die Notiz. Genau das
+    ist aber der Zweck des Stornierens: die Woche neu aufzusetzen.
+    """
+    fm, body = note_utils._parse_frontmatter(inhalt)
+    leer = f"{note_utils.MARKER_START}\n{hinweis}\n{note_utils.MARKER_END}"
+    neu = note_utils._MANAGED_RE.sub(lambda _: leer, body, count=1)
+    if not fm:
+        return neu
+    kopf = "\n".join(f"{k}: {v}" for k, v in fm.items() if v is not None)
+    return f"---\n{kopf}\n---\n{neu}"
+
+
+def plannotizen_entfernen(client: ObsidianClient, pfade: list[str],
+                          hinweis: str = "*Plan storniert.*") -> dict:
+    """Die Notizen eines stornierten Plans entfernen. Wirft nicht.
+
+    Eine Notiz mit eigenen Zeilen des Athleten wird nicht gelöscht: Nur der
+    Planblock verschwindet, der Rest bleibt. Alles andere wird gelöscht.
+
+    Mit einem einzigen Versuch je Aufruf — hier wartet ein Mensch auf die
+    Antwort, und die Datenbank ist zu diesem Zeitpunkt schon bereinigt.
+
+    Status: deaktiviert | geloescht | behalten_eigene_notizen |
+    nicht_vorhanden | nicht_erreichbar | fehler.
+    """
+    if not client.enabled:
+        return {"status": "deaktiviert", "pfade": []}
+
+    geloescht, behalten = [], []
+    try:
+        for pfad in pfade:
+            inhalt = client.get_note(pfad, retries=0)
+            if inhalt is None:
+                continue
+            if hat_eigene_notizen(inhalt):
+                client.put_note(pfad, ohne_plan_block(inhalt, hinweis), retries=0)
+                behalten.append(pfad)
+            else:
+                client.delete_note(pfad, retries=0)
+                geloescht.append(pfad)
+    except ObsidianUnavailable as e:
+        logger.warning("Plannotiz beim Stornieren nicht erreichbar: %s", e)
+        return {"status": "nicht_erreichbar", "pfade": list(pfade),
+                "geloescht": geloescht, "behalten": behalten}
+    except ObsidianError as e:
+        logger.error("Plannotiz beim Stornieren fehlgeschlagen: %s", e)
+        return {"status": "fehler", "pfade": list(pfade),
+                "geloescht": geloescht, "behalten": behalten}
+    except Exception as e:  # noqa: BLE001 - die Datenbank ist schon bereinigt
+        # Zu diesem Zeitpunkt ist der Plan in der Datenbank schon gelöscht.
+        # Ein unerwarteter Fehler (ungültige Adresse, kaputter Schlüssel im
+        # Header) endete sonst als 500 — und ein zweiter Versuch fände nur
+        # noch „kein Plan". Also: melden, nicht werfen.
+        logger.exception("Unerwarteter Fehler bei Plannotiz beim Stornieren")
+        return {"status": "fehler", "pfade": list(pfade), "error": str(e),
+                "geloescht": geloescht, "behalten": behalten}
+
+    if behalten:
+        status = "behalten_eigene_notizen"
+    elif geloescht:
+        status = "geloescht"
+    else:
+        status = "nicht_vorhanden"
+    return {"status": status, "pfade": geloescht + behalten,
+            "geloescht": geloescht, "behalten": behalten}

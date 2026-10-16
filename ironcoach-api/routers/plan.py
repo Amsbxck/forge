@@ -8,7 +8,7 @@ from database import get_db
 from datetime import date
 
 from core.wochen import kalenderwoche
-from models import AthleteProfile, WeeklyPlan
+from models import AthleteProfile, User, WeeklyPlan
 from schemas import WeeklyPlanOut
 from services.plan_generator import generate_and_save_plan, get_current_week
 from services.plan_selection import pick_plan as _pick_plan
@@ -18,7 +18,7 @@ def _safe_filename(name: str) -> str:
     name = name.replace('—', '-').replace('–', '-')
     return re.sub(r'[^\x00-\x7f]', '', name).replace(' ', '_')
 from services.pdf_generator import generate_plan_pdf
-from core.deps import get_profile, get_plan_anchor
+from core.deps import get_current_user, get_profile, get_plan_anchor
 
 router = APIRouter()
 
@@ -155,6 +155,21 @@ def get_plan_by_monday(montag: date, db: Session = Depends(get_db)):
     if not plan:
         raise HTTPException(status_code=404, detail=f"Kein Plan für die Woche ab {start}")
     return plan
+
+
+@router.delete("/plan/am/{montag}")
+def cancel_plan(montag: date, db: Session = Depends(get_db),
+                user: User | None = Depends(get_current_user)):
+    """Den Plan einer Woche stornieren — alle Fassungen, die geplanten
+    Einheiten und die Obsidian-Notiz. Siehe `services/plan_storno.py`."""
+    from services.plan_storno import PlanNichtStornierbar, plan_stornieren
+
+    try:
+        return plan_stornieren(db, user, montag)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except PlanNichtStornierbar as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
 
 @router.get("/plan/{week_number}", response_model=WeeklyPlanOut)

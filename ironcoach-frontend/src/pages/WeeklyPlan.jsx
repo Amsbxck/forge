@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   getCurrentPlan, generatePlan, adjustPlanDays, getPlannedCurrent,
-  getPlanByMonday, getPlannedByMonday,
+  getPlanByMonday, getPlannedByMonday, cancelPlan,
   getWeekMetrics,
 } from '../services/api'
 import WeekCalendar from '../components/WeekCalendar'
@@ -189,6 +189,41 @@ export default function WeeklyPlan() {
 
   useEffect(() => { load(versatz) }, [versatz, load])
 
+  // Stornieren: null | 'frage' | 'laeuft'. Beim Blättern zurückgesetzt —
+  // eine offene Rückfrage gehört zu der Woche, für die sie gestellt wurde.
+  const [storno, setStorno] = useState(null)
+  useEffect(() => { setStorno(null) }, [versatz])
+  // Escape schließt die Rückfrage, egal wo der Fokus gerade steht.
+  useEffect(() => {
+    if (storno !== 'frage') return
+    const taste = e => { if (e.key === 'Escape') setStorno(null) }
+    document.addEventListener('keydown', taste)
+    return () => document.removeEventListener('keydown', taste)
+  }, [storno])
+
+  // Nur laufende und künftige Wochen, und die laufende nur, solange darin
+  // nichts erledigt ist — dieselben Grenzen wie am Server
+  // (`services/plan_storno.py`). Der Server prüft ohnehin; hier geht es
+  // darum, keinen Knopf anzubieten, der nur eine Absage erzeugt.
+  const erledigt = (planned || []).filter(
+    r => r.matched_session_id || ['completed', 'replaced'].includes(r.status)
+  ).length
+  const stornierbar = !!plan && versatz >= 0 && erledigt === 0
+
+  const stornieren = async () => {
+    setStorno('laeuft')
+    setError(null)
+    try {
+      const { data } = await cancelPlan(zielMontag)
+      setStorno(null)
+      setHinweis({ ok: true, text: data.message })
+      await load(versatz)
+    } catch (e) {
+      setStorno(null)
+      setError(e.response?.data?.detail || 'Stornieren fehlgeschlagen')
+    }
+  }
+
   // Die Phase für die Knopfreihe, wenn noch kein Plan vorliegt. Einmal beim
   // Öffnen; sie ändert sich nicht im Minutentakt, und ein Fehlschlag darf die
   // Seite nicht beeinträchtigen — dann fehlen eben die Knöpfe.
@@ -293,9 +328,13 @@ export default function WeeklyPlan() {
                   // Nach vorn genau eine Woche: Weiter gibt es nichts zu
                   // sehen, weil Pläne immer nur für die kommende Woche
                   // entstehen. Nach hinten offen — dort liegt die Historie.
-                  disabled={dir === 1 && versatz >= 1}
+                  // Gesperrt, solange ein Storno läuft: Dessen Neuladen gehört
+                  // zur Woche, in der es ausgelöst wurde. Wer währenddessen
+                  // weiterblätterte, bekam danach die stornierte Woche über
+                  // die gerade angezeigte gelegt — mit „kein Plan".
+                  disabled={(dir === 1 && versatz >= 1) || storno === 'laeuft'}
                   onClick={() => setVersatz(v => Math.min(1, v + dir))}
-                  className={`px-2 py-0.5 rounded font-mono text-[var(--text-secondary)] transition-colors ${i === 1 ? 'order-3' : ''} ${dir === 1 && versatz >= 1 ? 'opacity-30 cursor-not-allowed' : 'hover:text-[#00d4ff]'}`}
+                  className={`px-2 py-0.5 rounded font-mono text-[var(--text-secondary)] transition-colors ${i === 1 ? 'order-3' : ''} ${(dir === 1 && versatz >= 1) || storno === 'laeuft' ? 'opacity-30 cursor-not-allowed' : 'hover:text-[#00d4ff]'}`}
                   style={{ border: '1px solid #1e2228' }}
                 >
                   {label}
@@ -312,7 +351,8 @@ export default function WeeklyPlan() {
           {!isCurrent && (
             <button
               onClick={() => setVersatz(0)}
-              className="text-[10px] font-mono px-2 py-1 rounded tracking-wide"
+              disabled={storno === 'laeuft'}
+              className="text-[10px] font-mono px-2 py-1 rounded tracking-wide disabled:opacity-40"
               style={{ background: '#00d4ff15', border: '1px solid #00d4ff33', color: '#00d4ff' }}
             >
               {currentWeek != null ? `ZURÜCK ZU WK ${currentWeek}` : 'ZURÜCK ZU DIESER WOCHE'}
@@ -485,7 +525,68 @@ export default function WeeklyPlan() {
                     {plan.week_start} – {plan.week_end}
                   </div>
                 </div>
+                {/* Stornieren: zurückhaltend, weil es löscht. Vergangene
+                    Wochen bekommen den Knopf gar nicht — sie bleiben als
+                    Protokoll. In der laufenden Woche mit erledigten Tagen
+                    steht er da, sagt aber, warum er nicht geht. */}
+                {versatz >= 0 && storno === null && (
+                  <button
+                    onClick={() => setStorno('frage')}
+                    disabled={!stornierbar}
+                    title={stornierbar ? 'Plan dieser Woche stornieren'
+                      : `In dieser Woche ${erledigt === 1 ? 'ist' : 'sind'} schon ${erledigt} ${erledigt === 1 ? 'Einheit' : 'Einheiten'} erledigt — einzelne Tage über „Tage anpassen" ändern`}
+                    className="ml-auto self-start text-[10px] font-mono tracking-widest px-2 py-1 rounded transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    style={{ color: stornierbar ? '#ef4444cc' : 'var(--text-muted)', border: `1px solid ${stornierbar ? '#ef444455' : '#1e2228'}` }}
+                  >
+                    STORNIEREN
+                  </button>
+                )}
               </div>
+
+              {/* Der Grund als Text, nicht nur als Tooltip — auf dem Telefon
+                  gibt es keinen Tooltip, und ein grauer Knopf ohne Erklärung
+                  sieht nach einem Fehler aus. */}
+              {versatz >= 0 && storno === null && !stornierbar && erledigt > 0 && (
+                <p className="-mt-1 mb-3 text-[11px] font-mono text-[var(--text-muted)] leading-relaxed">
+                  Stornieren geht nicht mehr: {erledigt === 1 ? 'eine Einheit ist' : `${erledigt} Einheiten sind`} schon
+                  erledigt. Einzelne Tage änderst du über „Tage anpassen".
+                </p>
+              )}
+
+              {storno !== null && (
+                <div
+                  className="mb-3 rounded-lg px-3 py-2.5 flex items-center gap-3 flex-wrap"
+                  style={{ background: '#ef44440f', border: '1px solid #ef444455' }}
+                >
+                  <p className="text-[13px] text-[#e8eaf0] leading-snug flex-1 min-w-[14rem]">
+                    Plan für {zielSpanne} stornieren? Plan und alle geplanten
+                    Einheiten dieser Woche werden gelöscht
+                    {plan.plan_phase === 'Benchmark' ? ', die Testwoche wird freigegeben' : ''},
+                    die Notiz in Obsidian wird entfernt. Danach kannst du die Woche neu erstellen.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={stornieren}
+                      disabled={storno === 'laeuft'}
+                      className="text-[10px] font-mono font-bold tracking-widest px-3 py-1.5 rounded disabled:opacity-50"
+                      style={{ background: '#ef444426', border: '1px solid #ef444477', color: '#ef4444' }}
+                    >
+                      {storno === 'laeuft' ? 'STORNIERT…' : 'JA, STORNIEREN'}
+                    </button>
+                    <button
+                      onClick={() => setStorno(null)}
+                      disabled={storno === 'laeuft'}
+                      // Der Fokus liegt auf dem harmlosen Knopf: Ein Enter direkt
+                      // nach dem Öffnen soll nicht den Plan löschen.
+                      autoFocus
+                      className="text-[10px] font-mono tracking-widest px-3 py-1.5 rounded text-[var(--text-secondary)] disabled:opacity-50"
+                      style={{ border: '1px solid #1e2228' }}
+                    >
+                      ABBRECHEN
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {plan.plan_content?.coaching_comment && (
                 <p className="text-sm text-[#e8eaf0] leading-relaxed">
