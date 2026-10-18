@@ -24,7 +24,7 @@ def leer(db):
 
 @pytest.fixture
 def profil(db):
-    p = db.query(AthleteProfile).first()
+    p = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     vorher = p.ftp_watts
     p.ftp_watts = 240
     db.commit()
@@ -34,7 +34,7 @@ def profil(db):
 
 
 def _fahrt(db, watt, tage_her=5, dauer=45):
-    p = db.query(AthleteProfile).first()
+    p = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     s = TrainingSession(
         user_id=p.user_id, session_date=date.today() - timedelta(days=tage_her),
         week_number=1, discipline="bike", duration_min=dauer,
@@ -74,7 +74,7 @@ def test_knapp_darueber_bleibt_still(db, profil):
 
 def test_stufentest_zaehlt_nicht_als_beleg(db, profil):
     """Sein bestes Fenster liegt systematisch zu niedrig."""
-    p = db.query(AthleteProfile).first()
+    p = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     watts = []
     for stufe in range(14):
         watts += [120 + stufe * 20] * 2

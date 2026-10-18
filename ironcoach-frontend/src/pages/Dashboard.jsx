@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getWeekMetrics, getLatestHrv, getHrv, getSessions, getProfile, getIntakeStatus, getMe, getFtpCheck, getPmc, getBenchmarkTiming } from '../services/api'
+import { getWeekMetrics, getLatestHrv, getHrv, getHrvRange, getSessions, getSessionsSeit, getProfile, getIntakeStatus, getMe, getFtpCheck, getPmc, getBenchmarkTiming } from '../services/api'
 import HRVInput from '../components/HRVInput'
 import HealthStatus from '../components/HealthStatus'
 import HRVHistoryChart from '../components/HRVHistoryChart'
@@ -12,7 +12,7 @@ import FtpHinweis from '../components/FtpHinweis'
 import Glossary from '../components/Glossary'
 import TodayCard from '../components/TodayCard'
 import SportIcon from '../components/SportIcon'
-import { daysUntil, kalenderwoche } from '../utils/dates'
+import { daysUntil, isoTag, kalenderwoche } from '../utils/dates'
 import SessionDetail from '../components/SessionDetail'
 import ReflectionEditor from '../components/ReflectionEditor'
 import { calculatePMC, formColor, formLabel } from '../components/PerformanceChart'
@@ -24,9 +24,10 @@ import {
 } from '../utils/colors'
 
 const HRV_TEXT = {
-  green: 'Normal session as planned',
-  yellow: 'Possible — reduce intensity',
-  red: 'Reduce intensity or rest',
+  green: 'Training wie geplant',
+  yellow: 'Möglich — Intensität senken',
+  red: 'Locker oder Ruhetag',
+  keine: 'Heute noch nicht gemessen',
 }
 
 // ─── Glossary ─────────────────────────────────────────────────────────────────
@@ -53,6 +54,11 @@ export default function Dashboard() {
   const [konto, setKonto] = useState(null)
   const [ftpBefund, setFtpBefund] = useState(null)
   const [pmcServer, setPmcServer] = useState(null)
+  // Ersatz, falls die Formkurve vom Server ausfällt — aus allen Einheiten des
+  // letzten Jahres, nicht aus den 50 neuesten: Mit 50 begann die Fitness bei
+  // null am Tag der 50. Einheit, und die Form stand viel zu hoch.
+  const [pmcErsatz, setPmcErsatz] = useState(null)
+  const [hrvGrenzen, setHrvGrenzen] = useState(null)
   const [testTermin, setTestTermin] = useState(null)
 
   const load = async () => {
@@ -75,7 +81,12 @@ export default function Dashboard() {
       // Leistungsdaten mehrerer Fahrten; ein Ausfall darf das Dashboard nicht
       // aufhalten.
       getFtpCheck().then(({ data }) => setFtpBefund(data?.befund || null)).catch(() => setFtpBefund(null))
-      getPmc().then(({ data }) => setPmcServer(Array.isArray(data) ? data : null)).catch(() => setPmcServer(null))
+      getPmc().then(({ data }) => setPmcServer(Array.isArray(data) ? data : null)).catch(() => {
+        setPmcServer(null)
+        const vor = new Date(); vor.setDate(vor.getDate() - 365)
+        getSessionsSeit(isoTag(vor)).then(({ data }) => setPmcErsatz(calculatePMC(data))).catch(() => {})
+      })
+      getHrvRange().then(({ data }) => setHrvGrenzen(data?.grenzen || null)).catch(() => setHrvGrenzen(null))
       getBenchmarkTiming().then(({ data }) => setTestTermin(data)).catch(() => setTestTermin(null))
       setMetrics(m.data)
       setHrv(h.data)
@@ -93,12 +104,22 @@ export default function Dashboard() {
 
   if (loading) return (
     <div className="flex items-center justify-center py-20 text-[var(--text-secondary)]">
-      <div className="text-sm font-mono tracking-widest">LOADING...</div>
+      <div className="text-sm font-mono tracking-widest">LÄDT…</div>
     </div>
   )
 
-  const status = hrv?.hrv_status || 'green'
-  const statusColor = HRV_COLOR[status]
+  // Nur eine Messung von **heute** gibt die Ampel für heute. Vorher galt der
+  // letzte Wert beliebigen Alters, und ohne jede Messung stand Grün da.
+  const heuteGemessen = hrv?.measured_at === isoTag(new Date())
+  const status = heuteGemessen && hrv?.hrv_status ? hrv.hrv_status : 'keine'
+  const statusColor = HRV_COLOR[status] || '#8a909e'
+  // Füllung des Rings relativ zur eigenen Spanne (rote Grenze bis oberes
+  // Bandende). Hier standen 61 und 99 ms — die Werte eines einzelnen Athleten.
+  const ringUnten = hrvGrenzen?.rot_unter
+  const ringOben = hrvGrenzen?.gruen_bis || (hrvGrenzen?.gruen_ab ? hrvGrenzen.gruen_ab * 1.2 : null)
+  const ringAnteil = hrv?.rmssd && ringUnten && ringOben && ringOben > ringUnten
+    ? Math.min(Math.max((hrv.rmssd - ringUnten) / (ringOben - ringUnten), 0), 1)
+    : 0
 
   // Form (TSB) aus derselben Funktion wie das Diagramm weiter unten — eine
   // zweite Rechnung würde früher oder später eine andere Zahl zeigen.
@@ -118,7 +139,7 @@ export default function Dashboard() {
   // sobald sich die beiden Formeln unterschieden, zeigten Kachel und
   // Diagramm verschiedene Zahlen für denselben Tag. Zwei Rechnungen für
   // eine Grösse laufen früher oder später auseinander.
-  const pmc = pmcServer?.length ? pmcServer : calculatePMC(sessions)
+  const pmc = pmcServer?.length ? pmcServer : (pmcErsatz || [])
   const form = pmc.length ? pmc[pmc.length - 1].tsb : null
   const formFarbe = formColor(form)
   const formText = formLabel
@@ -336,7 +357,7 @@ export default function Dashboard() {
                 cx="36" cy="36" r="30"
                 fill="none" stroke={statusColor} strokeWidth="5"
                 strokeDasharray={`${2 * Math.PI * 30}`}
-                strokeDashoffset={`${2 * Math.PI * 30 * (1 - Math.min(Math.max((hrv?.rmssd || 61) - 61, 0) / (99 - 61), 1))}`}
+                strokeDashoffset={`${2 * Math.PI * 30 * (1 - ringAnteil)}`}
                 strokeLinecap="round"
                 transform="rotate(-90 36 36)"
                 style={{ filter: `drop-shadow(0 0 6px ${statusColor}88)`, transition: 'stroke-dashoffset 0.6s ease' }}
@@ -351,7 +372,7 @@ export default function Dashboard() {
 
           {/* Text */}
           <div className="flex-1 min-w-0 z-10">
-            <div className={LABEL}>HRV TODAY</div>
+            <div className={LABEL}>HRV HEUTE</div>
             <div className="text-xl font-bold mt-1 mb-1" style={{ color: statusColor, fontFamily: 'Barlow Condensed, sans-serif' }}>
               {HRV_TEXT[status]}
             </div>

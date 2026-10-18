@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
-import Dashboard from './pages/Dashboard'
-import Upload from './pages/Upload'
-import WeeklyPlan from './pages/WeeklyPlan'
-import Chat from './pages/Chat'
-import History from './pages/History'
-import Races from './pages/Races'
-import Integrations from './pages/Integrations'
-import Profile from './pages/Profile'
+
+// Seiten einzeln nachladen: Als ein Bündel waren es knapp 1 MB, das vor der
+// Anmeldeseite vollständig geladen werden musste — samt Diagrammbibliothek,
+// die erst das Dashboard braucht.
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Upload = lazy(() => import('./pages/Upload'))
+const WeeklyPlan = lazy(() => import('./pages/WeeklyPlan'))
+const Chat = lazy(() => import('./pages/Chat'))
+const History = lazy(() => import('./pages/History'))
+const Races = lazy(() => import('./pages/Races'))
+const Integrations = lazy(() => import('./pages/Integrations'))
+const Profile = lazy(() => import('./pages/Profile'))
 import SyncButton from './components/SyncButton'
 import Login from './pages/Login'
 import { ResetPage, VerifyPage } from './pages/AuthAction'
@@ -16,13 +20,13 @@ import { getMe, getToken, logoutEverywhere, setToken, setUnauthorizedHandler } f
 
 const navItems = [
   { to: '/',        label: 'Dashboard', short: 'Dash' },
-  { to: '/history', label: 'History',   short: 'History' },
-  { to: '/races',   label: 'Races',     short: 'Races' },
+  { to: '/history', label: 'Verlauf',   short: 'Verlauf' },
+  { to: '/races',   label: 'Rennen',    short: 'Rennen' },
   { to: '/plan',    label: 'Plan',      short: 'Plan' },
   { to: '/chat',    label: 'Coach',     short: 'Coach' },
   { to: '/upload',  label: 'Upload',    short: 'Upload' },
-  { to: '/profile', label: 'Profile',   short: 'Profile' },
-  { to: '/connect', label: 'Connect',   short: 'Connect' },
+  { to: '/profile', label: 'Profil',    short: 'Profil' },
+  { to: '/connect', label: 'Anbindungen', short: 'Verbinden' },
 ]
 
 export default function App() {
@@ -129,6 +133,9 @@ export default function App() {
         </nav>
 
         <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
+          <Suspense fallback={
+            <div className="py-20 text-center text-sm font-mono tracking-widest text-[var(--text-secondary)]">LÄDT…</div>
+          }>
           <Routes>
             <Route path="/"        element={<Dashboard />} />
             <Route path="/upload"  element={<Upload />} />
@@ -139,6 +146,7 @@ export default function App() {
             <Route path="/profile" element={<Profile />} />
             <Route path="/connect" element={<Integrations />} />
           </Routes>
+          </Suspense>
         </main>
       </div>
     </BrowserRouter>

@@ -18,9 +18,9 @@ from sqlalchemy.orm import Session
 
 from core.config import settings
 from models import (
-    AthleteProfile, AuthAction, ChatMessage, HealthEvent, HrvMeasurement,
-    PlannedSession, RaceGoal, RaceResult, StravaCredentials,
-    TrainingSession, User, WeeklyPlan,
+    ApiUsage, AthleteProfile, AuthAction, ChatMessage, GeloeschteStravaAktivitaet,
+    HealthEvent, HrvMeasurement, PlannedSession, RaceGoal, RaceResult,
+    StravaCredentials, TrainingSession, User, WeeklyPlan,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,11 @@ NUTZERDATEN = [
     ("chat", ChatMessage),
     ("strava", StravaCredentials),
     ("anmeldelinks", AuthAction),
+    # Fehlten: der Verbrauch an KI-Aufrufen (personenbezogen, mit Zeitpunkt)
+    # und die Liste der selbst gelöschten Strava-Aktivitäten. Ohne Eintrag
+    # hier standen sie weder im Export noch in der Prüfung auf Reste.
+    ("ki_verbrauch", ApiUsage),
+    ("geloeschte_strava_aktivitaeten", GeloeschteStravaAktivitaet),
 ]
 
 # Was aus dem Export herausbleibt: Zugangsdaten und Fingerabdrücke. Sie
@@ -110,6 +115,25 @@ def _rennfotos_loeschen(db: Session, user: User) -> int:
     return entfernt
 
 
+def _trainingsdateien_loeschen(db: Session, user: User) -> int:
+    """Hochgeladene FIT- und GPX-Dateien entfernen.
+
+    Wie bei den Rennfotos: Die Zeilen gehen per CASCADE, die Dateien blieben
+    liegen — mit Herzfrequenz und GPS-Spur, also gerade den Daten, die eine
+    Löschung entfernen soll.
+    """
+    entfernt = 0
+    for (pfad,) in db.query(TrainingSession.fit_file_path).filter(
+        TrainingSession.user_id == user.id, TrainingSession.fit_file_path.isnot(None)
+    ).all():
+        try:
+            os.remove(pfad)
+            entfernt += 1
+        except OSError:
+            pass
+    return entfernt
+
+
 def delete_user_data(db: Session, user: User) -> dict:
     """Konto samt allem löschen. Gibt zurück, was entfernt wurde."""
     zusammenfassung = {
@@ -117,6 +141,7 @@ def delete_user_data(db: Session, user: User) -> dict:
         for name, modell in NUTZERDATEN
     }
     zusammenfassung["rennfotos"] = _rennfotos_loeschen(db, user)
+    zusammenfassung["trainingsdateien"] = _trainingsdateien_loeschen(db, user)
 
     user_id = user.id
     db.delete(user)   # Fremdschlüssel räumen den Rest per CASCADE ab

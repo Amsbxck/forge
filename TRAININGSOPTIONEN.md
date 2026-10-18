@@ -50,7 +50,7 @@ Gleiche Summe wie zwei pro Woche über vier Wochen — acht.
 
 | | |
 |---|---|
-| **Phase** | nur Aufbau (Base/Build), **nicht** Peak, Taper oder Wettkampfwoche |
+| **Phase** | nur Aufbau (Build), **nicht** Grundlage, Peak, Taper oder Wettkampfwoche |
 | **HRV** | normal, **ohne** fallende Tendenz. Bei Warnung: kein Block, nächste Woche neu prüfen |
 | **Nicht wenn** | Deload-Woche, oder Woche vor einem Wettkampf |
 | **Beleg** | Rønnestad 2014, 19 trainierte Radfahrer: VO2max **+4,6 %**, Spitzenleistung +2,1 %, Leistung bei 2 mmol +10 %. Die gleichmäßige Verteilung zeigte **keine** signifikante Änderung |

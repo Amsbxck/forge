@@ -55,23 +55,40 @@ def acting_as(user_id: int | None):
 
 def _tenant_models():
     from models import (
-        AthleteProfile, ChatMessage, HealthEvent, HrvMeasurement, PlannedSession,
-        RaceGoal, RaceResult, StravaCredentials, TrainingSession,
-        WeeklyPlan,
+        AthleteProfile, ChatMessage, GeloeschteStravaAktivitaet, HealthEvent,
+        HrvMeasurement, PlannedSession, RaceGoal, RaceResult, StravaCredentials,
+        TrainingSession, WeeklyPlan,
     )
     return (
-        AthleteProfile, ChatMessage, HealthEvent, HrvMeasurement, PlannedSession,
-        RaceGoal, RaceResult, StravaCredentials, TrainingSession,
-        WeeklyPlan,
+        AthleteProfile, ChatMessage, GeloeschteStravaAktivitaet, HealthEvent,
+        HrvMeasurement, PlannedSession, RaceGoal, RaceResult, StravaCredentials,
+        TrainingSession, WeeklyPlan,
     )
+
+
+_installiert = False
 
 
 def install() -> None:
-    """Filter registrieren. Einmal beim Start aufrufen."""
+    """Filter registrieren. Einmal beim Start aufrufen — ein zweiter Aufruf
+    tut nichts. Vorher hängte jeder Aufruf (etwa je TestClient-Start) einen
+    weiteren Listener an, und jede Abfrage lief durch alle."""
+    global _installiert
+    if _installiert:
+        return
+    _installiert = True
 
     @event.listens_for(Session, "do_orm_execute")
     def _apply_tenant_filter(state):  # pragma: no cover - über Integrationstest geprüft
-        if not state.is_select or state.is_column_load or state.is_relationship_load:
+        # Auch Massen-UPDATE und -DELETE über das ORM. Bisher galt der
+        # Filter nur beim Lesen; jede `query(...).update()` oder `.delete()`
+        # ohne eigenen Nutzerfilter hätte über alle Konten gegriffen. Heute
+        # trägt jede solche Stelle ihren Filter selbst — das hier ist der
+        # Schutz für die nächste, die ihn vergisst.
+        if state.is_select:
+            if state.is_column_load or state.is_relationship_load:
+                return
+        elif not (state.is_update or state.is_delete):
             return
         if state.execution_options.get(SKIP_OPTION):
             return

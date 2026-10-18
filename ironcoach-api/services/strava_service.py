@@ -36,7 +36,15 @@ class StravaService:
         if creds is None:
             raise ValueError(f"No Strava credentials for athlete {athlete_id}")
 
-        if creds.expires_at < datetime.now().timestamp():
+        # Fünf Minuten Vorlauf: Ein Token, das in der nächsten Sekunde
+        # abläuft, scheitert sonst mitten im Abruf von Aktivität, Streams und
+        # Runden.
+        #
+        # Auch im Probelauf wird ein erneuertes Token gespeichert — mit
+        # Absicht: Strava kann dabei das Refresh-Token austauschen, und ein
+        # verworfenes neues hieße, dass die Verbindung beim nächsten Mal tot
+        # ist.
+        if creds.expires_at < datetime.now().timestamp() + 300:
             for attempt in range(3):
                 try:
                     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -61,8 +69,36 @@ class StravaService:
                 except httpx.HTTPStatusError as e:
                     logger.error(f"Token refresh failed: {e}")
                     raise
+            # Dreimal gedrosselt: Das alte Token ist abgelaufen. Es trotzdem
+            # zurückzugeben hieß, dass jeder folgende Abruf mit 401 scheiterte
+            # und der eigentliche Grund (Drosselung) nirgends stand.
+            raise RuntimeError(
+                "Strava drosselt gerade (429) — das Token konnte nicht erneuert werden."
+            )
 
         return creds.access_token
+
+    async def deauthorize(self, athlete_id: int) -> bool:
+        """Die Freigabe bei Strava zurücknehmen.
+
+        Ohne diesen Aufruf blieb die App nach dem Trennen bei Strava als
+        autorisiert eingetragen — der Athlet sah sie dort weiter in seinen
+        Anwendungen, obwohl FORGE nichts mehr abrief.
+        """
+        creds = self._get_credentials(athlete_id)
+        if creds is None:
+            return False
+        try:
+            token = await self.refresh_token_if_needed(athlete_id)
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(
+                    "https://www.strava.com/oauth/deauthorize",
+                    data={"access_token": token},
+                )
+            return resp.status_code < 400
+        except Exception as e:
+            logger.warning("Strava-Deautorisierung für %s fehlgeschlagen: %s", athlete_id, e)
+            return False
 
     async def fetch_activity(self, activity_id: int, athlete_id: int) -> dict:
         token = await self.refresh_token_if_needed(athlete_id)
@@ -252,7 +288,37 @@ class StravaService:
 
     def save_credentials(self, token_data: dict):
         from models import StravaCredentials
+        from core.tenancy import SKIP_OPTION
+
         athlete_id = token_data["athlete"]["id"]
+        # Über alle Konten prüfen, nicht nur das eigene: Ein Strava-Athlet
+        # gehört zu genau einem Konto. Vorher ließ sich derselbe Athlet an
+        # zwei Konten hängen; der Webhook nahm dann irgendeines davon, und
+        # der stündliche Abgleich des anderen scheiterte an der doppelten
+        # Aktivitätsnummer.
+        fremd = (
+            self.db.query(StravaCredentials)
+            .filter(StravaCredentials.athlete_id == athlete_id)
+            .execution_options(**{SKIP_OPTION: True})
+            .first()
+        )
+        from core.deps import resolve_user
+        eigener = resolve_user(self.db)
+        if fremd is not None and eigener is not None and fremd.user_id != eigener.id:
+            raise ValueError(
+                "Dieses Strava-Konto ist bereits mit einem anderen FORGE-Konto "
+                "verbunden. Trenne es dort zuerst."
+            )
+        # Ein anderes Strava-Konto am selben Nutzer wird ersetzt, nicht
+        # danebengelegt — sonst zwei Verbindungen, von denen nur eine gilt.
+        if eigener is not None:
+            for alt in (
+                self.db.query(StravaCredentials)
+                .filter(StravaCredentials.user_id == eigener.id,
+                        StravaCredentials.athlete_id != athlete_id)
+                .all()
+            ):
+                self.db.delete(alt)
         existing = self._get_credentials(athlete_id)
         if existing:
             existing.access_token = token_data["access_token"]
@@ -325,8 +391,15 @@ class StravaService:
         if power_data:
             stored_streams["watts"] = sample_stream(power_data)
         speed_data = streams.get("velocity_smooth") or []
-        if speed_data:
+        if speed_data and discipline != "swim":
             stored_streams["speed"] = sample_stream([round(v * 3.6, 2) for v in speed_data])
+            # Beim Lauf zusätzlich die Pace, wie beim FIT-Import: Vorher zeigte
+            # ein Strava-Lauf ein Geschwindigkeitsdiagramm, derselbe Lauf als
+            # Datei ein Pacediagramm.
+            if discipline == "run":
+                stored_streams["pace"] = sample_stream(
+                    [round(1000 / v / 60, 2) if v and v > 0 else None for v in speed_data]
+                )
 
         moving_time = activity.get("moving_time", 0)
         duration_min = round(moving_time / 60) if moving_time else None
@@ -335,6 +408,16 @@ class StravaService:
         np_watts = activity.get("weighted_average_watts")
         if discipline in ("run", "hike"):
             avg_watts = np_watts = None
+        # Ohne Leistungsmesser schätzt Strava die Watt aus Gewicht, Tempo und
+        # Steigung (`device_watts: false`). Gespeichert wie gemessen galt die
+        # Einheit als „mit Leistung" — `session_quality` maß sie an den
+        # Wattbändern des Plans, und beim Coach kam ein „verfehlt" oder
+        # „getroffen" an, das auf einer Schätzung beruhte. Dann lieber nach
+        # Puls bewerten.
+        if activity.get("device_watts") is False:
+            avg_watts = np_watts = None
+            power_data = []
+            stored_streams.pop("watts", None)
 
         tss = None
         # Schwellenpuls aus dem Profil statt fest 173. Der bisherige

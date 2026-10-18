@@ -26,7 +26,7 @@ def einzelplatz(monkeypatch):
 
 @pytest.fixture
 def konto(db):
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     return db.query(User).filter(User.id == profil.user_id).one()
 
 
@@ -65,7 +65,7 @@ def test_willkommensfenster_wartet_auf_die_bestaetigung(client, db, konto, angem
 def test_nach_der_bestaetigung_erscheint_es(client, db, konto, angemeldet):
     konto.email_verified_at = datetime.utcnow()
     db.commit()
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     profil.intake_done_at = None
     db.commit()
 
@@ -76,7 +76,7 @@ def test_nach_der_bestaetigung_erscheint_es(client, db, konto, angemeldet):
 
 def test_erledigtes_fenster_kommt_nicht_wieder(client, db, konto, angemeldet):
     konto.email_verified_at = datetime.utcnow()
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     profil.intake_done_at = datetime.utcnow()
     db.commit()
 
@@ -127,7 +127,7 @@ def test_lokaler_einzelplatzbetrieb_wird_nicht_ausgesperrt(client, db, konto, ei
     lokal käme man nie zur Einrichtung.
     """
     konto.email_verified_at = None
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     profil.intake_done_at = None
     db.commit()
 

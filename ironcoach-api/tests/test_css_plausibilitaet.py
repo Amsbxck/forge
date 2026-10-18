@@ -84,7 +84,7 @@ def test_erkennung_nimmt_nicht_ersatzweise_das_kuerzere_paar():
 def test_der_endpunkt_lehnt_ab(client, db):
     from models import AthleteProfile
 
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     vorher = profil.css_pace_s_per_100m
     try:
         antwort = client.post("/api/profile/swim-test",
@@ -92,7 +92,7 @@ def test_der_endpunkt_lehnt_ab(client, db):
         assert antwort.status_code == 422
         assert "nicht schneller" in antwort.json()["detail"]
         db.expire_all()
-        assert db.query(AthleteProfile).first().css_pace_s_per_100m == vorher
+        assert db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first().css_pace_s_per_100m == vorher
     finally:
         profil.css_pace_s_per_100m = vorher
         db.commit()
@@ -125,7 +125,7 @@ def test_direkt_eingetragene_pace_wird_geprueft(client, db, pace, erlaubt):
     """
     from models import AthleteProfile
 
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     vorher = profil.css_pace_s_per_100m
     try:
         antwort = client.post("/api/profile/swim-test",
@@ -147,7 +147,7 @@ def test_der_gemeldete_fall(client, db):
     """
     from models import AthleteProfile
 
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     vorher = profil.css_pace_s_per_100m
     try:
         antwort = client.post("/api/profile/swim-test", json={
@@ -155,7 +155,7 @@ def test_der_gemeldete_fall(client, db):
         })
         assert antwort.status_code == 422
         db.expire_all()
-        assert db.query(AthleteProfile).first().css_pace_s_per_100m == vorher
+        assert db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first().css_pace_s_per_100m == vorher
     finally:
         profil.css_pace_s_per_100m = vorher
         db.commit()

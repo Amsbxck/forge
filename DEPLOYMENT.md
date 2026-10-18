@@ -137,11 +137,48 @@ With neither `MAIL_PROVIDER` nor `MAIL_API_KEY` set, the app falls back to
 SMTP, so existing installations keep working unchanged.
 
 ```
-# Required as soon as mail is configured — the app refuses to start otherwise.
-# Verification and password-reset links are built from this. Without it they
-# point at localhost: the mail arrives, the link is useless, and nobody
-# notices until someone cannot sign in.
-PUBLIC_BASE_URL=https://your-frontend.vercel.app
+# Where athletes open the app (the FRONTEND). Required as soon as mail is
+# configured — the app refuses to start otherwise. Verification and
+# password-reset links and the return after the Strava authorisation are
+# built from this. Without it they point at localhost.
+FRONTEND_URL=https://your-frontend.vercel.app
+
+# Where the API is reachable from outside (the BACKEND). The Strava webhook
+# is registered at <API_BASE_URL>/webhook. Do not put the Vercel address here:
+# Vercel answers every unknown path with index.html, and Strava rejects it.
+API_BASE_URL=https://<your-service>.up.railway.app
+
+# Older installations used one variable for both. It still works as a
+# fallback for either, but only when frontend and API share one address.
+# PUBLIC_BASE_URL=
+
+# Pull missed Strava activities every hour. Strava never re-delivers a webhook
+# event; without this, anything the webhook missed is lost. Default: off.
+RECONCILE_ENABLED=true
+
+# Timezone of the athletes. The image sets TZ=Europe/Berlin already; only
+# needed if your athletes live elsewhere.
+# TZ=Europe/Berlin
+# ZEITZONE=Europe/Berlin
+
+# A random string of your own. The default is public (it is in this repo).
+STRAVA_VERIFY_TOKEN=<openssl rand -hex 16>
+
+# Who becomes admin when registering on a fresh installation.
+ADMIN_EMAIL=you@example.com
+
+# Claude budget per athlete, in euros, and whether it is enforced.
+API_BUDGET_EUR=5.0
+API_BUDGET_ENFORCED=true
+
+# Model and its price (input:output USD per million tokens).
+# CLAUDE_MODEL=claude-sonnet-4-6
+# MODEL_PRICES=claude-sonnet-4-6:3.0:15.0
+
+# Key for secrets stored in the database (Obsidian API keys). Empty: derived
+# from JWT_SECRET. Set your own if you ever want to rotate JWT_SECRET without
+# every athlete re-entering their Obsidian key.
+# DATA_ENCRYPTION_KEY=<openssl rand -hex 32>
 ```
 
 ### 1.4 Add a volume for uploaded .fit files

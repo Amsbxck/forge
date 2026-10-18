@@ -18,6 +18,16 @@ RESET_HOURS = 2
 
 # Eine Auflösung für alle Links nach draussen — siehe core/urls.py.
 from core.urls import app_url as _app_url
+from html import escape as _escape
+
+
+def _anrede_html(name: str | None) -> str:
+    """Die Anrede für die HTML-Fassung — mit maskiertem Namen.
+
+    Der Name ist frei eingegeben. Unmaskiert landete ein „<a href=…>" darin
+    als echter Link in einer Mail, die von dieser Adresse kommt.
+    """
+    return f"Hallo {_escape(name)}" if name else "Hallo"
 
 
 def _rahmen(titel: str, absaetze: list[str], knopf_text: str, knopf_link: str, fuss: str) -> str:
@@ -70,7 +80,7 @@ diese Nachricht — ohne Bestätigung passiert nichts.
     html = _rahmen(
         "E-Mail-Adresse bestätigen",
         [
-            f"{anrede}, bitte bestätige deine Adresse, damit dein Konto vollständig nutzbar ist.",
+            f"{_anrede_html(name)}, bitte bestätige deine Adresse, damit dein Konto vollständig nutzbar ist.",
             f"Der Link gilt {VERIFY_HOURS} Stunden.",
         ],
         "ADRESSE BESTÄTIGEN",
@@ -98,7 +108,7 @@ gilt unverändert weiter. In dem Fall musst du nichts tun.
     html = _rahmen(
         "Neues Passwort setzen",
         [
-            f"{anrede}, über den folgenden Link kannst du ein neues Passwort vergeben.",
+            f"{_anrede_html(name)}, über den folgenden Link kannst du ein neues Passwort vergeben.",
             f"Der Link gilt {RESET_HOURS} Stunden und lässt sich einmal verwenden.",
             "Hast du das nicht angefordert, ist nichts passiert — dein bisheriges Passwort gilt "
             "unverändert weiter.",
@@ -155,7 +165,7 @@ Stand ansehen: {url}/profile
     html = _rahmen(
         titel,
         [
-            f"{anrede}, {kern}",
+            f"{_anrede_html(name)}, {kern}",
             "Ein Wochenplan kostet etwa 6 Cent, eine Frage an den Coach rund "
             "1,5 Cent.",
             "Alles andere — Einheiten, Auswertung, Reflexionen und der "

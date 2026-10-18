@@ -87,7 +87,7 @@ def test_unmoegliche_werte_werden_gemeldet_nicht_geschrieben(db):
     Dann wird gemeldet statt geschrieben — sonst ersetzt eine falsche Zahl die
     andere und niemand sieht es.
     """
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     s = TrainingSession(
         user_id=nutzer.id, session_date=date(2026, 10, 1), discipline="bike",
         duration_min=240, normalized_power=300, week_number=1, tss=10.0,
@@ -107,7 +107,7 @@ def test_unmoegliche_werte_werden_gemeldet_nicht_geschrieben(db):
 
 
 def test_vorschau_schreibt_nichts(db):
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     s = TrainingSession(
         user_id=nutzer.id, session_date=date(2026, 10, 2), discipline="bike",
         duration_min=60, normalized_power=200, week_number=1, tss=1.0,

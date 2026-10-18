@@ -485,6 +485,26 @@ def lauf_rotation(formate: list[tuple], phase: str | None) -> list[str]:
     return zeilen
 
 
+# Was fürs Rad je Phase im Wechsel steht — dieselben Formate wie
+# `core.phasenregeln.PHASENREGELN[...]["rad"]`, in der Schreibweise, die der
+# Athlet im Plan liest.
+RAD_ROTATION = {
+    "Build": ("30/15", "4×8", "4–6×5"),
+    "Peak": ("4×8", "lange Schwelle (etwa 2×20)", "Wettkampftempo am Stück"),
+}
+
+
+def _rad_familie(kennung: str | None) -> str | None:
+    """„5x5", „6x5", „4x5" gehören zum selben Format „4–6×5"."""
+    if not kennung:
+        return None
+    if re.fullmatch(r"[456]x5", kennung):
+        return "4–6×5"
+    if kennung == "4x8":
+        return "4×8"
+    return kennung
+
+
 def rotation_block(db, bis, phase: str | None, wochen: int = 6,
                    user_id: int | None = None) -> str:
     """Die Formatreihe der Vorwochen als Rotationsanweisung.
@@ -521,7 +541,14 @@ def rotation_block(db, bis, phase: str | None, wochen: int = 6,
     rad = je_disziplin.get("bike", [])
     if rad:
         letztes = rad[-1]
-        andere = [f for f in ("30/15", "4x8", "5x5") if f != letztes]
+        # Nur Formate, die die Phase erlaubt (`PHASENREGELN[...]["rad"]`).
+        # Vorher stand hier eine feste Liste, und im Peak kam „30/15 oder 5x5"
+        # — zwei Formate, die der Peak gar nicht vorsieht. „5x5" hieß zudem
+        # anders als der Bibliothekseintrag „4–6×5".
+        familie = _rad_familie(letztes)
+        andere = [f for f in RAD_ROTATION.get(phase_family(phase), ()) if f != familie]
+        if not andere:
+            andere = list(RAD_ROTATION.get(phase_family(phase), ()))
         auswahl = (
             ", ".join(andere[:-1]) + " oder " + andere[-1]
             if len(andere) > 1 else andere[0]

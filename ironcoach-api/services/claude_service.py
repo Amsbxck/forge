@@ -12,6 +12,11 @@ client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 # prompt_templates.DETAILS_FORMAT. Wichtig ist nur, dass Rad-Einheiten ein
 # "blocks"-Array mit Watt/RPM/Dauer/Zone liefern, sonst rendert der
 # Wochenkalender im Frontend keine Blöcke.
+# Ausgabebudget eines ganzen Wochenplans. Gleich groß wie im Chat: Mit 4096
+# schnitt ein Plan mit Doppeltagen und ausgefüllten Blöcken ab, und es fehlten
+# Tage — der Chat hatte dafür schon 8192 und einen Kommentar, warum.
+PLAN_MAX_TOKENS = 8192
+
 DETAILS_SCHEMA = {
     "type": "object",
     "description": (
@@ -90,11 +95,11 @@ TARGETS_SCHEMA = {
         "watts_high": {"type": "integer", "description": "Obere Grenze des Ziel-Wattbands (Rad)"},
         "pace_low_s_per_km": {
             "type": "integer",
-            "description": "Schnellste Ziel-Pace in Sekunden/km (Lauf), z.B. 360 = 6:00/km",
+            "description": "Schnellste Ziel-Pace in Sekunden/km (Lauf): Minuten × 60 + Sekunden",
         },
         "pace_high_s_per_km": {
             "type": "integer",
-            "description": "Langsamste Ziel-Pace in Sekunden/km (Lauf), z.B. 410 = 6:50/km",
+            "description": "Langsamste Ziel-Pace in Sekunden/km (Lauf): Minuten × 60 + Sekunden",
         },
         # Bis Z7: Ohne die beiden schnellen Laufbereiche im Enum könnte das
         # Modell eine vVO2max- oder Steigerungsvorgabe gar nicht ausdrücken —
@@ -206,9 +211,6 @@ async def generate_weekly_plan(
     from datetime import date
     from core.prompt_templates import build_plan_prompt
 
-    if plan_start is None:
-        plan_start = date(2025, 12, 22)
-
     prompt = build_plan_prompt(
         athlete_profile=athlete_profile,
         sessions=last_sessions,
@@ -233,40 +235,61 @@ async def generate_weekly_plan(
 
     # Guthaben vor dem Aufruf prüfen, nicht danach: Nachträglich abzurechnen
     # hieße, dass jeder sein Guthaben beliebig überziehen kann.
-    from services.api_budget import ensure_budget, record
+    from services.api_budget import abrechnen, freigeben, reservieren
     from core.deps import resolve_user
     from database import SessionLocal
 
+    MODELL = settings.CLAUDE_MODEL
     abrechnung = SessionLocal()
     try:
         nutzer = resolve_user(abrechnung)
-        ensure_budget(abrechnung, nutzer)
+        reservierung = reservieren(abrechnung, nutzer, kind="plan", model=MODELL,
+                                   max_output=PLAN_MAX_TOKENS)
     finally:
         abrechnung.close()
 
-    MODELL = "claude-sonnet-4-6"
-    response = await client.messages.create(
-        model=MODELL,
-        max_tokens=4096,
-        system=(
-            "Du bist ein erfahrener Ausdauer-Coach und Sportwissenschaftler.\n"
-            f"Du betreust diesen Athleten seit Woche 1 seiner {total_weeks}-Wochen-Vorbereitung.\n"
-            f"Ziel: {athlete_profile.get('goal_label') or 'Wettkampf'} am "
-            f"{athlete_profile.get('race_date')}"
-            + (f", {athlete_profile['race_goal']}" if athlete_profile.get('race_goal') else "")
-            + ".\nVerwende immer das create_training_plan Tool für deine Antwort."
-        ),
-        tools=[PLAN_TOOL],
-        tool_choice={"type": "tool", "name": "create_training_plan"},
-        messages=[{"role": "user", "content": prompt}],
-    )
+    # Ziel und Zielzeit nur aus dem Saisonziel. Hier standen der Platzhalter-
+    # Renntag aus der Registrierung und die Zielzeit „sub 5:30h 70.3" — die
+    # eines anderen Athleten — für jeden, und „seit Woche 1 seiner
+    # N-Wochen-Vorbereitung" auch in Grundlage und Off Season.
+    renntag = athlete_profile.get("race_date")
+    if renntag:
+        ziel_satz = (
+            f"Ziel: {athlete_profile.get('race_name') or athlete_profile.get('goal_label') or 'Wettkampf'}"
+            f" am {renntag}"
+            + (f", Zielzeit {athlete_profile['goal_time']}" if athlete_profile.get("goal_time") else "")
+            + "."
+        )
+    else:
+        ziel_satz = "Es gibt derzeit kein Saisonziel."
+    try:
+        response = await client.messages.create(
+            model=MODELL,
+            max_tokens=PLAN_MAX_TOKENS,
+            system=(
+                "Du bist ein erfahrener Ausdauer-Coach und Sportwissenschaftler.\n"
+                "Du betreust diesen Athleten durch seine Saison.\n"
+                f"{ziel_satz}\n"
+                "Verwende immer das create_training_plan Tool für deine Antwort."
+            ),
+            tools=[PLAN_TOOL],
+            tool_choice={"type": "tool", "name": "create_training_plan"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception:
+        abrechnung = SessionLocal()
+        try:
+            freigeben(abrechnung, reservierung)
+        finally:
+            abrechnung.close()
+        raise
 
     # Nach dem Aufruf mit den tatsächlichen Token buchen — geschätzte Werte
     # würden am Monatsende von der Rechnung abweichen.
     abrechnung = SessionLocal()
     try:
-        record(
-            abrechnung, resolve_user(abrechnung), kind="plan", model=MODELL,
+        abrechnen(
+            abrechnung, resolve_user(abrechnung), reservierung, kind="plan", model=MODELL,
             input_tokens=getattr(response.usage, "input_tokens", 0),
             output_tokens=getattr(response.usage, "output_tokens", 0),
         )
@@ -277,9 +300,18 @@ async def generate_weekly_plan(
 
     for block in response.content:
         if block.type == "tool_use" and block.name == "create_training_plan":
+            inhalt = block.input or {}
+            # Abgeschnitten: lieber ein klarer Fehler als ein gespeicherter
+            # Plan, dem hinten Tage fehlen. Ein Plan ganz ohne Tage wird
+            # danach beim Projizieren sichtbar gemeldet (`plan_generator`).
+            if getattr(response, "stop_reason", None) == "max_tokens":
+                raise ValueError(
+                    "Der Plan kam unvollständig zurück (abgeschnitten oder ohne Tage). "
+                    "Bitte noch einmal erstellen."
+                )
             # Der Prompt reist mit, statt beim Aufrufer neu gebaut zu werden.
             # Unterstrich, weil er nicht Teil des Planinhalts ist.
-            return {**block.input, "_prompt": prompt}
+            return {**inhalt, "_prompt": prompt}
 
     raise ValueError("Claude hat kein gültiges Plan-Tool zurückgegeben")
 
@@ -409,7 +441,9 @@ async def chat_with_coach(
         """Leere Bausteine ganz weglassen statt als Überschrift ohne Inhalt."""
         return f"\n{text}\n" if text else ""
 
-    system = f"""Du bist der persönliche Triathlon-Coach von {name}.
+    sportart = {"running": "Lauf", "cycling": "Rad"}.get(
+        (current_week_context.get("sport") or "").lower(), "Triathlon")
+    system = f"""Du bist der persönliche {sportart}-Coach von {name}.
 
 **HEUTE: {today_str}**  ← Nutze immer dieses Datum als Referenz. "Gestern" = {(_date.fromordinal(today.toordinal() - 1)).isoformat()}.
 
@@ -467,7 +501,7 @@ Athletenkontext: {positions_text}, Phase: {current_week_context.get('phase', 'Ba
    noch keinen Plan gibt oder die Woche vollständig neu aufgebaut werden soll.
    Dann gilt STRIKT:
    - **Alle 7 Tage** (Montag bis Sonntag) mit `day`, `date` (YYYY-MM-DD) und `session_type`
-     (`rest|bike|run|swim|gym|brick`) — auch unveränderte Tage komplett wiederholen.
+     (`rest|bike|run|swim|gym|brick|other`) — auch unveränderte Tage komplett wiederholen.
    - **Ein Doppeltag sind zwei Einträge mit demselben `date`**, je Einheit einer. Die Liste
      hat dann acht oder neun Einträge für dieselben sieben Daten. Nie zwei Einheiten in
      einen Eintrag schreiben — die zweite wäre für die Auswertung nicht vorhanden.
@@ -488,35 +522,44 @@ Athletenkontext: {positions_text}, Phase: {current_week_context.get('phase', 'Ba
 
     messages = chat_history + [{"role": "user", "content": message}]
 
-    from services.api_budget import ensure_budget, record
+    from services.api_budget import abrechnen, freigeben, reservieren
     from core.deps import resolve_user
     from database import SessionLocal
 
+    MODELL = settings.CLAUDE_MODEL
     abrechnung = SessionLocal()
     try:
         nutzer = resolve_user(abrechnung)
-        ensure_budget(abrechnung, nutzer)
+        reservierung = reservieren(abrechnung, nutzer, kind="chat", model=MODELL,
+                                   max_output=PLAN_MAX_TOKENS)
     finally:
         abrechnung.close()
 
-    MODELL = "claude-sonnet-4-6"
-    response = await client.messages.create(
-        model=MODELL,
-        # Ein kompletter Wochenplan mit Blocks/Watts/Pace braucht deutlich mehr als
-        # eine reine Chat-Antwort — bei zu kleinem Budget bricht das tool_use mitten
-        # im JSON ab und "days" fehlt komplett.
-        max_tokens=8192,
-        system=system,
-        tools=[ADJUST_DAYS_TOOL, UPDATE_PLAN_TOOL],
-        messages=messages,
-    )
+    try:
+        response = await client.messages.create(
+            model=MODELL,
+            # Ein kompletter Wochenplan mit Blocks/Watts/Pace braucht deutlich mehr als
+            # eine reine Chat-Antwort — bei zu kleinem Budget bricht das tool_use mitten
+            # im JSON ab und "days" fehlt komplett.
+            max_tokens=PLAN_MAX_TOKENS,
+            system=system,
+            tools=[ADJUST_DAYS_TOOL, UPDATE_PLAN_TOOL],
+            messages=messages,
+        )
+    except Exception:
+        abrechnung = SessionLocal()
+        try:
+            freigeben(abrechnung, reservierung)
+        finally:
+            abrechnung.close()
+        raise
 
     # Nach dem Aufruf mit den tatsächlichen Token buchen — geschätzte Werte
     # würden am Monatsende von der Rechnung abweichen.
     abrechnung = SessionLocal()
     try:
-        record(
-            abrechnung, resolve_user(abrechnung), kind="chat", model=MODELL,
+        abrechnen(
+            abrechnung, resolve_user(abrechnung), reservierung, kind="chat", model=MODELL,
             input_tokens=getattr(response.usage, "input_tokens", 0),
             output_tokens=getattr(response.usage, "output_tokens", 0),
         )

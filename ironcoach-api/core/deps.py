@@ -136,17 +136,3 @@ def get_plan_anchor(db: Session, user: User | None = None):
 def total_weeks_for(anchor) -> int:
     """Gesamtdauer der Vorbereitung; ohne Ziel die bisherige 33-Wochen-Annahme."""
     return getattr(anchor, "total_weeks", None) or 33
-
-
-def scoped(query, model, user: User | None):
-    """Query auf den Nutzer einschränken.
-
-    Ohne Nutzer (Einzelplatzbetrieb vor der Migration) bleibt die Abfrage
-    unverändert — mit Nutzer werden zusätzlich Altdatensätze ohne
-    Zuordnung mitgenommen, damit nach dem Deploy nichts verschwindet.
-    """
-    if user is None:
-        return query
-    return query.filter(
-        (model.user_id == user.id) | (model.user_id.is_(None))
-    )

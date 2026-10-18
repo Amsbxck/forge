@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -13,17 +13,43 @@ router = APIRouter()
 
 @router.get("/history/sessions", response_model=list[TrainingSessionOut])
 def list_sessions(
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=2000),
+    offset: int = Query(default=0, ge=0),
+    von: date | None = None,
+    bis: date | None = None,
     week: int | None = None,
     include_deleted: bool = False,
+    ohne_streams: bool = False,
     db: Session = Depends(get_db),
 ):
+    """Einheiten, neueste zuerst — seitenweise oder für einen Zeitraum.
+
+    `ohne_streams` lässt die Zeitreihen weg — für Diagramme über ein ganzes
+    Jahr, die nur Datum, Dauer und TSS brauchen.
+
+    Vorher gab es nur die 50 neuesten. Verlauf und Monatsdiagramme endeten
+    still dort, und der lokale Ersatz der Formkurve begann mit null Fitness
+    bei der 50. Einheit. `offset` blättert, `von`/`bis` holen einen Zeitraum.
+    """
     q = db.query(TrainingSession)
     if not include_deleted:
         q = q.filter(TrainingSession.deleted_at == None)
     if week is not None:
         q = q.filter(TrainingSession.week_number == week)
-    return q.order_by(TrainingSession.session_date.desc()).limit(limit).all()
+    if von is not None:
+        q = q.filter(TrainingSession.session_date >= von)
+    if bis is not None:
+        q = q.filter(TrainingSession.session_date <= bis)
+    zeilen = (
+        q.order_by(TrainingSession.session_date.desc(), TrainingSession.id.desc())
+        .offset(offset).limit(limit).all()
+    )
+    if not ohne_streams:
+        return zeilen
+    return [
+        TrainingSessionOut.model_validate(z).model_copy(update={"streams": None})
+        for z in zeilen
+    ]
 
 
 @router.get("/history/sessions/{session_id}", response_model=TrainingSessionOut)
@@ -84,13 +110,12 @@ def soft_delete_session(session_id: int, db: Session = Depends(get_db)):
     die später absolvierte, richtige Einheit wurde nicht mehr zugeordnet, weil
     `matched_session_id` weiter auf die gelöschte zeigte.
     """
-    from services.planned_link import release_planned
+    from services.einheit_aenderung import weich_loeschen
 
     s = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Einheit nicht gefunden")
-    s.deleted_at = datetime.utcnow()
-    vorgabe = release_planned(db, s, commit=False)
+    vorgabe = weich_loeschen(db, s)
     db.commit()
     return {"message": "Einheit gelöscht (wiederherstellbar)", "vorgabe": vorgabe}
 
@@ -111,21 +136,15 @@ def hard_delete_session(session_id: int, db: Session = Depends(get_db)):
     dort noch etwas liegt — niemand sucht später eine Notiz, von der er glaubt,
     sie sei gelöscht.
     """
-    from services.obsidian.sync import delete_session_note
+    from services.einheit_aenderung import endgueltig_loeschen
 
     s = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Einheit nicht gefunden")
 
-    vault = delete_session_note(db, s)
-
-    from services.planned_link import release_planned
-    # Vor dem Löschen: Danach ist `planned_session_id` nicht mehr zu lesen.
-    # Der Fremdschlüssel setzt zwar `matched_session_id` auf NULL, aber
-    # `status` bliebe auf "completed" — der Tag wäre grün ohne alles.
-    vorgabe = release_planned(db, s, commit=False)
-
-    db.delete(s)
+    # Notiz, Vorgabe, Zeile — und ein Vermerk, damit der nächste
+    # Strava-Abgleich die Aktivität nicht wieder anlegt.
+    vault, vorgabe = endgueltig_loeschen(db, s)
     db.commit()
 
     meldung = "Einheit permanent gelöscht"
@@ -156,20 +175,14 @@ def set_commute(session_id: int, is_commute: bool, db: Session = Depends(get_db)
     Beides zieht eine Neuzuordnung nach sich: Beim Markieren wird die Vorgabe
     freigegeben (sonst bliebe der Tag grün), beim Aufheben neu gematcht.
     """
-    from services.classification import classify_session
-    from services.planned_link import release_planned
+    from services.einheit_aenderung import arbeitsweg_setzen
 
     s = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Einheit nicht gefunden")
 
-    s.is_commute = is_commute
-    if is_commute:
-        vorgabe = release_planned(db, s, commit=False)
-        db.commit()
-    else:
-        db.commit()
-        vorgabe = classify_session(db, s)
+    vorgabe = arbeitsweg_setzen(db, s, is_commute)
+    db.commit()
 
     return {
         "message": "Als Arbeitsweg markiert" if is_commute else "Markierung aufgehoben",
@@ -187,24 +200,33 @@ def restore_session(session_id: int, db: Session = Depends(get_db)):
     der Tag im Wochenplan bleibt grau. Neu zugeordnet statt gemerkt, weil sich
     der Plan zwischenzeitlich geändert haben kann.
     """
-    from services.classification import classify_session
+    from services.einheit_aenderung import wiederherstellen
 
     s = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
     if not s:
         raise HTTPException(status_code=404, detail="Einheit nicht gefunden")
-    s.deleted_at = None
+    zuordnung = wiederherstellen(db, s)
     db.commit()
-
-    try:
-        zuordnung = classify_session(db, s)
-    except Exception as e:  # pragma: no cover - Wiederherstellen darf nie scheitern
-        import logging
-        logging.getLogger(__name__).warning("Neuzuordnung nach Wiederherstellen fehlgeschlagen: %s", e)
-        zuordnung = None
 
     return {"message": "Einheit wiederhergestellt", "zuordnung": zuordnung}
 
 
 @router.get("/history/plans", response_model=list[WeeklyPlanOut])
 def list_plans(db: Session = Depends(get_db)):
-    return db.query(WeeklyPlan).order_by(WeeklyPlan.week_number.desc()).all()
+    """Je Kalenderwoche der aktive Plan, neueste Woche zuerst.
+
+    Vorher alle Fassungen, sortiert nach der Wochennummer — die wiederholt
+    sich mit jeder Saison, und „WEEK 5" verschiedener Jahre stand gemischt
+    untereinander, dazu jede verworfene Fassung derselben Woche.
+    """
+    from services.plan_selection import pick_plan
+
+    montage = [
+        row[0] for row in db.query(WeeklyPlan.week_start).distinct().all() if row[0]
+    ]
+    plaene = []
+    for montag in sorted(montage, reverse=True):
+        plan = pick_plan(db.query(WeeklyPlan).filter(WeeklyPlan.week_start == montag))
+        if plan is not None:
+            plaene.append(plan)
+    return plaene

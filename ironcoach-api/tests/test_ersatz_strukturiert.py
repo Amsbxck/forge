@@ -17,7 +17,7 @@ MONTAG = date(2026, 11, 2)
 
 @pytest.fixture
 def geplant(db):
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     plan = WeeklyPlan(user_id=nutzer.id, week_number=50, week_start=MONTAG,
                       week_end=MONTAG + timedelta(days=6), plan_phase="Build",
                       plan_content={"days": [1]})

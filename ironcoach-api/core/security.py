@@ -80,6 +80,39 @@ def decode_access_token(token: str) -> dict | None:
         return None
 
 
+def create_purpose_token(user_id: int, zweck: str, minuten: int = 10) -> str:
+    """Kurzlebiges Token für genau einen Zweck — kein Zugangstoken.
+
+    Für Stellen, an denen ein Token die eigene Anwendung verlässt, etwa als
+    `state` in einer OAuth-Freigabe. Dort stand bisher das volle Zugangstoken
+    mit vierzehn Tagen Laufzeit: Es landete im Browserverlauf, in den Logs
+    des Anbieters und im Zugriffsprotokoll — und wer die Adresse hatte, hatte
+    API-Zugriff. Dieses hier taugt zu nichts außer seinem Zweck und verfällt
+    nach Minuten.
+    """
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "zweck": zweck,
+        "nonce": secrets.token_urlsafe(12),
+        "iat": now,
+        "iat_ms": int(now.timestamp() * 1000),
+        "exp": now + timedelta(minutes=minuten),
+    }
+    return jwt.encode(payload, _secret(), algorithm=ALGORITHM)
+
+
+def purpose_token_payload(token: str | None, zweck: str) -> dict | None:
+    """Inhalt eines Zwecktokens — None, wenn ungültig, abgelaufen oder für
+    einen anderen Zweck ausgestellt. Ein Zugangstoken wird hier abgelehnt."""
+    if not token:
+        return None
+    payload = decode_access_token(token)
+    if not payload or payload.get("zweck") != zweck:
+        return None
+    return payload
+
+
 def user_id_from_token(token: str | None) -> int | None:
     if not token:
         return None

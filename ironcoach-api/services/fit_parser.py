@@ -57,6 +57,25 @@ def calculate_hr_zones(hr_data: list, zones: dict | None = None) -> dict | None:
     return {k: round(v / total * 100, 1) for k, v in counts.items()}
 
 
+def _lokales_datum(zeitpunkt) -> date:
+    """Kalendertag einer Aufzeichnung in der Zeitzone des Athleten.
+
+    FIT- und GPX-Zeitstempel sind UTC. Strava liefert dagegen
+    `start_date_local`. Eine Einheit um 0:30 Uhr stand per Datei am Vortag,
+    per Strava am richtigen Tag — und die Dublettenerkennung (gleicher Tag,
+    gleiche Sportart) fand die beiden nicht zusammen.
+    """
+    from zoneinfo import ZoneInfo
+
+    from core.config import settings
+
+    if getattr(zeitpunkt, "tzinfo", None) is None:
+        from datetime import timezone
+
+        zeitpunkt = zeitpunkt.replace(tzinfo=timezone.utc)
+    return zeitpunkt.astimezone(ZoneInfo(settings.ZEITZONE)).date()
+
+
 def sample_stream(data: list, interval: int = 10) -> list:
     """Samplet eine Zeitreihe auf jeden N-ten Wert (für Charts)."""
     return [data[i] for i in range(0, len(data), interval)]
@@ -128,6 +147,12 @@ def parse_fit_file(
                 discipline = "run"
             elif "swimming" in sport or "swim" in sport or "open_water" in sport:
                 discipline = "swim"
+            elif any(x in sport for x in ("training", "strength", "fitness_equipment")):
+                # Krafttraining heißt im FIT-Format „training" (mit
+                # `sub_sport: strength_training`). Strava bildet dasselbe auf
+                # „gym" ab; hier landete es bisher unter „other" — dieselbe
+                # Einheit zählte je nach Importweg nicht als Krafteinheit.
+                discipline = "gym"
             else:
                 # Unbekannte Sportart nicht stillschweigend als Rad verbuchen —
                 # genau so wurde eine Wanderung zur 68-Minuten-Radausfahrt.
@@ -135,7 +160,7 @@ def parse_fit_file(
                 discipline = "other"
         if "start_time" in data and data["start_time"]:
             try:
-                session_date = data["start_time"].date()
+                session_date = _lokales_datum(data["start_time"])
             except Exception:
                 pass
         if "total_distance" in data and data["total_distance"]:
@@ -187,11 +212,15 @@ def parse_fit_file(
     max_hr = max(hr_data) if hr_data else None
     avg_watts = round(sum(power_data) / len(power_data)) if power_data else None
     np = calculate_np(power_data) if power_data else None
-    if device_tss is not None:
-        # Gerät hat TSS bereits berechnet — diesen Wert verwenden
-        tss = device_tss
-    elif power_data:
+    if power_data and ftp:
+        # Aus dem Leistungsstrom gegen die FTP **der App**, wie beim
+        # Strava-Import. Vorher hatte der Gerätewert Vorrang — gerechnet gegen
+        # die FTP, die auf der Uhr eingestellt ist. Dieselbe Fahrt bekam je
+        # nach Importweg eine andere TSS, und die Formkurve mischte beides.
         tss = calculate_tss(power_data, ftp, duration_sec)
+    elif device_tss is not None:
+        # Ohne Leistung oder FTP bleibt der Gerätewert die beste Auskunft.
+        tss = device_tss
     elif avg_hr and duration_min and discipline != "rest":
         # Schwellenpuls aus dem Profil, sonst hilfsweise aus dem Maximalpuls
         # der Einheit. Vorher rechnete dieser Weg immer mit max × 0,88, der
@@ -236,13 +265,17 @@ def parse_fit_file(
         streams["hr"] = sample_stream(hr_data)
     if power_data:
         streams["watts"] = sample_stream(power_data)
-    if speed_data:
+    if speed_data and discipline != "swim":
+        # Geschwindigkeit immer — wie beim Strava-Import. Vorher bekam ein
+        # FIT-Lauf nur `pace`, und alles, was Abschnitte aus dem Tempo liest
+        # (`segments.py`: Splits, beste 20 Minuten für die Schwellenpace),
+        # sucht `speed`. Ein per Datei hochgeladener Testlauf lieferte deshalb
+        # keine Schwellenpace.
+        speed_kmh = [round(s * 3.6, 2) if s else 0.0 for s in speed_data]
+        streams["speed"] = sample_stream(speed_kmh)
         if discipline == "run":
-            pace_stream = [round(1000 / s / 60, 2) if s > 0 else None for s in speed_data]
+            pace_stream = [round(1000 / s / 60, 2) if s and s > 0 else None for s in speed_data]
             streams["pace"] = sample_stream(pace_stream)
-        elif discipline != "swim":
-            speed_kmh = [round(s * 3.6, 1) if s else None for s in speed_data]
-            streams["speed"] = sample_stream(speed_kmh)
     if discipline == "swim" and swim_num_lengths and swim_pool_length_m:
         pure_swim_sec = sum(swim_lap_times) if swim_lap_times else swim_active_time_sec
         streams["swim_info"] = {
@@ -286,7 +319,7 @@ def parse_gpx_file(file_path: str, hr_zone_bounds: dict | None = None) -> dict:
             prev_point = None
             for point in segment.points:
                 if point.time and not timestamps:
-                    session_date = point.time.date()
+                    session_date = _lokales_datum(point.time)
                 if point.time:
                     timestamps.append(point.time)
                 if prev_point:
@@ -304,14 +337,24 @@ def parse_gpx_file(file_path: str, hr_zone_bounds: dict | None = None) -> dict:
     if len(timestamps) >= 2:
         duration_sec = int((timestamps[-1] - timestamps[0]).total_seconds())
 
-    sport = "run"
+    # Ohne Typangabe nicht pauschal „Lauf": Eine Radtour ohne `type` erzeugte
+    # sonst Lauf-TSS und landete gegen einen geplanten Lauf. Dann entscheidet
+    # das Durchschnittstempo, grob und mit Absicht vorsichtig.
+    sport = None
     for track in gpx.tracks:
         if track.type:
             t = track.type.lower()
-            if "cycling" in t or "bike" in t:
+            if "cycling" in t or "bike" in t or "ride" in t:
                 sport = "bike"
             elif "swim" in t or "swimming" in t:
                 sport = "swim"
+            elif "hik" in t or "walk" in t:
+                sport = "hike"
+            elif "run" in t:
+                sport = "run"
+    if sport is None:
+        kmh = (total_distance_m / 1000) / (duration_sec / 3600) if duration_sec else 0
+        sport = "bike" if kmh >= 16 else "hike" if 0 < kmh < 6.5 else "run"
 
     return {
         "session_date": session_date,

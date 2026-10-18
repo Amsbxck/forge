@@ -378,8 +378,15 @@ def open_event(db: Session, user: User | None = None) -> HealthEvent | None:
 
 
 def recent_events(db: Session, user: User | None = None, days: int = LOOKBACK_DAYS) -> list[HealthEvent]:
+    # Nach dem **Ende** der Episode, nicht nach ihrem Beginn: Eine Krankheit
+    # von 35 Tagen, die gestern endete, begann vor dem Fenster und fiel damit
+    # heraus — genau die lange Krankheit bekam keinen Wiedereinstieg.
+    from sqlalchemy import func
+
     cutoff = date.today() - timedelta(days=days)
-    query = db.query(HealthEvent).filter(HealthEvent.start_date >= cutoff)
+    query = db.query(HealthEvent).filter(
+        func.coalesce(HealthEvent.end_date, date.today()) >= cutoff
+    )
     if user is not None:
         query = query.filter(HealthEvent.user_id == user.id)
     return query.order_by(HealthEvent.start_date.desc()).all()
@@ -588,22 +595,39 @@ def taper_adjustment(
         (end - start + 1 for name, start, end in phase_boundaries(total_weeks) if name == "Taper"),
         MIN_TAPER_WEEKS,
     )
+    # Nur, wenn das Rennen nah genug ist, dass die Ausfalltage in die letzten
+    # drei Wochen davor fallen können. Vorher galt das Fenster „21 Tage vor
+    # heute" ohne Blick auf den Renntag — eine Erkältung im Frühjahr setzte
+    # „TAPER ANGEPASST … vor dem Rennen" in Pläne, deren Rennen ein halbes
+    # Jahr entfernt lag.
+    if (race_date - today).days > standard * 7 + 21:
+        return {"taper_weeks": standard, "days_lost": 0, "lines": []}
+
     fenster_start = min(today, race_date) - timedelta(days=21)
     verloren = days_lost_in(db, fenster_start, min(today, race_date), user)
 
     if verloren == 0:
         return {"taper_weeks": standard, "days_lost": 0, "lines": []}
 
-    # Je angefangener Krankheitswoche eine Taper-Woche weniger, mindestens eine.
-    gekuerzt = max(MIN_TAPER_WEEKS, standard - (verloren + 6) // 7)
+    # Je angefangener Krankheitswoche eine Taper-Woche weniger. Die
+    # Wettkampfwoche selbst zählt in `standard` mit und bleibt immer — also
+    # höchstens bis auf eine Woche, die Rennwoche.
+    gekuerzt = max(1, standard - (verloren + 6) // 7)
     gekuerzt = min(gekuerzt, MAX_TAPER_WEEKS)
 
-    lines = [
-        f"TAPER ANGEPASST: {verloren} Ausfalltag{'e' if verloren != 1 else ''} in den letzten "
-        "drei Wochen vor dem Rennen. "
-        f"Diese Tage waren bereits Erholung. Taper deshalb auf {gekuerzt} statt {standard} "
-        "Woche(n) verkürzen."
-    ]
+    tage = f"{verloren} Ausfalltag{'e' if verloren != 1 else ''}"
+    if gekuerzt < standard:
+        lines = [
+            f"TAPER ANGEPASST: {tage} in den letzten drei Wochen vor dem Rennen. "
+            f"Diese Tage waren bereits Erholung. Taper deshalb auf {gekuerzt} statt "
+            f"{standard} Woche(n) verkürzen (die Wettkampfwoche mitgezählt)."
+        ]
+    else:
+        lines = [
+            f"TAPER BEACHTEN: {tage} in den letzten drei Wochen vor dem Rennen. "
+            "Diese Tage waren bereits Erholung — den Umfang im Taper deshalb nicht "
+            "zusätzlich senken."
+        ]
     if gekuerzt < standard:
         lines.append(
             "Statt weiterer Umfangsreduktion kurze Reize einplanen: 3–4 × 2 Minuten im "

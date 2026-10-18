@@ -70,7 +70,8 @@ def test_nur_beim_ersten_mal(client, db):
     quelle = pathlib.Path(__file__).parent.parent / "routers" / "strava_webhook.py"
     text = quelle.read_text()
     assert "if not hat_einheiten:" in text
-    assert "background_tasks.add_task(_historie_nachholen, user_id)" in text
+    # Seit der Bestätigung im Browser steht das in `strava_bestaetigen`.
+    assert "background_tasks.add_task(_historie_nachholen, user.id)" in text
 
 
 def test_die_hintergrundaufgabe_setzt_den_mandantenkontext():

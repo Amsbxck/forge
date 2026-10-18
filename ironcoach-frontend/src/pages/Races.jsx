@@ -12,6 +12,7 @@ import Modal from '../components/Modal'
 import BenchmarkGuide from '../components/BenchmarkGuide'
 import { daysUntil, formatTag } from '../utils/dates'
 import { DISCIPLINE_COLOR } from '../utils/colors'
+import { fehlerText } from '../utils/fehler'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
 const LABEL = 'text-[10px] font-mono tracking-widest text-[var(--text-secondary)]'
@@ -389,7 +390,7 @@ export default function Races() {
         priority: data?.priority === 'A' || goal ? 'B' : goalForm.priority,
       })
     } catch (err) {
-      setError(err.response?.data?.detail || 'Ziel konnte nicht gespeichert werden')
+      setError(fehlerText(err, 'Ziel konnte nicht gespeichert werden'))
     }
   }
 
@@ -408,7 +409,7 @@ export default function Races() {
       setRaceForm(LEERES_RENNEN)
       load()
     } catch (err) {
-      setError(err.response?.data?.detail || 'Rennen konnte nicht gespeichert werden')
+      setError(fehlerText(err, 'Rennen konnte nicht gespeichert werden'))
     }
   }
 
@@ -436,7 +437,7 @@ export default function Races() {
       const { data } = await deriveZones(true)
       setZones({ ...data, justApplied: true })
     } catch (err) {
-      setError(err.response?.data?.detail || 'Zonen konnten nicht übernommen werden')
+      setError(fehlerText(err, 'Zonen konnten nicht übernommen werden'))
     } finally { setBusy(null) }
   }
 
@@ -879,7 +880,7 @@ export default function Races() {
                 </p>
               ) : testTermin?.faellig_am ? (
                 <p className="text-[11px] font-mono mt-2 text-[var(--text-muted)]">
-                  Nächste Testwoche ab {testTermin.faellig_am}
+                  Nächste Testwoche ab {formatTag(testTermin.faellig_am)}
                   {testTermin.tage_bis_faellig != null && ` · in ${testTermin.tage_bis_faellig} Tagen`}
                 </p>
               ) : null}
@@ -1003,7 +1004,7 @@ export default function Races() {
                           setStufenFtp('')
                           await checkZones()
                         } catch (err) {
-                          setError(err.response?.data?.detail || 'FTP konnte nicht gespeichert werden')
+                          setError(fehlerText(err, 'FTP konnte nicht gespeichert werden'))
                         } finally { setBusy(null) }
                       }}
                       className="px-3 py-1.5 rounded-lg text-[11px] font-mono tracking-wide disabled:opacity-40"

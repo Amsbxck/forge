@@ -25,7 +25,7 @@ MONTAG = date.today() - timedelta(days=date.today().weekday())
 
 
 def _woche(db, phase, start=MONTAG):
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     plan = WeeklyPlan(user_id=nutzer.id, week_number=1, week_start=start,
                       week_end=start + timedelta(days=6), plan_phase=phase,
                       plan_content={"days": []}, plan_text="")
@@ -35,7 +35,7 @@ def _woche(db, phase, start=MONTAG):
 
 def _test_einheit(db, plan, watt=278):
     """Ein sauberer 20-Minuten-Test: gleichmässig, Puls an der Schwelle."""
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     geplant = PlannedSession(user_id=nutzer.id, plan_id=plan.id, week_number=1,
                              planned_date=plan.week_start, discipline="bike",
                              training_type="threshold", duration_min=75)
@@ -57,7 +57,7 @@ def sauber(db):
     for modell in (TrainingSession, PlannedSession, WeeklyPlan):
         db.query(modell).delete()
     db.commit()
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     # Vorher merken und danach zurücksetzen: Das Profil ist eine gemeinsame
     # Vorrichtung. Ohne das Zurücksetzen scheiterte test_upload, das die
     # Vorgabewerte erwartet — je nach Reihenfolge der Tests.
@@ -68,7 +68,7 @@ def sauber(db):
     yield
     for modell in (TrainingSession, PlannedSession, WeeklyPlan):
         db.query(modell).delete()
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     profil.ftp_watts, profil.ftp_source, profil.threshold_hr = vorher
     db.commit()
 
@@ -98,7 +98,7 @@ def test_in_der_testwoche_wird_geschrieben(db):
     ergebnis = derive_zones(db, days=21, apply=True)
     assert "ftp_watts" in (ergebnis.get("applied") or []), ergebnis
 
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     assert profil.ftp_watts == round(278 * benchmark.FTP_FACTOR)
     assert profil.ftp_source == "benchmark"
 
@@ -119,7 +119,7 @@ def test_ausserhalb_der_testwoche_nur_ein_hinweis(db):
     assert "nur in einer Testwoche" in ergebnis["ftp_hinweis"]
     assert ergebnis["ftp_vorschlag"] == round(278 * benchmark.FTP_FACTOR)
 
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     assert profil.ftp_watts == 264, "unangetastet"
 
 
@@ -127,7 +127,7 @@ def test_die_pruefsteine_gelten_auch_in_der_testwoche(db):
     """Eine Grundlagenausfahrt bleibt eine Grundlagenausfahrt, auch in der
     Testwoche — genau das war Amirs Fall."""
     plan = _woche(db, BENCHMARK_PHASE)
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     geplant = PlannedSession(user_id=nutzer.id, plan_id=plan.id, week_number=1,
                              planned_date=plan.week_start, discipline="bike",
                              training_type="z2_endurance", duration_min=327)
@@ -147,7 +147,7 @@ def test_die_pruefsteine_gelten_auch_in_der_testwoche(db):
     assert "ftp_vorschlag" not in ergebnis
     assert "327 Minuten" in ergebnis["ftp_hinweis"]
 
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     assert profil.ftp_watts == 264
 
 

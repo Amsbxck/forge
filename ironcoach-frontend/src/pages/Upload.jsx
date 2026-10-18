@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { useNavigate } from 'react-router-dom'
 import { uploadFile } from '../services/api'
+import { fehlerText } from '../utils/fehler'
 
 const LABEL = 'text-xs font-mono tracking-widest text-[var(--text-secondary)]'
 
@@ -50,7 +51,7 @@ export default function Upload() {
       setStatus({ ok: true, data: resp.data })
       setTimeout(() => navigate('/'), 2000)
     } catch (e) {
-      const detail = e.response?.data?.detail || 'Upload failed'
+      const detail = fehlerText(e, 'Upload failed')
       setStatus({ ok: false, error: detail })
     } finally {
       setUploading(false)

@@ -6,7 +6,6 @@ Modul 1 stellt nur Lesen + Backfill bereit. Das Verschieben per Drag & Drop
 
 from datetime import date
 
-from core.wochen import kalenderwoche
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -20,7 +19,7 @@ from schemas import (
     PlannedSwapIn,
 )
 from services.plan_projection import backfill_all, planned_sessions_available, project_plan
-from services.plan_selection import active_plan_for_week, current_week_number
+from services.plan_selection import active_plan_for_week, plan_der_woche
 
 from services.obsidian.notes import DISCIPLINE_LABEL
 
@@ -60,19 +59,18 @@ def planned_for_monday(montag: date, db: Session = Depends(get_db)):
     nicht von der laufenden zu unterscheiden.
     """
     _require_table(db)
-    start, _ = kalenderwoche(montag)
-    plan = (
-        db.query(WeeklyPlan)
-        .filter(WeeklyPlan.week_start == start)
-        .order_by(WeeklyPlan.generated_at.desc())
-        .first()
-    )
+    # Dieselbe Auswahl wie `/plan/am` — vorher hier der neueste Plan ohne die
+    # Regel „mit Tagen", und Karte und Kalender zeigten verschiedene Pläne.
+    return _einheiten(db, plan_der_woche(db, montag))
+
+
+def _einheiten(db: Session, plan: WeeklyPlan | None) -> list[PlannedSession]:
     if plan is None:
         return []
     return (
         db.query(PlannedSession)
         .filter(PlannedSession.plan_id == plan.id)
-        .order_by(PlannedSession.planned_date.asc())
+        .order_by(PlannedSession.planned_date.asc(), PlannedSession.day_index.asc())
         .all()
     )
 
@@ -86,21 +84,15 @@ def planned_for_week(week_number: int, db: Session = Depends(get_db)):
     Einheiten aller Pläne — bei doppelt generierten Wochen also 14 statt 7.
     """
     _require_table(db)
-    plan = active_plan_for_week(db, week_number)
-    if plan is None:
-        return []
-    return (
-        db.query(PlannedSession)
-        .filter(PlannedSession.plan_id == plan.id)
-        .order_by(PlannedSession.planned_date.asc(), PlannedSession.day_index.asc())
-        .all()
-    )
+    return _einheiten(db, active_plan_for_week(db, week_number))
 
 
 @router.get("/planned/current", response_model=list[PlannedSessionOut])
 def planned_current(db: Session = Depends(get_db)):
+    # Über das Datum wie `/plan/current` — vorher über die Wochennummer, und
+    # nach einem Zielwechsel meinte die eine andere Kalenderwoche.
     _require_table(db)
-    return planned_for_week(current_week_number(db), db)
+    return _einheiten(db, plan_der_woche(db))
 
 
 @router.patch("/planned/{session_id}", response_model=PlannedSessionOut)

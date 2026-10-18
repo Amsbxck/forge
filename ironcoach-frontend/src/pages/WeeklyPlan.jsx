@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  getCurrentPlan, generatePlan, adjustPlanDays, getPlannedCurrent,
+  generatePlan, adjustPlanDays,
   getPlanByMonday, getPlannedByMonday, cancelPlan,
-  getWeekMetrics,
+  getWeekMetrics, getNeuplanung,
 } from '../services/api'
+import { fehlerText } from '../utils/fehler'
 import WeekCalendar from '../components/WeekCalendar'
 import PlanExport from '../components/PlanExport'
 import HealthStatus from '../components/HealthStatus'
@@ -100,11 +101,22 @@ export default function WeeklyPlan() {
   const [notFound, setNotFound] = useState(false)
   const [hinweis, setHinweis] = useState(null)
 
+  // Die Woche, die gerade angezeigt wird — als Ref, damit verspätete
+  // Antworten und Zeitgeber wissen, ob sie noch gemeint sind. Vorher lud ein
+  // Nachladen nach 30 Sekunden die Woche, die beim Auslösen angezeigt war,
+  // auch wenn längst weitergeblättert wurde.
+  const versatzRef = useRef(versatz)
+  useEffect(() => { versatzRef.current = versatz }, [versatz])
+
   const loadPlanned = useCallback(async (offset) => {
+    // Ohne Angabe die angezeigte Woche. Der Kalender ruft das nach einem
+    // Tausch ohne Argument auf — vorher wurde dann die aktuelle Woche
+    // geladen, und unter der Kachel der nächsten Woche standen die Einheiten
+    // dieser.
+    const woche = offset ?? versatzRef.current
     try {
-      const resp = offset === 0
-        ? await getPlannedCurrent()
-        : await getPlannedByMonday(montagMitVersatz(offset))
+      const resp = await getPlannedByMonday(montagMitVersatz(woche))
+      if (woche !== versatzRef.current) return
       setPlanned(resp.data?.length ? resp.data : null)
     } catch (e) {
       // 503 = Projektion noch nicht migriert. Kein Fehler für den Nutzer,
@@ -118,20 +130,22 @@ export default function WeeklyPlan() {
     setError(null)
     setNotFound(false)
     try {
-      const resp = offset === 0
-        ? await getCurrentPlan()
-        : await getPlanByMonday(montagMitVersatz(offset))
+      // Immer über den Montag — dieselbe Auswahl wie der Kalender, und nur
+      // diese Antwort sagt auch, ob die Woche stornierbar ist.
+      const resp = await getPlanByMonday(montagMitVersatz(offset))
+      if (offset !== versatzRef.current) return
       setPlan(resp.data)
       // Die erste Antwort definiert, welche Woche "aktuell" ist.
       setCurrentWeek(prev => (prev == null && offset === 0 ? resp.data.week_number : prev))
       await loadPlanned(offset)
     } catch (e) {
+      if (offset !== versatzRef.current) return
       if (e.response?.status === 404) {
         setPlan(null)
         setPlanned(null)
         setNotFound(true)
       } else {
-        setError('Failed to load plan')
+        setError(fehlerText(e, 'Plan konnte nicht geladen werden.'))
       }
     } finally {
       setLoading(false)
@@ -160,7 +174,7 @@ export default function WeeklyPlan() {
         setHinweis({ ok: false, text: data.hinweis || 'Es wurde nichts geändert.' })
       }
     } catch (e) {
-      setError(e.response?.data?.detail || 'Anpassung fehlgeschlagen')
+      setError(fehlerText(e, 'Anpassung fehlgeschlagen'))
     } finally {
       setGenerating(false)
     }
@@ -181,7 +195,7 @@ export default function WeeklyPlan() {
       // als wäre der alte Plan verschwunden.
       await loadPlanned(versatz)
     } catch (e) {
-      setError(e.response?.data?.detail || 'Generation failed')
+      setError(fehlerText(e, 'Plan konnte nicht erstellt werden.'))
     } finally {
       setGenerating(false)
     }
@@ -201,14 +215,33 @@ export default function WeeklyPlan() {
     return () => document.removeEventListener('keydown', taste)
   }, [storno])
 
-  // Nur laufende und künftige Wochen, und die laufende nur, solange darin
-  // nichts erledigt ist — dieselben Grenzen wie am Server
-  // (`services/plan_storno.py`). Der Server prüft ohnehin; hier geht es
-  // darum, keinen Knopf anzubieten, der nur eine Absage erzeugt.
-  const erledigt = (planned || []).filter(
-    r => r.matched_session_id || ['completed', 'replaced'].includes(r.status)
-  ).length
-  const stornierbar = !!plan && versatz >= 0 && erledigt === 0
+  // Ob storniert werden kann, sagt der Server (`plan.stornierbar`, nach
+  // `services/plan_storno.py`). Vorher rechnete die Seite selbst — mit einer
+  // anderen Regel: Eine künftige Woche mit einer ersetzten Einheit galt hier
+  // als gesperrt, am Server nicht, und ohne geladene Einheiten erschien der
+  // Knopf auch dort, wo der Server ablehnte.
+  const stornierbar = !!plan && plan.stornierbar !== false && versatz >= 0
+  const stornoGrund = plan?.stornierbar === false ? plan.storno_grund : null
+
+  const neuplanungVerfolgen = useCallback(async () => {
+    setHinweis({ ok: true, text: 'Der Plan wird an die Meldung angepasst …' })
+    for (let i = 0; i < 40; i++) {
+      await new Promise(r => setTimeout(r, 5000))
+      try {
+        const { data } = await getNeuplanung()
+        if (data.status === 'fertig') {
+          setHinweis({ ok: true, text: `Der Plan für die Woche ab ${data.montag} ist angepasst.` })
+          load(versatzRef.current)
+          return
+        }
+        if (data.status === 'fehlgeschlagen' || data.status === 'unbekannt') {
+          setHinweis({ ok: false, text: data.detail || 'Der Plan wurde nicht angepasst.' })
+          return
+        }
+      } catch { /* weiter versuchen */ }
+    }
+    setHinweis({ ok: false, text: 'Die Anpassung dauert ungewöhnlich lange — sieh gleich noch einmal nach.' })
+  }, [load])
 
   const stornieren = async () => {
     setStorno('laeuft')
@@ -220,7 +253,7 @@ export default function WeeklyPlan() {
       await load(versatz)
     } catch (e) {
       setStorno(null)
-      setError(e.response?.data?.detail || 'Stornieren fehlgeschlagen')
+      setError(fehlerText(e, 'Stornieren fehlgeschlagen'))
     }
   }
 
@@ -435,12 +468,13 @@ export default function WeeklyPlan() {
 
       {/* Gesundheit steht über dem Plan: wer krank ist, muss zuerst wissen,
           ob der Plan darunter überhaupt noch gilt. */}
-      <HealthStatus variant="bar" onChanged={() => {
-        load(versatz)
-        // Die Neuplanung läuft im Hintergrund und braucht etwa eine halbe
-        // Minute — deshalb ein zweiter Blick, sonst steht hier noch der
-        // alte Plan und man hält die Anpassung für ausgefallen.
-        setTimeout(() => load(versatz), 30000)
+      <HealthStatus variant="bar" onChanged={(antwort) => {
+        load(versatzRef.current)
+        // Die Neuplanung läuft im Hintergrund. Statt nach fester Zeit einmal
+        // nachzusehen, wird ihr Stand abgefragt — und gesagt, wenn sie nicht
+        // geklappt hat. Vorher kam die Meldung „Plan wird angepasst" auch
+        // dann, wenn das Guthaben aufgebraucht war.
+        if (antwort?.plan_wird_angepasst) neuplanungVerfolgen()
       }} />
 
       {hinweis && (
@@ -476,12 +510,12 @@ export default function WeeklyPlan() {
             className="text-2xl font-black text-[var(--text-muted)] mb-2"
             style={{ fontFamily: 'Barlow Condensed, sans-serif' }}
           >
-            {notFound && !isCurrent ? 'KEIN PLAN FÜR DIESE WOCHE' : 'NO PLAN YET'}
+            {notFound && !isCurrent ? 'KEIN PLAN FÜR DIESE WOCHE' : 'NOCH KEIN PLAN'}
           </div>
           <p className="text-sm font-mono text-[var(--text-muted)]">
             {notFound && !isCurrent
               ? 'Für diese Woche wurde noch kein Plan erstellt.'
-              : 'Click Generate Plan to create your weekly training schedule.'}
+              : 'Mit „Plan erstellen“ entsteht der Wochenplan für diese Woche.'}
           </p>
         </div>
       )}
@@ -520,7 +554,7 @@ export default function WeeklyPlan() {
                   </div>
                 </div>
                 <div>
-                  <div className={`${LABEL} mb-0.5`}>PERIOD</div>
+                  <div className={`${LABEL} mb-0.5`}>ZEITRAUM</div>
                   <div className="text-sm font-mono text-[var(--text-secondary)]">
                     {plan.week_start} – {plan.week_end}
                   </div>
@@ -533,8 +567,7 @@ export default function WeeklyPlan() {
                   <button
                     onClick={() => setStorno('frage')}
                     disabled={!stornierbar}
-                    title={stornierbar ? 'Plan dieser Woche stornieren'
-                      : `In dieser Woche ${erledigt === 1 ? 'ist' : 'sind'} schon ${erledigt} ${erledigt === 1 ? 'Einheit' : 'Einheiten'} erledigt — einzelne Tage über „Tage anpassen" ändern`}
+                    title={stornierbar ? 'Plan dieser Woche stornieren' : (stornoGrund || '')}
                     className="ml-auto self-start text-[10px] font-mono tracking-widest px-2 py-1 rounded transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                     style={{ color: stornierbar ? '#ef4444cc' : 'var(--text-muted)', border: `1px solid ${stornierbar ? '#ef444455' : '#1e2228'}` }}
                   >
@@ -546,10 +579,9 @@ export default function WeeklyPlan() {
               {/* Der Grund als Text, nicht nur als Tooltip — auf dem Telefon
                   gibt es keinen Tooltip, und ein grauer Knopf ohne Erklärung
                   sieht nach einem Fehler aus. */}
-              {versatz >= 0 && storno === null && !stornierbar && erledigt > 0 && (
+              {versatz >= 0 && storno === null && !stornierbar && stornoGrund && (
                 <p className="-mt-1 mb-3 text-[11px] font-mono text-[var(--text-muted)] leading-relaxed">
-                  Stornieren geht nicht mehr: {erledigt === 1 ? 'eine Einheit ist' : `${erledigt} Einheiten sind`} schon
-                  erledigt. Einzelne Tage änderst du über „Tage anpassen".
+                  Stornieren geht nicht: {stornoGrund}
                 </p>
               )}
 
@@ -611,7 +643,7 @@ export default function WeeklyPlan() {
           </div>
 
           {/* Calendar */}
-          <WeekCalendar days={calendarDays} onPersisted={loadPlanned} />
+          <WeekCalendar days={calendarDays} onPersisted={() => loadPlanned(versatzRef.current)} />
 
           {/* Was sich der Athlet wünschen kann — direkt unter der Woche, weil
               die Entscheidung dort fällt. Ein Klick übernimmt den Wunsch nach

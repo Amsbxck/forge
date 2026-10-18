@@ -76,7 +76,9 @@ SCHWIMM_ZONEN = [
     ("Z2 Grundlage", 6, 10),
     ("Z3 Tempo", 3, 5),
     ("Z4 Schwelle (CSS)", 0, 2),
-    ("Z5 schneller als CSS", -4, -1),
+    # Nach schnell offen: Hier stand −4 als Grenze, und für alles darüber
+    # gab es keine Zone. `None` heißt offen, wie bei Z1 nach langsam.
+    ("Z5 schneller als CSS", None, -1),
 ]
 
 # Rad: Anteile der FTP, nach Coggan.
@@ -97,6 +99,9 @@ RAD_ZONEN = [
     ("Z3 Tempo", 0.76, 0.94),
     ("Z4 Schwelle", 0.95, 1.05),
     ("Z5 VO2max", 1.06, 1.20),
+    # Über 120 % gab es keine Zone, obwohl die 30/15-Intervalle im
+    # Raddokument bei 121–150 % liegen — `session_quality` steckte sie in Z5.
+    ("Z6 anaerob", 1.21, 1.50),
 ]
 
 # Das obere Ende von Z3, benannt statt als eigene Zone geführt.
@@ -139,11 +144,32 @@ def schwimm_zonen(css_s_per_100m: float | None) -> list[dict]:
         aus.append({
             "name": name,
             "text": (
-                f"langsamer als {mmss(c + unten)}/100m"
-                if oben is None
+                f"langsamer als {mmss(c + unten)}/100m" if oben is None
+                else f"schneller als {mmss(c + oben)}/100m" if unten is None
                 else f"{mmss(c + unten)}–{mmss(c + oben)}/100m"
             ),
         })
+    return aus
+
+
+def _rad_watt(ftp: int) -> list[tuple[str, str]]:
+    """Wattbereiche je Zone — lückenlos und an den Einstufungsgrenzen.
+
+    Vorher schnitt `int()` beide Enden ab: Bei 250 W FTP stand ≤135, 137–187,
+    190–235, 237–262 — 136, 188, 189 und 236 W gehörten zu keiner Zone. Jetzt
+    beginnt jede Zone bei der ersten ganzen Wattzahl, die die Einstufung
+    (`classification`: „unter der nächsten Grenze") ihr zuordnet, und endet
+    eins darunter, wo die nächste beginnt.
+    """
+    import math
+
+    aus = []
+    for i, (name, unten, oben) in enumerate(RAD_ZONEN):
+        von = math.ceil(ftp * unten)
+        bis = (math.ceil(ftp * RAD_ZONEN[i + 1][1]) - 1
+               if i + 1 < len(RAD_ZONEN) else math.floor(ftp * oben))
+        wert = f"≤ {bis}" if unten == 0 else f"{von}–{bis}"
+        aus.append((name, wert))
     return aus
 
 
@@ -151,8 +177,8 @@ def rad_zonen(ftp: int | None) -> list[dict]:
     if not ftp:
         return []
     return [
-        {"name": name, "text": f"{int(ftp * unten)}–{int(ftp * oben)} W"}
-        for name, unten, oben in RAD_ZONEN
+        {"name": name, "text": f"{wert.replace('≤ ', '0–')} W"}
+        for name, wert in _rad_watt(ftp)
     ]
 
 
@@ -197,11 +223,7 @@ def anzeige(profile) -> dict:
 
     rad = []
     if ftp:
-        for name, unten, oben in RAD_ZONEN:
-            wert = (
-                f"≤ {int(ftp * oben)}" if unten == 0
-                else f"{int(ftp * unten)}–{int(ftp * oben)}"
-            )
+        for name, wert in _rad_watt(ftp):
             rad.append(_zeile(name, wert))
 
     schwimm = []
@@ -209,6 +231,7 @@ def anzeige(profile) -> dict:
         for name, unten, oben in SCHWIMM_ZONEN:
             wert = (
                 f"> {mmss(css + unten)}" if oben is None
+                else f"< {mmss(css + oben)}" if unten is None
                 else f"{mmss(css + unten)}–{mmss(css + oben)}"
             )
             schwimm.append(_zeile(name, wert))

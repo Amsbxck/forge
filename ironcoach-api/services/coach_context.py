@@ -46,7 +46,11 @@ def athlet(db: Session, user=None) -> dict:
     anker = goal or profile
     total_weeks = total_weeks_for(anker) if anker else 33
     woche = get_current_week(anker) if anker else 1
-    renntag = getattr(goal, "race_date", None) or getattr(profile, "race_date", None)
+    # Renntag und Bezeichnung nur aus dem Saisonziel. Ohne Ziel stand hier der
+    # Platzhalter-Renntag aus der Registrierung und als „Ziel" die Zielzeit
+    # eines anderen Athleten („sub 5:30h 70.3") — direkt neben „kein laufendes
+    # Saisonziel".
+    renntag = getattr(goal, "race_date", None)
     plan_start = getattr(goal, "plan_start_date", None) or (
         profile.plan_start_date if profile else None)
     lage = (
@@ -73,10 +77,11 @@ def athlet(db: Session, user=None) -> dict:
         "base_period": grundlage,
         "season_state": lage,
         "race_date": renntag,
-        "race_label": getattr(goal, "label", None) or (profile.race_goal if profile else None),
+        "race_label": getattr(goal, "label", None),
         "race_name": getattr(goal, "race_name", None),
         "goal_time": getattr(goal, "goal_time", None),
         "offseason": offseason,
+        "sport": getattr(goal, "sport", None),
         "ftp": profile.ftp_watts if profile else None,
     }
 

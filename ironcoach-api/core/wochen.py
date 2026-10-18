@@ -2,8 +2,10 @@
 
 Eine Trainingswoche hat in dieser Anwendung zwei Namen: die Planwoche
 ("Woche 12 von 33") und die Kalenderwoche (Montag bis Sonntag). Die
-Planwoche ist eine Beschriftung — sie wird über `max(1, …)` gebildet und
-fällt vor dem Beginn des Aufbaus für jedes Datum auf 1 zusammen.
+Planwoche ist eine Beschriftung — relativ zum Anker (Saisonziel oder
+Profil). Früher fiel sie über `max(1, …)` vor dem Aufbau für jedes Datum auf
+1 zusammen; heute zählt sie vorzeichenbehaftet, verschiebt sich aber mit
+jedem Zielwechsel und jeder neuen Saison.
 
 Zum Auswählen taugt sie deshalb nicht. Alles, was "diese Woche" meint,
 rechnet mit dem Datumsbereich hier.

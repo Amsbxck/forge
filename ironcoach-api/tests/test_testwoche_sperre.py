@@ -29,7 +29,7 @@ def ohne_altlasten(db):
 
 def _rennen(db, tag):
     from models import AthleteProfile
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     db.add(RaceResult(user_id=profil.user_id, race_date=tag,
                       sport="triathlon", distance="middle", race_name="Test"))
     db.commit()

@@ -62,8 +62,13 @@ def fenster(ziel) -> tuple[date, date]:
     ende = ziel.race_date
     beginn = ziel.plan_start_date
     if beginn is None:
+        # Dieselbe Rechnung wie beim Anlegen (`plan_start_for`): ab dem
+        # Montag der Rennwoche. Hier stand `ende − Wochen`, nicht auf einen
+        # Montag gezogen und eine Woche früher als der echte Planstart.
+        from core.race_types import plan_start_for
+
         wochen = getattr(ziel, "total_weeks", None) or 33
-        beginn = ende - timedelta(weeks=wochen)
+        beginn = plan_start_for(ende, wochen)
     return beginn, ende
 
 

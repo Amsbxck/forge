@@ -63,6 +63,9 @@ def build_athlete_dict(profile: AthleteProfile, goal=None) -> dict:
         "goal_time": getattr(goal, "goal_time", None),
         "race_name": getattr(goal, "race_name", None),
         "total_weeks": getattr(goal, "total_weeks", 33) if goal is not None else 33,
+        # Die Sportart entscheidet, welche Disziplinen der Prompt überhaupt
+        # enthält — ein Läufer bekommt keine Schwimm- und Koppelregeln.
+        "sport": getattr(goal, "sport", None),
         "ftp_watts": profile.ftp_watts,
         "max_hr": profile.max_hr,
         "z1_hr_max": profile.z1_hr_max,
@@ -72,8 +75,10 @@ def build_athlete_dict(profile: AthleteProfile, goal=None) -> dict:
         "z3_hr_max": profile.z3_hr_max,
         "z4_hr_min": profile.z4_hr_min,
         "z4_hr_max": profile.z4_hr_max,
-        "race_date": str(profile.race_date),
-        "race_goal": profile.race_goal,
+        # Renntag nur aus dem Saisonziel. Im Profil steht der Platzhalter aus
+        # der Registrierung (heute + 180) und als Zielzeit die Vorgabe eines
+        # anderen Athleten — beides ging bisher in jeden Prompt.
+        "race_date": str(goal.race_date) if goal is not None and goal.race_date else None,
         # Schwimmwerte, damit der Coach sie im Plan nennen kann. Er plant den
         # Inhalt der Schwimmeinheit nicht — der kommt aus einem externen
         # Trainingsplan —, aber ohne CSS und Schwellenpuls im Prompt konnte er
@@ -138,7 +143,9 @@ async def generate_and_save_plan(
 
     cutoff = date.today() - timedelta(days=14)
     sessions = db.query(TrainingSession).filter(
-        TrainingSession.session_date >= cutoff
+        TrainingSession.session_date >= cutoff,
+        # Gelöschte nicht — der Chat filtert sie längst, der Plan sah sie noch.
+        TrainingSession.deleted_at.is_(None),
     ).order_by(TrainingSession.session_date.desc()).all()
 
     hrv_cutoff = date.today() - timedelta(days=7)
@@ -194,7 +201,12 @@ async def generate_and_save_plan(
         else season_state(ziel_datum, today=week_start, plan_start=plan_start)
     )
     ist_offseason = goal is None or lage == "off_season"
-    offseason_block = offseason_block_for(db, ziel_datum) if ist_offseason else ""
+    # Für die **geplante** Woche, nicht für heute: Wer am Sonntag die Woche
+    # nach dem Rennen plant, steht heute noch davor. Die Off-Season-Logik
+    # selbst bleibt unverändert; sie nimmt den Bezugstag schon an.
+    offseason_block = (
+        offseason_block_for(db, ziel_datum, today=week_start) if ist_offseason else ""
+    )
 
     # Grundlagenphase: Das Ziel steht, der Aufbau beginnt aber erst später.
     # Der Baustein ersetzt die Phasenvorgabe, wie es der Off-Season-Block
@@ -207,6 +219,7 @@ async def generate_and_save_plan(
         plan_start,
         race_label=getattr(goal, "race_name", None) or getattr(goal, "label", None),
         race_date=ziel_datum,
+        heute=week_start,
     ) if ist_grundlage else ""
 
     # Wettkämpfe unterwegs. Die Wochendaten kommen weiter unten aus
@@ -235,7 +248,15 @@ async def generate_and_save_plan(
     # nichts.
     from core.race_types import phase_for_week
     from services.week_shape import prompt_block as wochenform_block_for
-    _phase = phase_for_week(current_week, total_weeks)
+    # In Off Season und Grundlage gibt es keine Aufbauphase — die Nummer aus
+    # dem Anker hätte sonst etwa „Build 1" ergeben und damit Wochenform,
+    # Formatrotation (mit %FTP-Formaten) und Bericht gegen Aufbauregeln
+    # gestellt.
+    _phase = (
+        "Off Season" if ist_offseason
+        else "Grundlage" if ist_grundlage
+        else phase_for_week(current_week, total_weeks)
+    )
     wochenform_block = wochenform_block_for(
         db, _ws, _phase, user_id=profile.user_id,
     )
@@ -298,8 +319,8 @@ async def generate_and_save_plan(
         # In der Off Season steht die Phase fest; sie vom Modell zu übernehmen
         # hieße, dass sie mal "Off Season" und mal "Base 1" heißt.
         plan_phase=(
-            f"Off Season · {offseason_phase(ziel_datum)}" if ist_offseason
-            else base_phase(plan_start) if ist_grundlage
+            f"Off Season · {offseason_phase(ziel_datum, today=week_start)}" if ist_offseason
+            else base_phase(plan_start, heute=week_start) if ist_grundlage
             else plan_content.get("phase")
         ),
         plan_content=plan_content,
@@ -317,7 +338,14 @@ async def generate_and_save_plan(
     # Normalisierte Projektion für Drag&Drop und Ist/Soll-Abgleich.
     # Schlägt still fehl, solange Migration 005 nicht gelaufen ist.
     from services.plan_projection import project_plan
-    project_plan(db, db_plan)
+    if not project_plan(db, db_plan):
+        # Vorher still: der Plan war gespeichert, der Kalender blieb leer.
+        # Jetzt steht es dort, wo der Athlet die Hinweise zum Plan liest.
+        logger.error("Plan %s nicht projiziert", db_plan.id)
+        db_plan.adjustments_applied = (db_plan.adjustments_applied or []) + [
+            "Kalender nicht aktualisiert — bitte die Woche neu laden oder neu erstellen"
+        ]
+        db.commit()
 
     # Zwift-Namen nachtragen, wo die geplante Struktur eindeutig zu einem
     # Katalog-Workout passt. Bewusst hier und nicht in `project_plan`: die

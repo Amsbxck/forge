@@ -84,9 +84,10 @@ def test_vvo2max_und_steigerungen_bei_4_46():
 def test_rad_grenze_z3_z4_nach_coggan():
     """Die alte Kopie hatte 90/91 % — vier Punkte zu tief."""
     zeilen = {z["label"]: z["wert"] for z in anzeige(PROFIL)["rad"]}
-    # 264 × 0,94 = 248, 264 × 0,95 = 250
-    assert zeilen["Z3"] == "200–248"
-    assert zeilen["Z4"] == "250–277"
+    # 264 × 0,95 = 250,8: 250 W ist noch Z3 (Einstufung: „unter 0,95"),
+    # 251 W die erste Schwellenwattzahl. Lückenlos statt 248 / 250.
+    assert zeilen["Z3"] == "201–250"
+    assert zeilen["Z4"] == "251–279"
 
 
 def test_rad_kommt_aus_derselben_tabelle_wie_der_prompt():

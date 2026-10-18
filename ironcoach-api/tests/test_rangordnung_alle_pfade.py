@@ -76,9 +76,14 @@ def test_die_zahlen_der_phase_stehen_drin():
     assert "1 Qualitätseinheit" in grundlage
     assert "2 Krafteinheiten" in grundlage
 
+    # Zwei auch im Aufbau: einmal Oberkörper, einmal Unterkörper und Rumpf,
+    # wie im Kraftdokument (vorher stand hier eine).
     aufbau = vorrang_block("Build 1")
     assert "2 Qualitätseinheiten" in aufbau
-    assert "1 Krafteinheit" in aufbau
+    assert "2 Krafteinheiten" in aufbau
+
+    peak = vorrang_block("Peak")
+    assert "1 Krafteinheit" in peak
 
 
 def test_der_doppeltag_steht_nur_wo_die_phase_ihn_erlaubt():
@@ -155,7 +160,7 @@ def plan_mit_tagen(db):
     """Ein Plan mit sieben projizierten Tagen, Phase einstellbar."""
     from models import PlannedSession, User, WeeklyPlan
 
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     angelegt = []
     montag = date(2026, 4, 6)
 

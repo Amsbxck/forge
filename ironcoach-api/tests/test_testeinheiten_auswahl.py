@@ -30,7 +30,7 @@ def leer(db):
 
 
 def _plan(db, phase):
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     montag = date.today() - timedelta(days=3)
     p = WeeklyPlan(user_id=profil.user_id, week_number=1, week_start=montag,
                    week_end=montag + timedelta(days=6), plan_phase=phase,
@@ -40,7 +40,7 @@ def _plan(db, phase):
 
 
 def _einheit(db, plan=None, disziplin="run"):
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     geplant = None
     if plan is not None:
         geplant = PlannedSession(

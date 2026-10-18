@@ -76,10 +76,13 @@ def _zone_watt(watt: float, ftp: int | None) -> str | None:
     if not ftp or not watt:
         return None
     anteil = watt / ftp
-    for name, _unten, oben in RAD_ZONEN:
-        if anteil <= oben:
+    # Über die Untergrenze der **nächsten** Zone, wie `classification`
+    # („unter 0,95 ist noch Sweet Spot"). Über die eigene Obergrenze
+    # gerechnet fiel 0,945 in Z4, während die Einstufung Z3 sagte.
+    for (name, _unten, _oben), (_n, naechste_unten, _o) in zip(RAD_ZONEN, RAD_ZONEN[1:]):
+        if anteil < naechste_unten:
             return name.split()[0]
-    return "Z5"
+    return RAD_ZONEN[-1][0].split()[0]
 
 
 def _zone_pace(sekunden_pro_km: float, schwelle: int | None) -> str | None:
@@ -110,20 +113,34 @@ def bewerte(ist: TrainingSession, soll: PlannedSession, profile) -> dict | None:
     groesse = None
     zone_soll = zone_ist = None
 
+    # Der Hauptteil, wie in der Abweichungsnotiz (`classification`): Gegen
+    # ein Intervallziel gehört der Schnitt der Intervalle, nicht der ganzen
+    # Einheit mit Ein- und Ausfahren. Vorher urteilten beide verschieden —
+    # die Notiz „im Band", das Urteil hier „verfehlt".
+    haupt = None
+    try:
+        from services.segments import structure_from_laps, structure_from_power
+
+        haupt = (structure_from_laps(ist) or {}).get("main")
+        if not haupt and soll.target_watts_low and ist.discipline in ("bike", "brick"):
+            haupt = (structure_from_power(ist, soll.target_watts_low * 0.95) or {}).get("main")
+    except Exception:  # pragma: no cover - ohne Struktur gilt der Gesamtschnitt
+        haupt = None
+
     # --- Rad: gegen das obere Ende des Wattbands ---
-    if soll.target_watts_high and (ist.normalized_power or ist.avg_watts):
-        # Normalisierte Leistung bevorzugt: Der reine Schnitt zieht durch
-        # Rollphasen nach unten und ließe eine getroffene Einheit zu niedrig
-        # aussehen.
-        leistung = ist.normalized_power or ist.avg_watts
+    if soll.target_watts_high and ((haupt or {}).get("avg_watts") or ist.normalized_power or ist.avg_watts):
+        # Hauptteil zuerst, sonst normalisierte Leistung: Der reine Schnitt
+        # zieht durch Rollphasen nach unten und ließe eine getroffene Einheit
+        # zu niedrig aussehen.
+        leistung = (haupt or {}).get("avg_watts") or ist.normalized_power or ist.avg_watts
         abweichung = (leistung - soll.target_watts_high) / soll.target_watts_high
         groesse = "watt"
         zone_soll = _zone_watt(soll.target_watts_high, ftp)
         zone_ist = _zone_watt(leistung, ftp)
 
     # --- Lauf: gegen das schnelle Ende des Pacebands ---
-    elif soll.target_pace_low_s_per_km and ist.avg_pace_min_km:
-        ist_s = ist.avg_pace_min_km * 60
+    elif soll.target_pace_low_s_per_km and ((haupt or {}).get("pace_s_per_km") or ist.avg_pace_min_km):
+        ist_s = (haupt or {}).get("pace_s_per_km") or ist.avg_pace_min_km * 60
         ziel = soll.target_pace_low_s_per_km
         # Schneller heißt kleinere Sekundenzahl — Vorzeichen drehen, damit
         # „positiv = besser" über alle Größen hinweg dasselbe bedeutet.
@@ -277,7 +294,7 @@ def prompt_block(db: Session, beginn: date, heute: date | None = None,
             # Die eigene Notiz direkt darunter: Die Zahl sagt, dass etwas
             # abwich, die Reflexion sagt warum. Getrennt gelesen führt beides
             # in die Irre.
-            zeilen.append(f'    Reflexion: „{t["reflexion"][:220]}"')
+            zeilen.append(f'    Reflexion: „{t["reflexion"][:220]}“')
 
     spitzen = sum(1 for t in treffer if t["urteil"] == "spitzeneinheit")
     verfehlt = sum(1 for t in treffer if t["urteil"] == "verfehlt")

@@ -222,7 +222,7 @@ def test_keine_laufrotation_in_der_grundlage(db):
 def laufwochen(db):
     from models import PlannedSession, User, WeeklyPlan
 
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     angelegt = []
 
     def einheit(tag: date, typ: str, struktur: str):

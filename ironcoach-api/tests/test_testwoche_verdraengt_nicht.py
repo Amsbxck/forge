@@ -37,7 +37,7 @@ def aufbau_beginnt_spaeter(db):
     verweigert die Anlage zu Recht, und der Test prüfte dann etwas anderes,
     als sein Name behauptet.
     """
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     vorher = profil.zones_updated_at
     profil.plan_start_date = date.today() + timedelta(days=90)
     profil.zones_updated_at = None
@@ -48,7 +48,7 @@ def aufbau_beginnt_spaeter(db):
 
 
 def _plan(db, montag, nummer, phase):
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     p = WeeklyPlan(
         user_id=profil.user_id, week_number=nummer,
         week_start=montag, week_end=montag + timedelta(days=6),

@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     # Preise in Dollar je Million Token, getrennt nach Ein- und Ausgabe.
     # Als Text konfigurierbar, damit eine Preisänderung keine Codeänderung
     # verlangt: "modell:eingabe:ausgabe,modell:eingabe:ausgabe".
+    # Das Modell für Plan, Chat und Tagesanpassung — eine Stelle statt drei
+    # fest verdrahteter Zeichenketten. Der Preis dazu steht in MODEL_PRICES.
+    CLAUDE_MODEL: str = "claude-sonnet-4-6"
+    # Die Zeitzone der Athleten — für Kalendertage aus UTC-Zeitstempeln
+    # (FIT, GPX). Der Container selbst läuft ebenfalls darauf (TZ im Dockerfile).
+    ZEITZONE: str = "Europe/Berlin"
     MODEL_PRICES: str = "claude-sonnet-4-6:3.0:15.0"
     MODEL_PRICE_FALLBACK: str = "3.0:15.0"
     USD_TO_EUR: float = 0.92
@@ -39,9 +45,17 @@ class Settings(BaseSettings):
     OBSIDIAN_PROXY: str = ""
 
     # Öffentliche Adresse dieser Installation — die Adresse, unter der die
-    # App erreichbar ist, nicht die eines einzelnen Athleten. Nur für den
-    # Strava-Webhook nötig; leer bedeutet lokaler Betrieb.
+    # App erreichbar ist, nicht die eines einzelnen Athleten. Leer bedeutet
+    # lokaler Betrieb. Altes Sammelfeld: Es wurde für Frontend und API
+    # zugleich benutzt, was nur stimmt, wenn beide unter einer Adresse liegen.
+    # Getrennt geht es über FRONTEND_URL und API_BASE_URL.
     PUBLIC_BASE_URL: str = ""
+
+    # Adresse der **API** von außen — Basis der Strava-Webhook-Adresse
+    # (`<API_BASE_URL>/webhook`). Leer heißt: PUBLIC_BASE_URL. Stand dort, wie
+    # DEPLOYMENT.md es früher empfahl, die Frontend-Adresse bei Vercel, lief
+    # die Webhook-Registrierung gegen eine Seite, die `index.html` ausliefert.
+    API_BASE_URL: str = ""
 
     # Adresse, unter der der Athlet die App im Browser hat. Getrennt von
     # PUBLIC_BASE_URL, weil die beiden auseinanderfallen können: Der
@@ -79,6 +93,10 @@ class Settings(BaseSettings):
     # --- Anmeldung ---
     # Ohne gesetztes Geheimnis gelten Tokens nur bis zum nächsten Neustart.
     JWT_SECRET: str = ""
+    # Schlüssel für Geheimnisse in der Datenbank (Obsidian-Schlüssel). Leer:
+    # aus JWT_SECRET abgeleitet. Eigener Wert, wenn JWT_SECRET einmal
+    # gewechselt werden soll, ohne dass alle Obsidian-Verbindungen verfallen.
+    DATA_ENCRYPTION_KEY: str = ""
     # Woher das Frontend kommen darf, kommagetrennt. Lokal reicht die
     # Vorgabe; nach dem Deploy muss die Adresse des Frontends hier stehen,
     # sonst blockiert der Browser jede Anfrage — und zwar stumm, mit einer
@@ -88,6 +106,9 @@ class Settings(BaseSettings):
     # Ausschalten nur für lokale Entwicklung: dann fällt jede Anfrage auf den
     # ersten Nutzer zurück, wie vor der Anmeldung.
     AUTH_REQUIRED: bool = True
+    # Wer bei einer frischen Installation Admin wird (bei der Registrierung
+    # mit genau dieser Adresse). Leer: niemand — dann bleibt nur das Skript.
+    ADMIN_EMAIL: str = ""
 
     # --- Reconciliation ---
     # Standardmäßig aus: der Job schreibt in die DB und ruft Strava auf.

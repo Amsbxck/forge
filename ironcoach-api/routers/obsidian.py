@@ -81,13 +81,17 @@ def sync_all_plans(db: Session = Depends(get_db)):
     from core.saison import saison_ziele
     from models import WeeklyPlan
     from services.obsidian.plan_note import sync_plan_note
-    from services.plan_selection import active_plan_for_week
+    from services.plan_selection import plan_der_woche
 
     ziele = saison_ziele(db)
-    weeks = [row[0] for row in db.query(WeeklyPlan.week_number).distinct().all()]
+    # Über die Kalenderwochen, nicht die Nummern: Die Nummer wiederholt sich
+    # mit jeder Saison, und ältere Saisons wurden so nie synchronisiert.
+    montage = [
+        row[0] for row in db.query(WeeklyPlan.week_start).distinct().all() if row[0]
+    ]
     results = []
-    for week in sorted(weeks):
-        plan = active_plan_for_week(db, week)
+    for montag in sorted(montage):
+        plan = plan_der_woche(db, montag)
         if plan is not None:
             results.append(sync_plan_note(db, plan, ziele=ziele))
     counts: dict[str, int] = {}

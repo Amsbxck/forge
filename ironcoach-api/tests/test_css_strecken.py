@@ -133,14 +133,14 @@ def test_endpunkt_lehnt_fremde_paare_ab(client):
 def test_endpunkt_speichert_die_strecken(client, db):
     from models import AthleteProfile
 
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     vorher = (profil.css_pace_s_per_100m, profil.css_dist_lang_m, profil.css_dist_kurz_m)
     try:
         antwort = client.post("/api/profile/swim-test",
                               json={"t400_s": 155, "t200_s": 73, "d_lang_m": 200, "d_kurz_m": 100})
         assert antwort.status_code == 200
         db.expire_all()
-        profil = db.query(AthleteProfile).first()
+        profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
         assert profil.css_pace_s_per_100m == 82.0
         assert (profil.css_dist_lang_m, profil.css_dist_kurz_m) == (200, 100)
     finally:
@@ -178,7 +178,7 @@ def test_grenzen_des_gueltigkeitsbereichs(t_lang, t_kurz, mit_vorbehalt):
 def test_endpunkt_meldet_den_vorbehalt_mit(client, db):
     from models import AthleteProfile
 
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     vorher = (profil.css_pace_s_per_100m, profil.css_dist_lang_m, profil.css_dist_kurz_m)
     try:
         # Schneller Schwimmer über 100/50 — zu kurz.

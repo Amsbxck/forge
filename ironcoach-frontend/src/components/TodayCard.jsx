@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getPlannedByMonday, getPlannedCurrent } from '../services/api'
+import { getPlannedByMonday } from '../services/api'
 import { disciplineColor, disciplineLabel } from '../utils/colors'
 import { isoTag, montagMitVersatz } from '../utils/dates'
 
@@ -44,17 +44,24 @@ function targets(session) {
  */
 export default function TodayCard({ onOpenPlan }) {
   const [rows, setRows] = useState(null)
+  // Ob für diese Woche überhaupt ein Plan existiert. Ohne die Unterscheidung
+  // stand „Für diese Woche liegt kein Plan vor" auch dann da, wenn nur der
+  // heutige Tag leer war — mit einem Knopf, der den Plan neu erstellt hätte.
+  const [wochePlan, setWochePlan] = useState(false)
 
   useEffect(() => {
     // Diese **und** die kommende Woche laden. "Morgen" ist am Sonntag der
     // Montag der nächsten Woche und lag deshalb gar nicht in den Daten — die
     // Zeile blieb an genau dem Tag leer, an dem man am ehesten vorausschaut.
     Promise.all([
-      getPlannedCurrent().then(r => r.data || []).catch(() => []),
+      getPlannedByMonday(montagMitVersatz(0)).then(r => r.data || []).catch(() => []),
       getPlannedByMonday(montagMitVersatz(1)).then(r => r.data || []).catch(() => []),
     ])
       // 404/503 heißt: kein Plan für die Woche. Kein Fehler, nur nichts zu zeigen.
-      .then(([diese, naechste]) => setRows([...diese, ...naechste]))
+      .then(([diese, naechste]) => {
+        setWochePlan(diese.length > 0)
+        setRows([...diese, ...naechste])
+      })
       .catch(() => setRows([]))
   }, [])
 
@@ -93,7 +100,7 @@ export default function TodayCard({ onOpenPlan }) {
 
       <div className="relative z-10">
         <div className="flex items-baseline justify-between gap-3 mb-3">
-          <span className={LABEL}>TODAY · {wochentag.toUpperCase()}</span>
+          <span className={LABEL}>HEUTE · {wochentag.toUpperCase()}</span>
           <button
             onClick={onOpenPlan}
             className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[#00d4ff] transition-colors"
@@ -111,10 +118,12 @@ export default function TodayCard({ onOpenPlan }) {
               <div className="text-xs font-mono text-[var(--text-muted)] mt-2">
                 {istRuhetag
                   ? 'Erholung ist Teil des Plans — kein Training heute.'
-                  : 'Für diese Woche liegt kein Plan vor.'}
+                  : wochePlan
+                    ? 'Der Wochenplan sieht für heute nichts vor.'
+                    : 'Für diese Woche liegt kein Plan vor.'}
               </div>
             </div>
-            {!istRuhetag && (
+            {!istRuhetag && !wochePlan && (
               <button
                 onClick={onOpenPlan}
                 className="px-4 py-2 rounded-lg text-[11px] font-mono font-bold tracking-wide flex-shrink-0"
@@ -133,7 +142,7 @@ export default function TodayCard({ onOpenPlan }) {
                 <div key={s.id} className="flex items-start gap-4 flex-wrap">
                   <div className="flex items-baseline gap-3 min-w-0">
                     <span className="text-2xl font-black tracking-tight" style={{ ...DISPLAY, color: farbe }}>
-                      {disciplineLabel(s.discipline, s.sport_type).toUpperCase()}
+                      {disciplineLabel(s.discipline).toUpperCase()}
                     </span>
                     {s.duration_min && (
                       <span className="text-lg font-mono tabular-nums text-[#e8eaf0]">
@@ -178,7 +187,7 @@ export default function TodayCard({ onOpenPlan }) {
               return (
                 <span key={s.id} className="flex items-baseline gap-1.5">
                   <span className="text-xs font-mono" style={{ color: farbe }}>
-                    {disciplineLabel(s.discipline, s.sport_type)}
+                    {disciplineLabel(s.discipline)}
                     {s.duration_min ? ` ${s.duration_min}min` : ''}
                   </span>
                   {s.intensity && (

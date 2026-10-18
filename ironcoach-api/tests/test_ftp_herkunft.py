@@ -82,7 +82,7 @@ def test_aus_einer_rampe_wird_keine_ftp_abgeleitet(client, db):
         db.query(modell).delete()
     db.commit()
 
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     montag = date.today() - timedelta(days=3)
     plan = WeeklyPlan(user_id=profil.user_id, week_number=1, week_start=montag,
                       week_end=montag + timedelta(days=6), plan_phase=BENCHMARK_PHASE,
@@ -112,12 +112,12 @@ def test_aus_einer_rampe_wird_keine_ftp_abgeleitet(client, db):
 def test_von_hand_eingetragene_ftp_wird_als_solche_gefuehrt(client, db):
     from models import AthleteProfile
 
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     vorher, quelle_vorher = profil.ftp_watts, profil.ftp_source
     try:
         client.patch("/api/profile", json={"ftp_watts": 264})
         db.expire_all()
-        profil = db.query(AthleteProfile).first()
+        profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
         assert profil.ftp_watts == 264
         assert profil.ftp_source == "manual"
     finally:

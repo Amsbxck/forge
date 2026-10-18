@@ -77,12 +77,15 @@ const EINTRAEGE = [
   {
     term: 'CSS', full: 'Critical Swim Speed', gruppe: 'Leistungswerte', color: BLUE,
     desc: 'Deine Schwellenpace im Wasser, je 100 m. Beide Teststrecken enthalten dieselbe Startreserve — die Differenz lässt den rein aeroben Anteil übrig.',
-    formula: 'CSS = (Zeit 400 m − Zeit 200 m) ÷ 2',
-    notes: ['Test: 400 m und 200 m je maximal, dazwischen 5 min locker.'],
+    formula: 'CSS = (Zeit lang − Zeit kurz) ÷ (Strecke lang − Strecke kurz) × 100',
+    notes: [
+      'Test: 400 m und 200 m je maximal, dazwischen 5 min locker — dann ist es (Zeit 400 − Zeit 200) ÷ 2.',
+      'Ebenso möglich: 200/100 m oder 100/50 m, wenn 400 m nicht gehen. Die App rechnet mit den Strecken, die du angibst.',
+    ],
   },
   {
     term: 'VO₂max', full: 'Maximale Sauerstoffaufnahme', gruppe: 'Leistungswerte', color: ORANGE,
-    desc: 'Die obere Grenze deines Ausdauersystems. Als Trainingsstufe: kurze, sehr harte Intervalle in Zone 5.',
+    desc: 'Die obere Grenze deines Ausdauersystems. Als Trainingsstufe: harte Intervalle von drei bis acht Minuten — auf dem Rad in Zone 5, beim Laufen bei rund 95 % von vVO2max (ebenfalls Zone 5). Zone 6 ist beim Laufen vVO2max selbst und nur für kurze Wiederholungen.',
   },
 
   // ── Herzfrequenz ──────────────────────────────────────────────────────
@@ -103,7 +106,7 @@ const EINTRAEGE = [
   },
   {
     term: 'Schwellenpuls', full: 'Threshold HR / LTHR', gruppe: 'Herzfrequenz', color: '#eab308',
-    desc: 'Der Puls an der Schwelle. Bezugsgröße, wenn die TSS über den Puls geschätzt wird — in dieser App die Obergrenze von Zone 2 aus deinem Profil.',
+    desc: 'Der Puls an der Schwelle — gemessen im Laufschwellentest oder von der Uhr übernommen. Bezugsgröße, wenn die TSS über den Puls geschätzt wird. Fehlt er, nimmt die App ersatzweise die Obergrenze von Zone 2; die liegt tiefer und lässt Einheiten belastender aussehen.',
   },
   {
     term: 'rMSSD', full: 'Herzratenvariabilität', gruppe: 'Herzfrequenz', color: GREEN,

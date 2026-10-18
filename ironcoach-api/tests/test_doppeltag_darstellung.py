@@ -175,7 +175,7 @@ def test_der_ganze_weg_vom_plan_bis_zur_zaehlung(db):
     from services.plan_projection import project_plan
     from services.week_shape import grundbasis
 
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     montag = date(2026, 5, 4)  # ein Montag
     tage = []
     for i in range(7):

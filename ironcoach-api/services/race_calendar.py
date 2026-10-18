@@ -43,8 +43,10 @@ PRIORITY_HINT = {
     "C": "Wird als harte Einheit mitgenommen. Keine Entlastung davor.",
 }
 
-# Wie viele Tage vor dem Rennen die Last zurückgenommen wird.
-B_ENTLASTUNG_TAGE = 4
+# Wie viele ruhige Tage vor einem B-Rennen. Dieselbe Zahl in der Erkennung
+# („liegt die Entlastung in dieser Woche?") und im Text — vorher stand hier 4,
+# während der Prompt „die 3 Tage davor" und „drei ruhige Tage" sagte.
+B_ENTLASTUNG_TAGE = 3
 # Wie weit voraus ein Rennen im Prompt überhaupt erwähnt wird.
 VORLAUF_TAGE = 21
 
@@ -82,9 +84,12 @@ def _erholung_tage(rennen: RaceGoal) -> int:
     bei kurzen Distanzen mindestens einer, gedeckelt bei fünf — darüber
     hinaus schadet die Pause mehr, als der Wettkampf gekostet hat.
     """
+    # Auch die Radformate: Sie fehlten, und eine Langstrecke über 200 km
+    # bekam den Vorgabewert von zwei Tagen.
     stunden = {
         "sprint": 1, "olympic": 3, "middle": 6, "full": 12,
         "10k": 1, "half_marathon": 2, "marathon": 4,
+        "time_trial": 1, "gran_fondo": 4, "ultra": 8,
     }.get((rennen.distance or "").lower(), 2)
     return max(1, min(5, round(stunden)))
 
@@ -121,7 +126,7 @@ def week_block(
             zeilen.append(
                 f"WETTKAMPF IN DIESER WOCHE: {label} am {deutsch}, {r.race_date} (B-Rennen). "
                 f"Der Wettkampf ersetzt die harte Einheit der Woche — plane keine zweite "
-                f"Belastungseinheit. Die {_tage(3)} davor: Umfang etwa halbieren, am Vortag "
+                f"Belastungseinheit. Die {_tage(B_ENTLASTUNG_TAGE)} davor: Umfang etwa halbieren, am Vortag "
                 f"nur 20–30 Minuten locker mit 3 × 1 Minute im Renntempo. Danach "
                 f"{_tage(erholung)} ausschließlich Z1/Z2, keine Intervalle."
             )
@@ -135,7 +140,7 @@ def week_block(
             zeilen.append(
                 f"In der kommenden Woche steht {label} an ({r.race_date}, B-Rennen). "
                 "Die letzten harten Einheiten dieser Woche früh legen, damit vor dem "
-                "Wettkampf drei ruhige Tage bleiben."
+                f"Wettkampf {_tage(B_ENTLASTUNG_TAGE)} ruhig bleiben."
             )
         elif danach and (week_start - r.race_date).days <= _erholung_tage(r):
             zeilen.append(
@@ -175,13 +180,11 @@ def week_block(
     # als einzige von beidem.
     nachzuegler = [r for r in rennen if r.race_date >= week_start]
     if nachzuegler:
-        ziel = (
-            db.query(RaceGoal)
-            .filter(RaceGoal.priority == "A", RaceGoal.is_active == True)  # noqa: E712
-        )
-        if user is not None:
-            ziel = ziel.filter(RaceGoal.user_id == user.id)
-        ziel = ziel.first()
+        # Dieselbe Abfrage wie überall — hier stand eine Kopie ohne
+        # Sortierung, die bei zwei aktiven Zielen ein beliebiges lieferte.
+        from core.deps import get_active_goal
+
+        ziel = get_active_goal(db, user)
 
         if ziel is not None and ziel.race_date < week_start:
             naechstes = nachzuegler[0]

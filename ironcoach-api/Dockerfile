@@ -2,8 +2,15 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y gcc libpq-dev curl ca-certificates \
+RUN apt-get update && apt-get install -y gcc libpq-dev curl ca-certificates tzdata \
     && rm -rf /var/lib/apt/lists/*
+
+# Die Zeitzone der Athleten. Ohne sie lief der Server in UTC, und zwischen
+# Mitternacht und zwei Uhr (im Winter eins) galt dort noch der Vortag: Montags
+# zeigte „diese Woche" die vergangene, eine dann gebuchte Testwoche begann in
+# der laufenden Woche, und eine Krankmeldung „ab heute" lag in der Zukunft.
+# `date.today()` steht an rund 75 Stellen — die Zeitzone hier richtet sie alle.
+ENV TZ=Europe/Berlin
 
 # Tailscale, damit der Server die Obsidian-Instanzen der Athleten erreicht.
 # Die laufen auf deren eigenen Rechnern im Heimnetz — ohne privates Netz gibt

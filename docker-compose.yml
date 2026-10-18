@@ -35,6 +35,19 @@ services:
       OBSIDIAN_API_KEY: ${OBSIDIAN_API_KEY:-}
       OBSIDIAN_VAULT_SUBDIR: ${OBSIDIAN_VAULT_SUBDIR:-Training}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      # Frontend (Links in Mails, Rückleitung nach Strava) und API (Webhook)
+      # getrennt — siehe DEPLOYMENT.md.
+      FRONTEND_URL: ${FRONTEND_URL:-}
+      API_BASE_URL: ${API_BASE_URL:-}
+      TZ: ${TZ:-Europe/Berlin}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      API_BUDGET_EUR: ${API_BUDGET_EUR:-5.0}
+      API_BUDGET_ENFORCED: ${API_BUDGET_ENFORCED:-true}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-sonnet-4-6}
+      MODEL_PRICES: ${MODEL_PRICES:-claude-sonnet-4-6:3.0:15.0}
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-}
+      MAIL_PROVIDER: ${MAIL_PROVIDER:-}
+      MAIL_API_KEY: ${MAIL_API_KEY:-}
       MAIL_HOST: ${MAIL_HOST:-}
       MAIL_PORT: ${MAIL_PORT:-587}
       MAIL_USER: ${MAIL_USER:-}

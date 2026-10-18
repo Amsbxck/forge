@@ -25,7 +25,7 @@ def leere_plaene(db):
 
 
 def _plan(db, montag, nummer, phase):
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     p = WeeklyPlan(
         user_id=profil.user_id, week_number=nummer,
         week_start=montag, week_end=montag + timedelta(days=6),

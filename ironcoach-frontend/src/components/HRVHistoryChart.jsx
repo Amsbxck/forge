@@ -38,14 +38,21 @@ const RANGE_OPTIONS = [
  *  und man sähe die Bewegung einer Spanne, die es nirgends gibt.
  */
 function computeBaseline(data, regeln) {
-  const { minMessungen = 14, maxMessungen = 30, sigma = 0.5 } = regeln || {}
+  const { minMessungen = 14, maxMessungen = 30, sigma = 0.5, fensterTage = 180 } = regeln || {}
   return data.map((point, i) => {
     const trendFenster = data.slice(Math.max(0, i - 6), i + 1)
     const mean = trendFenster.reduce((a, b) => a + b.rmssd, 0) / trendFenster.length
 
     // Alles bis zu diesem Punkt, höchstens die jüngsten `maxMessungen` —
     // genau das, was das Backend an diesem Tag gesehen hätte.
-    const bandFenster = data.slice(Math.max(0, i + 1 - maxMessungen), i + 1)
+    // Dazu das Zeitfenster des Backends (180 Tage): Ohne es zählten hier
+    // Messungen mit, die das Backend längst nicht mehr sah.
+    const grenze = new Date(point.measured_at)
+    grenze.setDate(grenze.getDate() - fensterTage)
+    const bandFenster = data
+      .slice(0, i + 1)
+      .filter(d => new Date(d.measured_at) >= grenze)
+      .slice(-maxMessungen)
     let band = null
     let bandMitte = null
     if (bandFenster.length >= minMessungen) {
@@ -111,6 +118,7 @@ export default function HRVHistoryChart({ data }) {
         minMessungen: d.min_messungen,
         maxMessungen: d.max_messungen,
         sigma: d.band_sigma,
+        fensterTage: d.fenster_tage,
       })
     }).catch(() => {})
   }, [])
@@ -127,11 +135,12 @@ export default function HRVHistoryChart({ data }) {
   }, [data, regeln])
 
   const chartData = useMemo(() => allChartData.slice(-range), [allChartData, range])
+  const manuell = grenzen?.quelle === 'manual'
 
   if (!data?.length) {
     return (
       <div className="text-center py-8 text-sm font-mono" style={{ color: 'var(--text-secondary)' }}>
-        No HRV data yet. Start logging!
+        Noch keine HRV-Messungen. Trag die erste ein.
       </div>
     )
   }
@@ -179,16 +188,26 @@ export default function HRVHistoryChart({ data }) {
               die Spanne, die das Backend an diesem Tag ergeben hätte: Wird die
               Streuung grösser, öffnet sie sich; verschiebt sich das Mittel,
               wandert sie mit. */}
-          <Area dataKey="band" fill="#22c55e" fillOpacity={0.10} stroke="none"
-                isAnimationActive={false} connectNulls legendType="none"
-                activeDot={false} />
+          {/* Mit eingetragener Garmin-Spanne gilt **sie** — für die Ampel und
+              für jeden Punkt (das Backend färbt dann alle Messungen danach).
+              Dann wird auch sie als Fläche gezeichnet, nicht die berechnete:
+              Sonst lag ein Punkt sichtbar in der grünen Fläche und war rot. */}
+          {manuell && grenzen?.gruen_bis && (
+            <ReferenceArea y1={grenzen.gruen_ab} y2={grenzen.gruen_bis}
+                           fill="#22c55e" fillOpacity={0.10} stroke="none" />
+          )}
+          {!manuell && (
+            <Area dataKey="band" fill="#22c55e" fillOpacity={0.10} stroke="none"
+                  isAnimationActive={false} connectNulls legendType="none"
+                  activeDot={false} />
+          )}
           {/* Die Ränder zusätzlich als feine Linien: Sie machen die Bewegung
               auch dort erkennbar, wo die Fläche flach verläuft, und sie geben
               der Spanne eine Kante statt eines Farbverlaufs. */}
-          <Line type="monotone" dataKey={d => d.band?.[1]} stroke="#22c55e" strokeWidth={1}
+          <Line type="monotone" dataKey={d => (manuell ? null : d.band?.[1])} stroke="#22c55e" strokeWidth={1}
                 strokeOpacity={0.45} strokeDasharray="2 3" dot={false} legendType="none"
                 isAnimationActive={false} connectNulls activeDot={false} name="Spanne oben" />
-          <Line type="monotone" dataKey={d => d.band?.[0]} stroke="#22c55e" strokeWidth={1}
+          <Line type="monotone" dataKey={d => (manuell ? null : d.band?.[0])} stroke="#22c55e" strokeWidth={1}
                 strokeOpacity={0.45} strokeDasharray="2 3" dot={false} legendType="none"
                 isAnimationActive={false} connectNulls activeDot={false} name="Spanne unten" />
 

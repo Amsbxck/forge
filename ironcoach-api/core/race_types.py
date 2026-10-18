@@ -104,7 +104,14 @@ PHASE_SHARES = [
     ("Taper", 0.09),
 ]
 
-MIN_TAPER_WEEKS = 1
+# Mindestens zwei: Die letzte Woche des Plans ist die Wettkampfwoche
+# (`phase_for_week`), und die zählt in den Taperwochen mit. Mit nur einer
+# reservierten Woche fiel der Taper bei Sprint, 10 km, Halbmarathon,
+# Zeitfahren und Radmarathon vollständig mit dem Rennen zusammen — diese
+# Pläne hatten keine einzige eigene Taperwoche, und ein 10-Wochen-Plan nur
+# eine Peak-Woche. Ab 18 Wochen ergibt der Anteil ohnehin zwei oder mehr;
+# dort ändert sich nichts.
+MIN_TAPER_WEEKS = 2
 MAX_TAPER_WEEKS = 3
 
 
@@ -130,9 +137,10 @@ def disciplines_for(sport: str | None) -> list[str]:
 def phase_boundaries(total_weeks: int) -> list[tuple[str, int, int]]:
     """Phasen als (Name, erste Woche, letzte Woche).
 
-    Der Taper wird zuerst reserviert und auf 1–3 Wochen begrenzt: bei einem
-    10-Wochen-Plan wären 9 % rechnerisch unter einer Woche, bei einem sehr
-    langen Aufbau würden sonst vier Wochen Formerhalt entstehen.
+    Der Taper wird zuerst reserviert und auf 2–3 Wochen begrenzt — die
+    Wettkampfwoche eingeschlossen, also mindestens eine eigene Taperwoche
+    davor. Bei einem 10-Wochen-Plan wären 9 % rechnerisch unter einer Woche,
+    bei einem sehr langen Aufbau würden sonst vier Wochen Formerhalt entstehen.
     """
     total_weeks = max(4, int(total_weeks))
     taper = min(MAX_TAPER_WEEKS, max(MIN_TAPER_WEEKS, round(total_weeks * 0.09)))
@@ -209,6 +217,10 @@ def phase_for_week(week: int, total_weeks: int = 33) -> str:
 PHASEN_ALIAS = {
     "Vorbereitung auf den Aufbau": "Grundlage",
     "Off Season · Formerhalt": "Off Season",
+    # Der zweite Off-Season-Name (`offseason.phase_label`). Er fehlte, und
+    # `vorrang_block` gab für „Übergang" eine Rangordnung aus, für
+    # „Formerhalt" keine — derselbe Zustand, zwei Vorgaben.
+    "Off Season · Übergang": "Off Season",
 }
 
 
@@ -292,7 +304,8 @@ def season_state(
     """Wo in der Saison der Athlet steht.
 
     `base_period` vor Beginn der Vorbereitung, `preparation` bis zur
-    Wettkampfwoche, `race_week` in der Woche des Rennens, danach `off_season`.
+    Wettkampfwoche, `race_week` in der Kalenderwoche des Rennens bis
+    einschließlich Renntag, danach `off_season`.
     Ohne Ziel gilt Vorbereitung, weil die Wochenzählung dann am Profil hängt
     und kein Renntag existiert.
 
@@ -308,7 +321,13 @@ def season_state(
     today = today or date.today()
     if today > race_date:
         return "off_season"
-    if (race_date - today).days < 7:
+    # Die **Kalenderwoche** des Rennens, wie in den Phasen (`phase_for_week`:
+    # letzte Planwoche = Wettkampfwoche). Vorher „weniger als sieben Tage":
+    # Bei einem Rennen am Samstag galt schon der Sonntag davor als
+    # Wettkampfwoche, während Plan und Phase noch die Woche davor zeigten.
+    from core.wochen import montag_von
+
+    if montag_von(today) == montag_von(race_date):
         return "race_week"
     # Der Aufbau hat noch nicht begonnen. Eine Woche Vorlauf wird nicht
     # gesondert behandelt — wer wenige Tage zu früh dran ist, steigt einfach

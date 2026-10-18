@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   getIntegrations, updateObsidian, testObsidian,
-  getStravaAuthUrl, disconnectStrava,
+  getStravaAuthUrl, disconnectStrava, confirmStrava,
   getWebhookStatus, registerWebhook, deleteWebhook,
 } from '../services/api'
+import { fehlerText } from '../utils/fehler'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
 const LABEL = 'text-[10px] font-mono tracking-widest text-[var(--text-secondary)]'
@@ -69,6 +70,31 @@ export default function Integrations() {
     const p = new URLSearchParams(window.location.search)
     const stand = p.get('strava')
     if (!stand) return
+    // Die Freigabe wird erst mit dem angemeldeten Konto wirksam. Schickt
+    // jemand einen fremden Freigabelink, passt das Konto nicht, und es wird
+    // nichts verbunden.
+    if (stand === 'bestaetigen') {
+      window.history.replaceState({}, '', window.location.pathname)
+      confirmStrava(p.get('vorgang'))
+        .then(({ data }) => {
+          setStravaRueckmeldung({
+            ok: true,
+            text: data.historie
+              ? 'Strava ist verbunden. Deine Einheiten der letzten drei Monate '
+                + 'werden gerade geholt — das dauert einen Moment und läuft im '
+                + 'Hintergrund weiter. Neue Aktivitäten kommen ab jetzt von selbst an.'
+              : 'Strava ist verbunden. Neue Aktivitäten kommen ab jetzt von selbst an.',
+          })
+          load()
+        })
+        .catch(err => setStravaRueckmeldung({
+          ok: false,
+          text: typeof err.response?.data?.detail === 'string'
+            ? err.response.data.detail
+            : 'Die Verbindung mit Strava konnte nicht abgeschlossen werden.',
+        }))
+      return
+    }
     setStravaRueckmeldung(
       stand === 'ok'
         ? {
@@ -105,7 +131,7 @@ export default function Integrations() {
       setForm(f => ({ ...f, base_url: data.obsidian.base_url || f.base_url, api_key: '' }))
       setSaved(true)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Speichern fehlgeschlagen')
+      setError(fehlerText(err, 'Speichern fehlgeschlagen'))
     } finally { setBusy(null) }
   }
 
@@ -123,7 +149,7 @@ export default function Integrations() {
       // funktioniert hat. Genau so ist es dem ersten neuen Nutzer ergangen.
       if (data?.base_url) setForm(f => ({ ...f, base_url: data.base_url }))
     } catch (err) {
-      setTest({ ok: false, error: err.response?.data?.detail || 'Test fehlgeschlagen' })
+      setTest({ ok: false, error: fehlerText(err, 'Test fehlgeschlagen') })
     } finally { setBusy(null) }
   }
 
@@ -134,7 +160,7 @@ export default function Integrations() {
       setHookResult({ ok: true, message: `Registriert auf ${data.callback_url}` })
       await load()
     } catch (err) {
-      setHookResult({ ok: false, message: err.response?.data?.detail || 'Registrierung fehlgeschlagen' })
+      setHookResult({ ok: false, message: fehlerText(err, 'Registrierung fehlgeschlagen') })
     } finally { setBusy(null) }
   }
 
@@ -146,7 +172,7 @@ export default function Integrations() {
       setHookResult({ ok: true, message: 'Webhook entfernt' })
       await load()
     } catch (err) {
-      setHookResult({ ok: false, message: err.response?.data?.detail || 'Entfernen fehlgeschlagen' })
+      setHookResult({ ok: false, message: fehlerText(err, 'Entfernen fehlgeschlagen') })
     } finally { setBusy(null) }
   }
 

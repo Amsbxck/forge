@@ -24,7 +24,9 @@ from models import PlannedSession, WeeklyPlan
 
 logger = logging.getLogger(__name__)
 
-MODELL = "claude-sonnet-4-6"
+from core.config import settings  # noqa: E402
+
+MODELL = settings.CLAUDE_MODEL
 
 # Kleiner als beim vollen Plan: Es gehen nur die geänderten Tage zurück, nicht
 # sieben. Mehr Budget würde das Modell nur einladen, die ganze Woche zu liefern.
@@ -47,7 +49,7 @@ def _plan_text(plan: WeeklyPlan, rows: list[PlannedSession]) -> str:
             f"{f', {r.duration_min} min' if r.duration_min else ''}"
             f"{' · ' + ' · '.join(ziele) if ziele else ''}"
             f"{' · ' + r.notes if r.notes else ''}"
-            f"{'  [ABSOLVIERT]' if r.status == 'completed' else ''}"
+            f"{'  [ABSOLVIERT]' if r.status in ('completed', 'replaced') or r.matched_session_id else ''}"
         )
     return "\n".join(zeilen)
 
@@ -143,9 +145,9 @@ async def tage_anpassen(db: Session, plan: WeeklyPlan, wunsch: str) -> dict:
 
     from core.config import settings
     from core.deps import get_profile
-    from services.api_budget import ensure_budget, record
+    from services.api_budget import abrechnen, freigeben, reservieren
     from services.claude_service import ADJUST_DAYS_TOOL
-    from services.plan_merge import merge_days
+    from services.plan_merge import merge_days, plan_text_aus
 
     rows = (
         db.query(PlannedSession)
@@ -159,7 +161,10 @@ async def tage_anpassen(db: Session, plan: WeeklyPlan, wunsch: str) -> dict:
     profil = get_profile(db)
     from core.deps import resolve_user
     nutzer = resolve_user(db)
-    ensure_budget(db, nutzer)
+    # Reservieren statt sperren: Die Kontozeile blieb sonst über den ganzen
+    # Claude-Aufruf gesperrt (siehe `api_budget.reservieren`).
+    reservierung = reservieren(db, nutzer, kind="plan_adjust", model=MODELL,
+                               max_output=MAX_TOKENS)
 
     # Die vollständigen Trainingsbereiche, nicht nur FTP und Puls.
     #
@@ -186,16 +191,20 @@ async def tage_anpassen(db: Session, plan: WeeklyPlan, wunsch: str) -> dict:
     system = systemprompt(db, plan, rows, zonen)
 
     client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-    antwort = await client.messages.create(
-        model=MODELL, max_tokens=MAX_TOKENS, system=system,
-        tools=[ADJUST_DAYS_TOOL], tool_choice={"type": "tool", "name": "adjust_training_days"},
-        messages=[{"role": "user", "content": wunsch}],
-    )
+    try:
+        antwort = await client.messages.create(
+            model=MODELL, max_tokens=MAX_TOKENS, system=system,
+            tools=[ADJUST_DAYS_TOOL], tool_choice={"type": "tool", "name": "adjust_training_days"},
+            messages=[{"role": "user", "content": wunsch}],
+        )
+    except Exception:
+        freigeben(db, reservierung)
+        raise
 
     try:
-        record(db, nutzer, kind="plan_adjust", model=MODELL,
-               input_tokens=getattr(antwort.usage, "input_tokens", 0),
-               output_tokens=getattr(antwort.usage, "output_tokens", 0))
+        abrechnen(db, nutzer, reservierung, kind="plan_adjust", model=MODELL,
+                  input_tokens=getattr(antwort.usage, "input_tokens", 0),
+                  output_tokens=getattr(antwort.usage, "output_tokens", 0))
     except Exception as e:  # pragma: no cover - Buchung darf nie den Plan reissen
         logger.warning("Verbrauch nicht gebucht: %s", e)
 
@@ -213,7 +222,11 @@ async def tage_anpassen(db: Session, plan: WeeklyPlan, wunsch: str) -> dict:
         return {"status": "keine_aenderung",
                 "hinweis": " ".join(text) or "Das Modell hat keine Tage geliefert."}
 
-    gesperrt = {r.planned_date for r in rows if r.status == "completed"}
+    # Erledigt heißt wie beim Stornieren: absolviert, ersetzt oder zugeordnet.
+    gesperrt = {
+        r.planned_date for r in rows
+        if r.status in ("completed", "replaced") or r.matched_session_id is not None
+    }
     inhalt, uebernommen, abgewiesen = merge_days(
         plan.plan_content or {}, tage, gesperrte_daten=gesperrt
     )
@@ -230,7 +243,8 @@ async def tage_anpassen(db: Session, plan: WeeklyPlan, wunsch: str) -> dict:
         week_end=plan.week_end,
         plan_phase=plan.plan_phase,
         plan_content=inhalt,
-        plan_text=plan.plan_text,
+        # Neu gebaut: die alte Übersicht zeigte sonst die alten Tage.
+        plan_text=plan_text_aus(inhalt, plan.week_number, plan.week_start, plan.week_end),
         adjustments_applied=(plan.adjustments_applied or []) + [wunsch[:200]],
     )
     db.add(neu)
@@ -238,7 +252,12 @@ async def tage_anpassen(db: Session, plan: WeeklyPlan, wunsch: str) -> dict:
     db.refresh(neu)
 
     from services.plan_projection import project_plan
-    project_plan(db, neu)
+    if not project_plan(db, neu):
+        # Vorher still: der Plan stand gespeichert, der Kalender blieb leer.
+        logger.error("Plan %s nach Anpassung nicht projiziert", neu.id)
+        abgewiesen = abgewiesen + [
+            "Kalender nicht aktualisiert — bitte Woche neu laden"
+        ]
 
     try:
         from services.obsidian.plan_note import sync_plan_note

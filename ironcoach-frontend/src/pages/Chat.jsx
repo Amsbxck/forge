@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { sendChat, clearChat } from '../services/api'
-import axios from 'axios'
-
-const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '' })
+// Über die gemeinsame Verbindung, nicht über eine eigene axios-Instanz: Die
+// eigene hängte kein Token an, und mit Anmeldung (im Betrieb immer) kam der
+// Verlauf beim Öffnen der Seite stets mit 401 zurück.
+import { sendChat, clearChat, getChatHistory } from '../services/api'
+import { fehlerText } from '../utils/fehler'
 
 function TypingIndicator() {
   return (
@@ -72,7 +73,7 @@ export default function Chat() {
   const ladeVerlauf = useCallback(async () => {
     setVerlaufFehler(null)
     try {
-      const r = await api.get('/api/chat/history')
+      const r = await getChatHistory()
       setMessages(r.data)
     } catch (e) {
       setVerlaufFehler(
@@ -104,7 +105,10 @@ export default function Chat() {
       setWaving(true)
       setTimeout(() => setWaving(false), 600)
     } catch (e) {
-      const errMsg = { role: 'assistant', content: 'Error: ' + (e.response?.data?.detail || 'Unknown error'), id: Date.now() + 1 }
+      const text = e.code === 'ECONNABORTED'
+        ? 'Die Antwort dauert ungewöhnlich lange. Lade die Seite gleich neu — falls der Coach einen Plan geändert hat, steht er dann schon im Wochenplan.'
+        : fehlerText(e, 'Die Nachricht konnte nicht verarbeitet werden.')
+      const errMsg = { role: 'assistant', content: 'Fehler: ' + text, id: Date.now() + 1 }
       setMessages(prev => {
         setNewMsgIndex(prev.length)
         return [...prev, errMsg]
@@ -116,9 +120,16 @@ export default function Chat() {
   }
 
   const handleClear = async () => {
-    await clearChat()
-    setMessages([])
-    setNewMsgIndex(null)
+    // Mit Fehlerfang: Vorher blieb ein gescheitertes Löschen stumm, und der
+    // Verlauf stand nach dem nächsten Laden wieder da.
+    try {
+      await clearChat()
+      setMessages([])
+      setNewMsgIndex(null)
+      setVerlaufFehler(null)
+    } catch (e) {
+      setVerlaufFehler(fehlerText(e, 'Verlauf konnte nicht gelöscht werden.'))
+    }
   }
 
   return (
@@ -133,7 +144,7 @@ export default function Chat() {
           >
             COACH
           </h1>
-          <span className="text-xs font-mono text-[var(--text-muted)] tracking-widest">AI ASSISTANT</span>
+          <span className="text-xs font-mono text-[var(--text-muted)] tracking-widest">DEIN TRAINER</span>
         </div>
         {messages.length > 0 && (
           <button
@@ -141,7 +152,7 @@ export default function Chat() {
             className="text-xs font-mono text-[var(--text-muted)] hover:text-[#ef4444] transition-colors px-3 py-1.5 rounded-lg"
             style={{ border: '1px solid #1e2228' }}
           >
-            CLEAR CHAT
+            VERLAUF LÖSCHEN
           </button>
         )}
       </div>
@@ -174,7 +185,7 @@ export default function Chat() {
               FORGE COACH
             </div>
             <p className="text-xs font-mono text-[var(--text-muted)] tracking-wide">
-              Ask anything about your training, recovery, or race strategy.
+              Frag nach Training, Erholung oder Rennstrategie — oder lass Tage im Plan umstellen.
             </p>
           </div>
         )}
@@ -204,7 +215,7 @@ export default function Chat() {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
-          placeholder="Ask your coach..."
+          placeholder="Frag deinen Coach …"
           className="flex-1 rounded-xl px-4 py-3 text-sm font-mono text-[#e8eaf0] placeholder-[var(--text-muted)] outline-none transition-colors"
           style={{ background: '#111318', border: '1px solid #1e2228' }}
           onFocus={e => { e.target.style.borderColor = '#00d4ff44' }}
@@ -218,7 +229,7 @@ export default function Chat() {
           onMouseEnter={e => { if (!e.currentTarget.disabled) e.currentTarget.style.background = '#00d4ff30' }}
           onMouseLeave={e => { e.currentTarget.style.background = '#00d4ff20' }}
         >
-          SEND
+          SENDEN
         </button>
       </div>
 

@@ -213,18 +213,22 @@ tatsächlich gefahrene/gelaufene Einheit dem Plan entsprach.
 
 ```json
 {
-  "tss": 145,
-  "watts_low": 210, "watts_high": 220,
-  "pace_low_s_per_km": 360, "pace_high_s_per_km": 410,
+  "tss": <Zahl>,
+  "watts_low": <Zahl>, "watts_high": <Zahl>,
+  "pace_low_s_per_km": <Zahl>, "pace_high_s_per_km": <Zahl>,
   "hr_zone": "Z2",
-  "distance_km": 100
+  "distance_km": <Zahl>
 }
 ```
+
+Die Platzhalter `<Zahl>` stehen für die Werte **dieses** Athleten aus den
+Trainingsbereichen. Hier standen Beispielzahlen (210–220 W, 6:00–6:50/km) —
+und sie wurden in Pläne übernommen, zu deren Athleten sie nicht passten.
 
 Regeln:
 - **Rad:** immer `watts_low`/`watts_high` (Hauptteil, nicht Warmup) + `tss`
 - **Lauf:** immer `pace_low_s_per_km`/`pace_high_s_per_km` in **Sekunden/km**
-  (6:00/km = 360, 6:50/km = 410) + `hr_zone`
+  (Umrechnung: Minuten × 60 + Sekunden, also 5:15/km = 315) + `hr_zone`
 - **Schwimmen:** `distance_km` falls bekannt
 - **Gym / Rest:** `targets` weglassen
 - Nur angeben, was du wirklich vorgibst — eine erfundene Zahl ist schlechter
@@ -382,7 +386,7 @@ def build_plan_prompt(
     hrv: list,
     week: int,
     requests: str = "",
-    plan_start: date = date(2025, 12, 22),
+    plan_start: date | None = None,
     sessions_text: str | None = None,
     reflections: str = "",
     total_weeks: int = 33,
@@ -403,6 +407,12 @@ def build_plan_prompt(
 ) -> str:
     from core.race_types import phase_boundaries
 
+    # Ohne Startdatum zählt die laufende Woche als Woche 1. Hier stand ein
+    # festes Datum aus der ersten Saison eines einzelnen Athleten.
+    if plan_start is None:
+        heute = date.today()
+        plan_start = heute - timedelta(days=heute.weekday())
+
     phase = get_phase(week, total_weeks)
 
     # Saisonstruktur aus der Zieldauer statt als feste 33-Wochen-Tabelle.
@@ -414,7 +424,7 @@ def build_plan_prompt(
         f"{'Deload W' + str(end) if is_deload(end, total_weeks) else '–'} |"
         for name, start, end in phase_boundaries(total_weeks)
     ]
-    season_structure = "\n".join(
+    season_structure = "" if (base_period or offseason) else "\n".join(
         [f"## Saisonstruktur ({total_weeks} Wochen)", "| Phase | Wochen | Deload |", "|---|---|---|"]
         + rows
     )
@@ -485,7 +495,11 @@ def build_plan_prompt(
     # weiter unten gebaut wird. Vorher stand hier `week % 4 == 0`, was in
     # jedem Plan mit durch vier teilbarer Länge die Wettkampfwoche als
     # Entlastungswoche auswies.
-    deload = is_deload(week, total_weeks)
+    # Ohne Wochenzähler (Grundlage, Off Season) gibt es auch keinen Deload —
+    # vorher kündigte der Off-Season-Prompt eines Nutzers ohne Ziel eine
+    # „DELOAD-WOCHE" an, nach dem Rhythmus seines Profilankers.
+    ohne_zaehler = bool(base_period or offseason)
+    deload = is_deload(week, total_weeks) and not ohne_zaehler
 
     # Die Phasenvorgabe ersetzt die eine alte Wochenvorlage, die nur für
     # „Build 2" existierte und nur das Rad kannte. In Grundlage und Off Season
@@ -523,29 +537,66 @@ def build_plan_prompt(
     swim_hr = athlete_profile.get("swim_threshold_hr")
     swim_hr_text = f"{swim_hr} bpm" if swim_hr else "unbekannt"
 
-    return f"""## Athletenprofil
-- Name: {athlete_profile.get('name') or 'Athlet'}
-- Ziel: {athlete_profile.get('race_name') or athlete_profile.get('goal_label') or 'Triathlon'} am {athlete_profile['race_date']}{f" — {athlete_profile.get('goal_label')}" if athlete_profile.get('race_name') and athlete_profile.get('goal_label') else ''}
-- Zielzeit: {athlete_profile.get('goal_time') or athlete_profile.get('race_goal') or 'keine angegeben'}
-- Vorbereitung: {"Off Season — kein laufendes Saisonziel" if offseason_block else "Grundlagenphase — der Aufbau hat noch nicht begonnen" if base_block else f"Woche {week} von {athlete_profile.get('total_weeks', 33)}"}
-- FTP: {athlete_profile['ftp_watts']}W
-- Max HR: {athlete_profile['max_hr']} bpm
-- HR-Zonen: Z1 0-{athlete_profile['z1_hr_max']} | Z2 {athlete_profile['z2_hr_min']}-{athlete_profile['z2_hr_max']} | Z3 {athlete_profile['z3_hr_min']}-{athlete_profile['z3_hr_max']} | Z4 {athlete_profile['z4_hr_min']}-{athlete_profile['z4_hr_max']} | Z5 und höher >{athlete_profile['z4_hr_max']} (bis Maximalpuls {athlete_profile['max_hr']})
-- Oberhalb der Schwelle gibt es **keine** Pulsobergrenze je Zone, und das ist
-  Absicht: Steuere Z5 bis Z7 über Pace und Watt, nicht über den Puls. Er hinkt
-  bei kurzen Intervallen hinterher.
-- Schwimmen: CSS {css_text} | Schwellenpuls {swim_hr_text}
+    # Was die Sportart des Ziels überhaupt enthält. `SPORT_DISCIPLINES` stand
+    # seit Langem in `race_types`, wurde aber nirgends gelesen: Läufer und
+    # Radfahrer bekamen Schwimmvorgaben, Koppeleinheiten und Freiwasser.
+    from core.race_types import disciplines_for
 
-{offseason_block}
-{base_block}
-{health_block}
-{races_block}
-{constraints_block}
+    sport = (athlete_profile.get("sport") or "triathlon").lower()
+    disziplinen = disciplines_for(sport)
+    mit_schwimmen = "swim" in disziplinen
+    mit_brick = "brick" in disziplinen
+    mit_lauf = "run" in disziplinen
+    mit_rad = "bike" in disziplinen
 
-## BRICK-SESSIONS
+    renntag = athlete_profile.get("race_date")
+    ziel_name = (
+        athlete_profile.get("race_name") or athlete_profile.get("goal_label") or "Saisonziel"
+    )
+    zusatz = (
+        f" — {athlete_profile.get('goal_label')}"
+        if athlete_profile.get("race_name") and athlete_profile.get("goal_label") else ""
+    )
+    # Ohne Saisonziel kein Renntag. Hier stand der Platzhalter aus der
+    # Registrierung (heute + 180 Tage), und der Coach plante auf ein Rennen
+    # hin, das es nicht gibt.
+    ziel_zeile = (
+        f"- Ziel: {ziel_name} am {renntag}{zusatz}" if renntag
+        else "- Ziel: kein Saisonziel gesetzt"
+    )
+
+    if offseason_block:
+        # Die Zählung nach dem Rennen nur, wenn es ein Rennen gab. Ohne Ziel
+        # hängt `week` am Profil, und hier stand „-32. Woche nach dem
+        # Saisonziel" für jemanden, der nie eines hatte.
+        woche_zeile = (
+            f"Off Season, {week - total_weeks}. Woche nach dem Saisonziel"
+            if renntag and week > total_weeks else "Off Season — ohne Wochenzählung"
+        )
+    elif base_block:
+        woche_zeile = "Grundlagenphase — zählt nicht als Vorbereitungswoche"
+    else:
+        woche_zeile = f"{week}/{total_weeks}"
+
+    aufgabe_zeile = (
+        f"Erstelle den Plan für die Woche {week_start} – {week_end}."
+        if ohne_zaehler
+        else f"Erstelle den Plan für **Woche {week}** ({week_start} – {week_end})."
+    )
+    targets_hinweis = (
+        "**Vorrang des Abschnitts oben:** In dieser Woche gibt es keine Watt- "
+        "und Pacevorgaben. `targets` trägt nur `hr_zone` und, wo sinnvoll, `tss` "
+        "— die Pflicht unten gilt erst, wenn die Vorbereitung läuft.\n\n"
+        if ohne_zaehler else ""
+    )
+    sportarten_liste = "|".join(
+        ["rest"] + [d for d in disziplinen if d not in ("rest",)] + ["other"]
+    )
+
+    brick_block = f"""## BRICK-SESSIONS
 
 ### REGELN
-- Nur **Bike → Run** (Swim → Bike erst ab der Peak-Phase)
+- Nur **Bike → Run**
 - **Der Laufanteil ist ein Lauf.** Er läuft durchgehend und steigert sich wie
   jeder andere Lauf: Die Einzellauf-Grenze (≤ 10 % über dem längsten Lauf der
   letzten 30 Tage) und die Wochenprogression gelten für ihn mit. Gehpausen nur,
@@ -570,7 +621,7 @@ def build_plan_prompt(
 
 ### BRICK-PROGRESSION
 Nach Phase, nicht nach Wochennummer: In einem Plan unter sechzehn Wochen heißen
-die Phasen „Base", „Build" und „Peak" ohne Blocknummer, und eine auf „Base 3"
+die Phasen „Base“, „Build“ und „Peak“ ohne Blocknummer, und eine auf „Base 3“
 geschlüsselte Zeile griff dort gar nicht.
 
 Gestaffelt wird über die **Intensität des Laufs**, wie es die Studientabelle
@@ -580,7 +631,7 @@ vorgibt — nicht über Gehpausen:
 |-------|------|-----|
 | Grundlage / Base | 50–75 min Z2 | 10–20 min locker (70–80 %), durchgehend |
 | Build (erste Hälfte) | 60–75 min Z2 + Sweet Spot | 15–25 min, davon ein Block im Wettkampftempo |
-| Build (letzter Block) | 75–90 min mit Schwellenblock | Wettkampftempo, oder Mehrfachwechsel: 3–4 × (10 min Rad / 5 min Lauf) |
+| Build (zweite Hälfte) | 75–90 min mit Schwellenblock | Wettkampftempo, oder Mehrfachwechsel: 3–4 × (10 min Rad / 5 min Lauf) |
 | Peak | Rennsimulation, gleichmäßige Leistung | Wettkampftempo, 20–30 min durchgehend |
 
 Die **Längen** stammen aus der Sitzungsbibliothek des Laufdokuments (kurzer
@@ -602,14 +653,25 @@ betroffen (7 von 15), Elite gar nicht (0 von 7) — es ist also ein Zustand, der
 sich wegtrainieren lässt, keine Eigenschaft.
 
 ---
+""" if mit_brick else ""
+    if mit_rad:
+        rad_rolle = (
+            "- **Rad ist die Hauptbelastungs-Quelle** — hier darf Volumen und "
+            "Intensität hoch sein"
+            if sport in ("triathlon", "cycling") else
+            "- **Rad nur als lockerer Ausgleich** (Z1–Z2), ohne Intervalle — "
+            "das hier ist ein Laufplan."
+        )
+        rad_logik_block = f"""## RAD-LOGIK
 
-## RAD-LOGIK
-
-- **Sessions/Woche dynamisch 2–3**, je nach Phase und HRV
-- **Ab Build (zweiter Block): Threshold UND VO2max erlaubt**
-- **Sweet Spot bleibt Brot-und-Butter** in allen Build-Phasen
-- **Rad ist die Hauptbelastungs-Quelle** — hier darf Volumen und Intensität hoch sein
-- Die Zahl der harten Einheiten gibt die Phasentabelle vor, nicht diese Zeile
+{rad_rolle}
+- Die Zahl der harten Einheiten und die erlaubten Formate gibt die
+  Phasentabelle vor, nicht diese Zeilen.
+- **Sweet Spot ist ein zeiteffizientes Werkzeug, vor allem in der Grundlage.**
+  Im Aufbau ist er nicht der Haupttreiber — dort tragen 30/15, 4×8 und 4–6×5
+  im Wechsel. Den mittleren Bereich (Tempo, Sweet Spot) begrenzt halten: Bei
+  Langdistanzlern hing ein hoher Anteil davon mit langsameren Zeiten zusammen
+  (Muñoz 2014); ganz streichen muss man ihn nicht (Rivera Kofler 2025).
 
 ### SESSION-SKALIERUNG NACH HRV
 Maßgeblich ist die **Normalspanne dieses Athleten** (sie steht oben bei den
@@ -619,20 +681,111 @@ Ruhetage verordnet.
 
 | HRV-Status | Anpassung |
 |------------|-----------|
-| 🟢 in der Spanne oder darüber | Plan wie vorgesehen, bis 2 Intensitätseinheiten |
-| 🟡 unter der Spanne, über der roten Grenze | max. 1 Intensität (Threshold streichen, Sweet Spot bleibt) |
+| 🟢 in der Spanne oder darüber | Phasenvorgabe — so viele harte Einheiten, wie die Phasentabelle nennt |
+| 🟡 unter der Spanne, über der roten Grenze | höchstens 1 harte Einheit; VO2max-Einheiten verschieben oder gegen Z2 gleicher Dauer tauschen |
 | 🔴 unter der roten Grenze | nur Z2 oder Ruhetag, Volumen −30 % |
-| fallender Trend über drei Tage | eine Einheit streichen, auch wenn die Ampel grün ist |
+| fallende Richtung (siehe „Richtung und Streuung") | Phasenvorgabe, aber **keine Block- oder Überlastungswoche**; in der Folgewoche erneut prüfen |
 
 Ein Wert **über** der Spanne ist nicht besser als grün, er ist grün — nur eben
 belegt. Er ist kein Grund, zusätzlich zu belasten.
+"""
+    else:
+        rad_logik_block = ""
 
+    if not mit_rad:
+        watt_block = ""
+    elif ohne_zaehler:
+        watt_block = (
+            "## Rad-Vorgaben\n"
+            "In diesem Abschnitt gibt es keine Watt- und Pacevorgaben (siehe "
+            "oben) — gesteuert wird nach Gefühl und Puls.\n"
+        )
+    else:
+        watt_block = f"""## Rad-Vorgaben in Watt
+Skaliere alle Prozentangaben auf absolute Watt: FTP = {athlete_profile['ftp_watts']}W.
+Beispiel: 88 % FTP = {int(athlete_profile['ftp_watts'] * 0.88)}W, 95 % FTP = {int(athlete_profile['ftp_watts'] * 0.95)}W.
+
+**Intensitätsregel nach HRV:**
+- 🟢 grün: Prozentwerte wie in der Formattabelle dieser Phase
+- 🟡 gelb: **VO2max- und 30/15-Einheiten nicht abschwächen** — gesenkte
+  Prozente machen aus ihnen Grauzonenarbeit mit derselben Ermüdung, aber ohne
+  VO2max-Reiz. Stattdessen verschieben oder gegen Z2 gleicher Dauer tauschen.
+  Nur Sweet Spot und Schwelle dürfen um 3–5 % sinken.
+- 🔴 rot: nur Endurance, kein Sweet Spot, keine Schwelle, kein VO2max
+
+{"Baue die Struktur aus der Formattabelle dieser Phase (weiter oben) und rechne ihre Prozentwerte in Watt um. " if phasen_block else ""}Einen passenden Zwift-Namen trägt die App
+hinterher selbst ein — such keinen aus und erfinde keinen.
+"""
+
+    lauf_block = f"""### Lauf
+- **Brick-Läufe:** Kürzer und konservativer als Standalone
+- **HR-Ziel:** Z2 — die Grenzen stehen oben im Athletenprofil
+- **Gehpausen** sind ein Werkzeug, keine Grundeinstellung: Sie kommen in den
+  Plan, wenn die Athletenvorgaben oder der Gesundheitsabschnitt sie verlangen,
+  oder wenn der Athlet danach fragt. Hier standen sie als Vorgabe für die
+  Grundlagenphase, dazu die Pulsgrenzen eines einzelnen Athleten — beides
+  bekam jeder andere mit.
+ """ if mit_lauf else ""
+    schwimm_block = f"""### Schwimmen
+Der Athlet schwimmt nach einem **externen Trainingsplan** — aus dem Verein,
+einer App oder von einem Schwimmtrainer. Dieser Plan kennt Becken, Gruppe und
+Technikstand; du kennst sie nicht. Eine Serie vorzugeben, die neben dem
+externen Plan steht, hieße zwei Pläne gegeneinander laufen zu lassen.
+
+- 2×/Woche, **nur Termin und Dauer**. `training_type` immer `endurance`.
+- **Kein Inhalt.** Keine Serien, keine Strecken, keine Technikübungen, keine
+  Intervallvorgaben — auch nicht in `notes`. `details` bleibt `{{}}`.
+- `notes` sagt, dass Schwimmen ansteht, und nennt die Orientierungswerte:
+  CSS und Schwellenpuls. Mehr nicht. Beispiel:
+  "Schwimmen nach deinem externen Plan. Orientierung: CSS {css_text}, Schwellenpuls {swim_hr_text}."
+- Fehlt ein Wert, lass ihn weg statt zu raten.
+- **Kein Progressionsziel.** Steigere die Schwimmdauer nicht von Woche zu
+  Woche und leite aus vergangenen Schwimmeinheiten keine Vorgabe ab — der
+  Aufbau steckt im externen Plan.
+""" if mit_schwimmen else ""
+    freiwasser_block = f"""### Freiwasser (ab Peak)
+Ab der **Peak-Phase** ersetzt eine der beiden Schwimmeinheiten das Becken
+durch Freiwasser. Dafür gibt es keinen externen Plan, also planst du sie
+selbst — hier ist Struktur ausdrücklich erwünscht.
+
+- `training_type` `open_water`, `details` mit Dauer und Grobgliederung.
+- Gegliedert nach Dauer und Intensität, z.B. "10 min einschwimmen · 20 min GA
+  · 10 min zügig · 5 min ausschwimmen". Länge an der Wettkampfdistanz
+  orientiert, im Peak bis zur Renndistanz aufgebaut.
+- **Keine Technikübungen und keine Serien.** Ohne Bahn, Wand und Uhr am
+  Beckenrand ist beides im Freiwasser nicht durchführbar.
+- Wettkampfnahe Punkte gehören hierher: Neopren, Sichten/Orientieren,
+  Massenstart, Beschleunigung auf den ersten Metern.
+- Im Taper bleibt Freiwasser, aber kurz und ohne harte Anteile.
+ """ if mit_schwimmen else ""
+
+    return f"""## Athletenprofil
+- Name: {athlete_profile.get('name') or 'Athlet'}
+{ziel_zeile}
+- Zielzeit: {athlete_profile.get('goal_time') or 'keine angegeben'}
+- Vorbereitung: {"Off Season — kein laufendes Saisonziel" if offseason_block else "Grundlagenphase — der Aufbau hat noch nicht begonnen" if base_block else f"Woche {week} von {total_weeks}"}
+- FTP: {athlete_profile['ftp_watts']}W
+- Max HR: {athlete_profile['max_hr']} bpm
+- HR-Zonen: Z1 0-{athlete_profile['z1_hr_max']} | Z2 {athlete_profile['z2_hr_min']}-{athlete_profile['z2_hr_max']} | Z3 {athlete_profile['z3_hr_min']}-{athlete_profile['z3_hr_max']} | Z4 {athlete_profile['z4_hr_min']}-{athlete_profile['z4_hr_max']} | Z5 und höher >{athlete_profile['z4_hr_max']} (bis Maximalpuls {athlete_profile['max_hr']})
+- Oberhalb der Schwelle gibt es **keine** Pulsobergrenze je Zone, und das ist
+  Absicht: Steuere Z5 bis Z7 über Pace und Watt, nicht über den Puls. Er hinkt
+  bei kurzen Intervallen hinterher.
+- Schwimmen: CSS {css_text} | Schwellenpuls {swim_hr_text}
+
+{offseason_block}
+{base_block}
+{health_block}
+{races_block}
+{constraints_block}
+
+{brick_block}
+{rad_logik_block}
 {phasen_block}
 {doppel_block}
 {vorrang_block}
 {wochenform_block}
 ## Aktuelle Position
-- Aktuelle Woche: {"Off Season, " + str(week - total_weeks) + ". Woche nach dem Saisonziel" if offseason_block else "Grundlagenphase — zählt nicht als Vorbereitungswoche" if base_block else f"{week}/{total_weeks}"}
+- Aktuelle Woche: {woche_zeile}
 - Phase: {phase}
 - Zeitraum: {week_start} bis {week_end}
 - Tages-Daten (EXAKT verwenden, nicht selbst berechnen):
@@ -652,19 +805,7 @@ belegt. Er ist kein Grund, zusätzlich zu belasten.
 - Kühlung (Ventilator + kühle Luft): senkt HR ~8-12 bpm
 - Volle Glykogenspeicher (Carbs): senkt HR ~3-5 bpm
 
-## Rad-Vorgaben in Watt
-Skaliere alle Prozentangaben auf absolute Watt: FTP = {athlete_profile['ftp_watts']}W.
-Beispiel: 88 % FTP = {int(athlete_profile['ftp_watts'] * 0.88)}W, 95 % FTP = {int(athlete_profile['ftp_watts'] * 0.95)}W.
-
-**Intensitätsregel nach HRV:**
-- 🟢 grün: Prozentwerte wie in der Formattabelle dieser Phase
-- 🟡 gelb: alle Prozentwerte um 3–5 % reduzieren
-- 🔴 rot: nur Endurance, kein Sweet Spot, keine Schwelle, kein VO2max
-
-Baue die Struktur aus der Formattabelle dieser Phase (weiter oben) und rechne
-ihre Prozentwerte in Watt um. Einen passenden Zwift-Namen trägt die App
-hinterher selbst ein — such keinen aus und erfinde keinen.
-
+{watt_block}
 {season_structure}
  
  
@@ -686,47 +827,9 @@ hinterher selbst ein — such keinen aus und erfinde keinen.
   noch eine bestimmte Software. Was der Athlet hat, steht in seinen
   individuellen Regeln, falls er es dort nennt.
  
-### Lauf
-- **Brick-Läufe:** Kürzer und konservativer als Standalone
-- **HR-Ziel:** Z2 — die Grenzen stehen oben im Athletenprofil
-- **Gehpausen** sind ein Werkzeug, keine Grundeinstellung: Sie kommen in den
-  Plan, wenn die Athletenvorgaben oder der Gesundheitsabschnitt sie verlangen,
-  oder wenn der Athlet danach fragt. Hier standen sie als Vorgabe für die
-  Grundlagenphase, dazu die Pulsgrenzen eines einzelnen Athleten — beides
-  bekam jeder andere mit.
- 
-### Schwimmen
-Der Athlet schwimmt nach einem **externen Trainingsplan** — aus dem Verein,
-einer App oder von einem Schwimmtrainer. Dieser Plan kennt Becken, Gruppe und
-Technikstand; du kennst sie nicht. Eine Serie vorzugeben, die neben dem
-externen Plan steht, hieße zwei Pläne gegeneinander laufen zu lassen.
-
-- 2×/Woche, **nur Termin und Dauer**. `training_type` immer `endurance`.
-- **Kein Inhalt.** Keine Serien, keine Strecken, keine Technikübungen, keine
-  Intervallvorgaben — auch nicht in `notes`. `details` bleibt `{{}}`.
-- `notes` sagt, dass Schwimmen ansteht, und nennt die Orientierungswerte:
-  CSS und Schwellenpuls. Mehr nicht. Beispiel:
-  "Schwimmen nach deinem externen Plan. Orientierung: CSS {css_text}, Schwellenpuls {swim_hr_text}."
-- Fehlt ein Wert, lass ihn weg statt zu raten.
-- **Kein Progressionsziel.** Steigere die Schwimmdauer nicht von Woche zu
-  Woche und leite aus vergangenen Schwimmeinheiten keine Vorgabe ab — der
-  Aufbau steckt im externen Plan.
-
-### Freiwasser (ab Peak)
-Ab der **Peak-Phase** ersetzt eine der beiden Schwimmeinheiten das Becken
-durch Freiwasser. Dafür gibt es keinen externen Plan, also planst du sie
-selbst — hier ist Struktur ausdrücklich erwünscht.
-
-- `training_type` `open_water`, `details` mit Dauer und Grobgliederung.
-- Gegliedert nach Dauer und Intensität, z.B. "10 min einschwimmen · 20 min GA
-  · 10 min zügig · 5 min ausschwimmen". Länge an der Wettkampfdistanz
-  orientiert, im Peak bis zur Renndistanz aufgebaut.
-- **Keine Technikübungen und keine Serien.** Ohne Bahn, Wand und Uhr am
-  Beckenrand ist beides im Freiwasser nicht durchführbar.
-- Wettkampfnahe Punkte gehören hierher: Neopren, Sichten/Orientieren,
-  Massenstart, Beschleunigung auf den ersten Metern.
-- Im Taper bleibt Freiwasser, aber kurz und ohne harte Anteile.
- 
+{lauf_block}
+{schwimm_block}
+{freiwasser_block}
 ### Ersatztraining (session_type `other`)
 - Für Ausdauer ohne die eigentliche Disziplin: StairMaster, Crosstrainer,
   Ruderergometer, Aquajogging, Radfahren als Laufersatz.
@@ -737,9 +840,11 @@ selbst — hier ist Struktur ausdrücklich erwünscht.
   sind untereinander nicht vergleichbar.
 
 ### Gym
-- Häufigkeit: in Grundlage und Off Season **zweimal** pro Woche, ab der
-  Aufbauphase **einmal**, in Taper und Wettkampfwoche nichts Schweres. Steht
-  oben eine Phasenvorgabe, gilt deren Angabe.
+- Häufigkeit: in Grundlage, Aufbau und Off Season **zweimal** pro Woche —
+  einmal Oberkörper, einmal Unterkörper und Rumpf. Im Peak mindestens einmal
+  (Erhalt: schwer, wenige Sätze), im Taper einmal kurz und schwer mit wenigen
+  Sätzen, in der Wettkampfwoche nichts. Steht oben eine Phasenvorgabe, gilt
+  deren Angabe.
 - **NUR Termin und Dauer.** Keine Übungen, keine Muskelgruppen, keine Sätze
   oder Wiederholungen — auch nicht in `notes`. Der Athlet gestaltet den Inhalt
   selbst; eine Vorgabe ohne Kenntnis von Ausrüstung und Technikstand wäre
@@ -762,15 +867,15 @@ selbst — hier ist Struktur ausdrücklich erwünscht.
   die der Athlet nicht durchhält.
 - Ohne Zielzeit wird nach Zonen geplant. Erfinde keine.
 
-### Z2-Dominanz
-- Mind. 80% Volumen in Z2
-- Sweet Spot/Tempo/VO₂max ZUSÄTZLICH zu Z2, ersetzt es nicht
+### Lockerer Anteil
+- Rund 80 % der Einheiten locker (Z1–Z2)
+- Sweet Spot, Tempo und VO₂max kommen hinzu, sie ersetzen die lockeren nicht
  
 ---
  
 ## Aufgabe
 
-Erstelle den Plan für **Woche {week}** ({week_start} – {week_end}).
+{aufgabe_zeile}
 
 {'🔄 DELOAD-WOCHE: Volumen -40-50%, keine neue Intensität!' if deload else ''}
 
@@ -793,10 +898,10 @@ Eintrag zu beschreiben macht die zweite für die Auswertung unsichtbar.
     {{
       "day": "Montag",
       "date": "YYYY-MM-DD",
-      "session_type": "rest|bike|run|swim|gym|brick",
+      "session_type": "{sportarten_liste}",
       "training_type": "z2_endurance",
       "duration_min": 60,
-      "targets": {{"tss": 60, "watts_low": 145, "watts_high": 155, "hr_zone": "Z2"}},
+      "targets": {{"tss": <Zahl>, "hr_zone": "Z2"}},
       "details": {{}},
       "notes": "..."
     }}
@@ -804,7 +909,7 @@ Eintrag zu beschreiben macht die zweite für die Auswertung unsichtbar.
 }}
 ```
 
-{TARGETS_FORMAT}
+{targets_hinweis}{TARGETS_FORMAT}
 
 {DETAILS_FORMAT}"""
  

@@ -24,7 +24,7 @@ MONTAG = date(2026, 10, 5)
 @pytest.fixture
 def woche(db):
     """Vier geplante Einheiten, zwei absolviert, drei Arbeitswege dazu."""
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     plan = WeeklyPlan(user_id=nutzer.id, week_number=40, week_start=MONTAG,
                       week_end=MONTAG + timedelta(days=6), plan_phase="Build",
                       plan_content={"days": [1]})
@@ -89,7 +89,7 @@ def test_ohne_wege_bleibt_der_zusatz_erhalten(db):
     Vier geplant, zwei zugeordnet, aber fünf echte Einheiten absolviert — dann
     wurde der Umfang tatsächlich erreicht und der Coach darf nicht kürzen.
     """
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     plan = WeeklyPlan(user_id=nutzer.id, week_number=42, week_start=date(2026, 10, 19),
                       week_end=date(2026, 10, 25), plan_phase="Build", plan_content={"days": [1]})
     db.add(plan); db.commit()

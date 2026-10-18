@@ -98,6 +98,10 @@ def update_obsidian(
         url = normalisiere_adresse(body.base_url)
         if url and not url.startswith(("http://", "https://")):
             raise HTTPException(status_code=422, detail="Adresse ist unlesbar")
+        from services.obsidian.client import adresse_gesperrt
+        grund = adresse_gesperrt(url) if url else None
+        if grund:
+            raise HTTPException(status_code=422, detail=grund)
         # Eine neue Adresse hebt eine frühere Festlegung auf: Die Entscheidung
         # über das Zertifikat gehörte zur alten Adresse. Ohne das bliebe ein
         # einmal gesetztes Flag für immer kleben — und es gibt keinen Weg
@@ -158,6 +162,10 @@ def test_obsidian(
 
     if not client.enabled:
         return {"ok": False, "error": "Adresse oder Schlüssel fehlen"}
+    from services.obsidian.client import adresse_gesperrt
+    grund = adresse_gesperrt(basis)
+    if grund:
+        return {"ok": False, "reachable": False, "error": grund, "base_url": basis}
 
     try:
         info = client.ping()
@@ -214,12 +222,14 @@ async def webhook_status(request: Request, db: Session = Depends(get_db), user: 
     status = await check_subscription(db)
     # Die öffentliche Adresse kennt nur die Installation — aus der Anfrage
     # abgeleitet käme beim Deployment hinter einem Proxy Unsinn heraus.
-    suggested = (settings.PUBLIC_BASE_URL or str(request.base_url)).rstrip("/")
+    from core.urls import api_url
+
+    suggested = api_url(str(request.base_url))
 
     return {
         **status,
         "can_manage": bool(getattr(user, "is_admin", False)),
-        "public_base_url": settings.PUBLIC_BASE_URL or None,
+        "public_base_url": settings.API_BASE_URL or settings.PUBLIC_BASE_URL or None,
         "suggested_callback_url": _callback_url(suggested),
         "verify_token_set": bool(settings.STRAVA_VERIFY_TOKEN),
         "note": (
@@ -244,9 +254,21 @@ async def register_webhook(
     if not settings.STRAVA_VERIFY_TOKEN:
         raise HTTPException(status_code=400, detail="STRAVA_VERIFY_TOKEN ist nicht gesetzt")
 
-    base = (body.public_base_url or settings.PUBLIC_BASE_URL or str(request.base_url)).strip()
+    from core.urls import api_url, app_url
+
+    base = (body.public_base_url or api_url(str(request.base_url)) or "").strip()
     if not base.startswith(("http://", "https://")):
         raise HTTPException(status_code=422, detail="Adresse muss mit http:// oder https:// beginnen")
+    # Nicht aufs Frontend registrieren: Dort antwortet die Seite mit
+    # `index.html`, Strava lehnt ab — und die laufende Subscription wäre
+    # vorher schon gelöscht. Gilt nur, wenn Frontend und API getrennt
+    # eingetragen sind; liegen beide unter einer Adresse, ist das richtig.
+    if settings.FRONTEND_URL and base.rstrip("/") == app_url() and base.rstrip("/") != (settings.API_BASE_URL or "").rstrip("/"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"{base} ist die Adresse des Frontends. Der Webhook braucht die "
+                   f"API-Adresse — API_BASE_URL setzen oder hier angeben.",
+        )
     callback = _callback_url(base)
 
     service = StravaService(db)
@@ -307,10 +329,21 @@ async def remove_webhook(db: Session = Depends(get_db), user: User = Depends(req
 
 
 @router.delete("/integrations/strava")
-def disconnect_strava(db: Session = Depends(get_db), user: User = Depends(require_user)):
-    """Strava trennen. Bereits eingelesene Einheiten bleiben erhalten."""
-    creds = db.query(StravaCredentials).all()
+async def disconnect_strava(db: Session = Depends(get_db), user: User = Depends(require_user)):
+    """Strava trennen. Bereits eingelesene Einheiten bleiben erhalten.
+
+    Auch bei Strava selbst: Vorher wurden nur die Zugangsdaten hier gelöscht,
+    und bei Strava blieb die App als autorisiert stehen.
+    """
+    from services.strava_service import StravaService
+
+    creds = db.query(StravaCredentials).filter(StravaCredentials.user_id == user.id).all()
+    service = StravaService(db)
+    widerrufen = 0
+    for entry in creds:
+        if await service.deauthorize(entry.athlete_id):
+            widerrufen += 1
     for entry in creds:
         db.delete(entry)
     db.commit()
-    return {"disconnected": len(creds)}
+    return {"disconnected": len(creds), "bei_strava_widerrufen": widerrufen}

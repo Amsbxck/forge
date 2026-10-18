@@ -183,6 +183,70 @@ def record(
     return kosten
 
 
+# --- Reservierung ------------------------------------------------------------
+#
+# Vorher: `ensure_budget` sperrte die Kontozeile in einer eigenen Sitzung und
+# schloss sie sofort — die Sperre war vor dem Claude-Aufruf wieder frei, und
+# `record` buchte erst danach. N parallele Anfragen kamen damit alle durch die
+# Prüfung (der Kommentar dort behauptete das Gegenteil). Im Planfenster hielt
+# `plan_adjust` die Sperre dagegen über den ganzen Aufruf und blockierte so
+# lange Abmelden und Anmeldezähler dieses Kontos.
+#
+# Jetzt wird unter der Sperre eine **vorläufige Buchung** angelegt und sofort
+# gespeichert: Sie zählt beim nächsten Prüfen mit, und die Sperre ist nach
+# Millisekunden wieder frei. Nach dem Aufruf wird sie mit den tatsächlichen
+# Token überschrieben, bei einem Fehler entfernt. Scheitert die Abrechnung
+# selbst, bleibt die Schätzung stehen — lieber zu viel gezählt als ungezählt.
+
+RESERVIERT = " (reserviert)"
+GESCHAETZTE_EINGABE = 20000
+
+
+def reservieren(db: Session, user: User | None, *, kind: str, model: str,
+                max_output: int) -> int | None:
+    """Guthaben prüfen und den Aufruf vorläufig buchen. Gibt die Buchungs-ID."""
+    ensure_budget(db, user)
+    if not settings.API_BUDGET_ENFORCED or user is None:
+        return None
+    zeile = ApiUsage(
+        user_id=user.id, kind=kind + RESERVIERT, model=model,
+        input_tokens=0, output_tokens=0,
+        cost_eur=cost_eur(model, GESCHAETZTE_EINGABE, max_output),
+        created_at=datetime.utcnow(),
+    )
+    db.add(zeile)
+    db.commit()
+    return zeile.id
+
+
+def abrechnen(db: Session, user: User | None, reservierung: int | None, *,
+              kind: str, model: str, input_tokens: int, output_tokens: int) -> float:
+    """Die vorläufige Buchung durch die tatsächliche ersetzen."""
+    zeile = db.get(ApiUsage, reservierung) if reservierung else None
+    if zeile is None:
+        return record(db, user, kind=kind, model=model,
+                      input_tokens=input_tokens, output_tokens=output_tokens)
+    kosten = cost_eur(model, input_tokens, output_tokens)
+    zeile.kind = kind
+    zeile.input_tokens = input_tokens
+    zeile.output_tokens = output_tokens
+    zeile.cost_eur = kosten
+    db.commit()
+    if user is not None:
+        _pruefe_warnung(db, user)
+    return kosten
+
+
+def freigeben(db: Session, reservierung: int | None) -> None:
+    """Vorläufige Buchung zurücknehmen — der Aufruf kam nicht zustande."""
+    if not reservierung:
+        return
+    zeile = db.get(ApiUsage, reservierung)
+    if zeile is not None and (zeile.kind or "").endswith(RESERVIERT):
+        db.delete(zeile)
+        db.commit()
+
+
 # Schwellen, bei deren Unterschreiten gewarnt wird — als Anteil des
 # Guthabens. Absteigend, damit die niedrigste zutreffende gewinnt.
 WARNSCHWELLEN = (0.10, 0.0)
@@ -213,14 +277,23 @@ def _pruefe_warnung(db: Session, user: User) -> None:
     user.api_warned_at = faellig
     db.commit()
 
-    try:
-        from services.account_mail import send_budget_warning
+    # In einem eigenen Thread: Der Versand (SMTP oder Brevo, 15 s Timeout)
+    # lief bisher mitten in einer async-Funktion und hielt so lange den
+    # ganzen Server an — für alle Nutzer.
+    import threading
 
-        send_budget_warning(
-            user.email, user.name,
-            rest=round(anteil_rest * guthaben, 2),
-            guthaben=round(guthaben, 2),
-            aufgebraucht=faellig == 0.0,
-        )
-    except Exception as e:  # pragma: no cover - Mail darf nie den Aufruf reißen
-        logger.warning("Guthabenwarnung nicht verschickt: %s", e)
+    def _senden(email, name, rest, betrag, aufgebraucht):
+        try:
+            from services.account_mail import send_budget_warning
+
+            send_budget_warning(email, name, rest=rest, guthaben=betrag,
+                                aufgebraucht=aufgebraucht)
+        except Exception as e:  # pragma: no cover - Mail darf nie den Aufruf reißen
+            logger.warning("Guthabenwarnung nicht verschickt: %s", e)
+
+    threading.Thread(
+        target=_senden,
+        args=(user.email, user.name, round(anteil_rest * guthaben, 2),
+              round(guthaben, 2), faellig == 0.0),
+        daemon=True,
+    ).start()

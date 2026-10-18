@@ -166,13 +166,22 @@ def pruefe(db: Session, ziel_datum: date | None = None,
                 )
 
     # --- Zurückliegender Wettkampf ---
-    letztes = (
+    ergebnis = (
         db.query(RaceResult)
         .filter(RaceResult.race_date <= heute)
         .order_by(RaceResult.race_date.desc())
         .first()
     )
-    if letztes is not None:
+    # Auch das Saisonziel selbst, wenn es vorbei ist — mit oder ohne
+    # eingetragenes Ergebnis. Vorher sperrte nur ein Ergebnis: Wer nach dem
+    # Rennen keines eintrug, bekam zwei Tage später eine Testwoche angeboten,
+    # mitten in der Restermüdung.
+    renntage = [r for r in (
+        ergebnis.race_date if ergebnis is not None else None,
+        ziel_datum if ziel_datum is not None and ziel_datum <= heute else None,
+    ) if r is not None]
+    rennen_am = max(renntage) if renntage else None
+    if rennen_am is not None:
         # Gemessen ab dem Montag der Testwoche, nicht ab heute: Getestet wird
         # nicht heute, sondern in der kommenden Woche. Wer am 16. Tag nach
         # seinem Rennen steht und dessen kommender Montag der 22. Tag ist, hat
@@ -180,9 +189,9 @@ def pruefe(db: Session, ziel_datum: date | None = None,
         # verschiebt den Test grundlos um eine weitere Woche — und die
         # Begründung ("dein Wettkampf ist erst 16 Tage her") beschreibt einen
         # Tag, an dem gar nicht getestet wird.
-        abstand_bei_start = (start - letztes.race_date).days
+        abstand_bei_start = (start - rennen_am).days
         if abstand_bei_start < SPERRE_NACH_RENNEN:
-            frei = montag_ab(letztes.race_date + timedelta(days=SPERRE_NACH_RENNEN))
+            frei = montag_ab(rennen_am + timedelta(days=SPERRE_NACH_RENNEN))
             frueheste = max(frueheste, frei)
             gruende.append(
                 f"Beim Start der Testwoche am {start} liegt dein Wettkampf erst "
@@ -200,7 +209,7 @@ def pruefe(db: Session, ziel_datum: date | None = None,
         faellig = gemessen_am + timedelta(days=TAGE_BIS_NEUTEST)
         if start < faellig:
             seit = (heute - gemessen_am).days
-            frueheste = max(frueheste, montag_ab(faellig)) if frueheste else frueheste
+            frueheste = max(frueheste, montag_ab(faellig))
             gruende.append(
                 f"Deine Werte sind erst {seit} Tage alt. Ein neuer Maximaltest "
                 f"misst dann fast dasselbe, kostet aber eine Trainingswoche und "
@@ -216,23 +225,28 @@ def pruefe(db: Session, ziel_datum: date | None = None,
         frueheste = None
 
     # --- Kurz vor dem Saisonziel ---
-    # Gemessen ab **heute**, nicht ab dem Start der Testwoche. Vom Start aus
-    # gerechnet lag ein Wettkampf, der noch vor dem kommenden Montag liegt,
-    # bereits in der Vergangenheit — die Sperre griff ausgerechnet in der
-    # Woche unmittelbar vor dem Rennen nicht.
-    if ziel_datum is not None and frueheste is not None:
-        tage_bis = (ziel_datum - heute).days
-        if 0 <= tage_bis < SPERRE_VOR_ZIEL:
+    # Gemessen an der **Testwoche**, nicht an heute: Sie muss vollständig vor
+    # den Taperwochen liegen. Vorher zählten die 21 Tage ab heute, und eine
+    # Testwoche, die 14 bis 20 Tage vor dem Rennen begann, ging durch — mitten
+    # in den Taper, in dem es laut Moduldocstring nichts mehr zu messen gibt.
+    # Ein Rennen noch vor dem kommenden Montag fällt ebenfalls hierunter
+    # (negativer Abstand), solange es nicht schon vorbei ist.
+    if ziel_datum is not None and frueheste is not None and ziel_datum > heute:
+        testwoche_ende = start + timedelta(days=6)
+        if (ziel_datum - testwoche_ende).days < SPERRE_VOR_ZIEL:
+            tage_bis = (ziel_datum - heute).days
             gruende.append(
-                f"Bis zum Wettkampf sind es nur noch {tage_bis} Tage. So kurz "
-                f"davor gibt es nichts mehr zu messen, was sich noch auswirkt — "
-                f"und ein harter Test kostet Frische."
+                f"Bis zum Wettkampf sind es nur noch {tage_bis} Tage — die "
+                f"Testwoche läge im Taper. So kurz davor gibt es nichts mehr zu "
+                f"messen, was sich noch auswirkt, und ein harter Test kostet "
+                f"Frische."
             )
             # Den späteren Termin nehmen, nicht überschreiben: Liegt schon eine
             # Testwoche oder eine frische Messung vor, reicht deren Sperre
             # womöglich weiter — der Knopf böte sonst einen Termin an, der
-            # dann abgelehnt wird.
-            frueheste = max(frueheste, naechster_montag(
+            # dann abgelehnt wird. Derselbe Montagshelfer wie nach einem
+            # Wettkampf (`montag_ab`), damit beide Sperren gleich rechnen.
+            frueheste = max(frueheste, montag_ab(
                 ziel_datum + timedelta(days=SPERRE_NACH_RENNEN)))
 
     return {

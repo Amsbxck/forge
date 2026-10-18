@@ -41,13 +41,36 @@ def P(text, style) -> "Paragraph":
     return Paragraph(_safe(text), style)
 
 
+def _minuten(wert) -> int:
+    """Dauer aus dem Plan als Zahl. Das Modell liefert gelegentlich „60" als
+    Text oder „60 min" — `sum()` darüber brach mit einem TypeError ab, und
+    der PDF-Export endete in einem 500er."""
+    if isinstance(wert, (int, float)):
+        return int(wert)
+    if isinstance(wert, str):
+        m = re.search(r"\d+", wert)
+        return int(m.group()) if m else 0
+    return 0
+
+
+# Spaltenköpfe der Blocktabellen auf Deutsch statt als Rohschlüssel
+# („DURATION_MIN", „WATT").
+SPALTEN = {
+    "block": "Block", "dauer": "Dauer", "watt": "Watt", "rpm": "Kadenz",
+    "zone": "Zone", "pace": "Pace", "duration_min": "Dauer (min)",
+    "hr": "Puls", "ziel_hr": "Zielpuls", "wdh": "Wdh.", "pause": "Pause",
+}
+
+
 def _safe(text) -> str:
     """Ersetzt Unicode-Zeichen die Helvetica/Latin-1 nicht kennt."""
     if not isinstance(text, str):
         text = str(text)
     replacements = {
         '—': '-', '–': '-', '‒': '-',  # em/en dash
-        '’': "'", '‘': "'", '“': '"', '”': '"',
+        '’': "'", '‘': "'", '“': '"', '”': '"', '„': '"', '‚': "'",
+        # Fehlten und verschwanden still: „≥ 48 h" wurde zu „ 48 h".
+        '≥': '>=', '≤': '<=', '′': "'", '″': '"', '−': '-', '≈': '~',
         '→': '->', '←': '<-', '•': '*', '…': '...',
         '°': 'deg', '×': 'x', '÷': '/',
     }
@@ -234,7 +257,7 @@ def _render_blocks(blocks, st: dict) -> list:
         return []
 
     # Header-Zeile
-    header_row = [P(k.upper(), st["table_header"]) for k in all_keys]
+    header_row = [P(SPALTEN.get(k, k.replace("_", " ").capitalize()), st["table_header"]) for k in all_keys]
     data = [header_row]
 
     for b in blocks:
@@ -498,7 +521,7 @@ def generate_plan_pdf(plan: dict) -> bytes:
     for d in days:
         st_key = d.get("session_type", "rest")
         counts[st_key] = counts.get(st_key, 0) + 1
-        total_min += d.get("duration_min") or 0
+        total_min += _minuten(d.get("duration_min"))
 
     summary_header = [
         P("Einheit", st["table_header"]),
@@ -507,7 +530,7 @@ def generate_plan_pdf(plan: dict) -> bytes:
     ]
     summary_data = [summary_header]
     for s_type, count in counts.items():
-        dur = sum(d.get("duration_min") or 0 for d in days if d.get("session_type") == s_type)
+        dur = sum(_minuten(d.get("duration_min")) for d in days if d.get("session_type") == s_type)
         summary_data.append([
             P(SESSION_LABELS.get(s_type, s_type.upper()), st["table_cell"]),
             P(f"{count}×", st["table_cell"]),

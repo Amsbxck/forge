@@ -78,7 +78,11 @@ def test_fenster_ohne_planbeginn_wird_zurueckgerechnet():
     ziel = Ziel(date(2026, 6, 27), None, "Roth", total_weeks=40)
     beginn, ende = fenster(ziel)
     assert ende == date(2026, 6, 27)
-    assert beginn == date(2026, 6, 27) - timedelta(weeks=40)
+    # Wie beim Anlegen eines Ziels: ab dem Montag der Rennwoche, 39 Wochen
+    # zurück — die Rennwoche ist Woche 40.
+    from core.race_types import plan_start_for
+    assert beginn == plan_start_for(date(2026, 6, 27), 40)
+    assert beginn.weekday() == 0
     assert saison_name(date(2026, 1, 15), [ziel]) == "Roth 2026"
 
 

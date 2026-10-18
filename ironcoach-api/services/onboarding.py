@@ -12,6 +12,7 @@ wenn jemand ein Ziel wieder löscht oder die Zonen von Hand setzt.
 import logging
 from datetime import date
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from models import PlannedSession, TrainingSession, WeeklyPlan
@@ -32,7 +33,9 @@ def _training_plan(db: Session) -> WeeklyPlan | None:
     """Ein echter Wochenplan — die Testwoche zählt nicht."""
     return (
         db.query(WeeklyPlan)
-        .filter(WeeklyPlan.plan_phase != "Benchmark")
+        # Mit leerer Phase: `!= "Benchmark"` ist in SQL für NULL nicht wahr,
+        # und ein Plan ohne Phase galt sonst als nicht vorhanden.
+        .filter(or_(WeeklyPlan.plan_phase.is_(None), WeeklyPlan.plan_phase != "Benchmark"))
         .order_by(WeeklyPlan.generated_at.desc())
         .first()
     )
@@ -72,9 +75,20 @@ def status(db: Session, user=None) -> dict:
     bench_plan = _benchmark_plan(db)
     train_plan = _training_plan(db)
 
-    needs_bike = goal is None or goal.sport == "triathlon"
+    # Welche Tests das Ziel verlangt, aus derselben Tabelle wie die
+    # Testwoche selbst. Vorher war der Lauftest immer Pflicht — bei einem
+    # Radziel enthält die Testwoche aber keinen, und der Einstieg wurde nie
+    # fertig.
+    from core.race_types import relevante_werte
+
+    werte = relevante_werte(getattr(goal, "sport", None))
+    needs_bike = "ftp" in werte
+    needs_run = "run_threshold" in werte
     tests = _completed_tests(db, bench_plan.week_start if bench_plan else None)
-    tests_done = tests.get("run", 0) > 0 and (not needs_bike or tests.get("bike", 0) > 0)
+    tests_done = (
+        (not needs_run or tests.get("run", 0) > 0)
+        and (not needs_bike or tests.get("bike", 0) > 0)
+    )
 
     # "manual" zählt mit: wer seine Werte selbst gemessen und eingetragen
     # hat, ist genauso fertig wie nach einem Benchmark. Offen ist der Schritt
@@ -112,7 +126,7 @@ def status(db: Session, user=None) -> dict:
             # Laufziel wäre "0 Rad" eine Aufgabe, die es gar nicht gibt.
             "detail": (
                 " · ".join(
-                    [f"Lauftest {'✓' if tests.get('run', 0) else 'offen'}"]
+                    ([f"Lauftest {'✓' if tests.get('run', 0) else 'offen'}"] if needs_run else [])
                     + ([f"Radtest {'✓' if tests.get('bike', 0) else 'offen'}"] if needs_bike else [])
                 )
                 if bench_plan else None

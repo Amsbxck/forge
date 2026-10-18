@@ -22,7 +22,7 @@ def _schreib(db, user_id, rolle, text, versatz_min=0):
 
 def test_verlauf_kommt_zurueck(client, db):
     """Der Kern: Nach dem Seitenwechsel wird der Verlauf neu geladen."""
-    eigner = db.query(User).first()
+    eigner = db.query(User).order_by(User.id.asc()).first()
     _schreib(db, eigner.id, "user", "wie lange soll der lange Lauf werden?", 4)
     _schreib(db, eigner.id, "assistant", "90 Minuten, Walk-Run.", 3)
     db.commit()
@@ -39,7 +39,7 @@ def test_verlauf_kommt_zurueck(client, db):
 
 def test_verlauf_ist_chronologisch(client, db):
     """Älteste zuerst — sonst liest man das Gespräch von hinten."""
-    eigner = db.query(User).first()
+    eigner = db.query(User).order_by(User.id.asc()).first()
     _schreib(db, eigner.id, "user", "erste", 10)
     _schreib(db, eigner.id, "assistant", "zweite", 9)
     _schreib(db, eigner.id, "user", "dritte", 8)
@@ -58,7 +58,7 @@ def test_fremder_verlauf_bleibt_fremd(client, db):
     Ohne ihn stünde im Chat des einen Athleten die Unterhaltung des anderen —
     inklusive dessen Beschwerden und Werten.
     """
-    eigner = db.query(User).first()
+    eigner = db.query(User).order_by(User.id.asc()).first()
     fremd = User(email="fremd@example.invalid", name="Fremd")
     db.add(fremd)
     db.commit()

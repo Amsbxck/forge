@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { clearHrvRange, getHrvRange, setHrvRange } from '../services/api'
+import { fehlerText } from '../utils/fehler'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
 const LABEL = 'text-[11px] font-mono font-bold tracking-widest text-[var(--text-secondary)] block mb-1'
@@ -45,7 +46,7 @@ export default function HrvRange() {
       setOffen(false); setForm({ von: '', bis: '' })
       laden()
     } catch (err) {
-      setFehler(err.response?.data?.detail || 'Speichern fehlgeschlagen')
+      setFehler(fehlerText(err, 'Speichern fehlgeschlagen'))
     } finally { setBusy(false) }
   }
 

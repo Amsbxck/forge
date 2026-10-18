@@ -80,7 +80,7 @@ export default function ApiBudget() {
           {verlauf.map((z, i) => (
             <div key={i} className="flex items-center gap-3 text-[11px] font-mono">
               <span className="text-[var(--text-muted)] w-24 flex-shrink-0">
-                {z.datum ? z.datum.slice(0, 10) : '—'}
+                {z.datum ? lokalerTag(z.datum) : '—'}
               </span>
               <span className="text-[var(--text-secondary)] flex-1">{ART[z.art] || z.art}</span>
               <span className="text-[var(--text-muted)] tabular-nums hidden sm:block">
@@ -95,4 +95,13 @@ export default function ApiBudget() {
       )}
     </div>
   )
+}
+
+
+/** Zeitstempel des Servers (UTC, oft ohne Zonenangabe) als lokaler Tag.
+ *  `slice(0, 10)` zeigte den UTC-Tag — kurz nach Mitternacht den Vortag. */
+function lokalerTag(stempel) {
+  const mitZone = /Z|[+-]\d\d:?\d\d$/.test(stempel) ? stempel : `${stempel}Z`
+  const d = new Date(mitZone)
+  return Number.isNaN(d.getTime()) ? stempel.slice(0, 10) : d.toLocaleDateString('de-DE')
 }

@@ -7,9 +7,9 @@ Eine Note besteht deshalb aus drei Zonen:
   2. Managed Block     — zwischen zwei Markern, wird bei jedem Sync ersetzt
   3. Alles andere      — insbesondere "## Reflexion", wird nie angefasst
 
-Ändert sich der Trainingstyp bei einer Re-Klassifizierung, wandert die Note
-NICHT. Der Pfad richtet sich nach der Sportart (die steht fest), der Typ ist
-Frontmatter und Tag — sonst brechen bei jedem Re-Sync die Obsidian-Links.
+Der Pfad richtet sich nach Sportart, Saison und Intensitätsstufe. Ändert
+sich die Stufe bei einer Neuklassifizierung, wird die Note verschoben (siehe
+`sync.sync_session`), nicht verdoppelt; der Inhalt samt Reflexion zieht mit.
 """
 
 import hashlib
@@ -152,13 +152,22 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
     block = match.group(1)
     rest = (text or "")[match.end():]
     data: dict = {}
+    letzter: str | None = None
     for line in block.split("\n"):
         if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        # Fortsetzungszeilen (eingerückt oder „- …") gehören zum Schlüssel
+        # davor. So schreibt Obsidians Eigenschaften-Editor Listen wie `tags`
+        # und `aliases`. Vorher wurden diese Zeilen übersprungen — und beim
+        # nächsten Abgleich war die Liste leer: „aliases: " ohne Einträge.
+        if letzter is not None and (line[:1] in (" ", "\t") or line.lstrip().startswith("- ")):
+            data[letzter] = (data[letzter] or "") + "\n" + line.rstrip()
             continue
         if ":" not in line:
             continue
         key, _, value = line.partition(":")
-        data[key.strip()] = value.strip()
+        letzter = key.strip()
+        data[letzter] = value.strip()
     return data, rest
 
 

@@ -38,6 +38,10 @@ os.environ["STRAVA_VERIFY_TOKEN"] = "test_token"
 # Ohne diese Zeile antwortet jeder Endpunkt mit 401. Der Anmeldeweg selbst
 # wird dadurch nicht abgedeckt — das ist eine bekannte Lücke, keine Absicht.
 os.environ["AUTH_REQUIRED"] = "false"
+# Kein echter Scheduler in den Tests: Im Container steht RECONCILE_ENABLED
+# auf true, und jeder TestClient-Start fuhr APScheduler samt stündlichem
+# Strava-Abgleich gegen die Testdatenbank hoch.
+os.environ["RECONCILE_ENABLED"] = "false"
 # Seit dem Deploy-Umbau bricht die Anwendung ohne Geheimnis ab.
 os.environ.setdefault("JWT_SECRET", "test-secret-nur-fuer-tests")
 

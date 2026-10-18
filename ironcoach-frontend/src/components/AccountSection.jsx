@@ -4,6 +4,7 @@ import {
   resendVerification, setToken,
 } from '../services/api'
 import Modal from './Modal'
+import { isoTag } from '../utils/dates'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
 const LABEL = 'text-[10px] font-mono tracking-widest text-[var(--text-secondary)] block mb-1'
@@ -90,7 +91,7 @@ export default function AccountSection({ onLoggedOut }) {
       )
       const a = document.createElement('a')
       a.href = url
-      a.download = `ironcoach-daten-${new Date().toISOString().slice(0, 10)}.json`
+      a.download = `ironcoach-daten-${isoTag(new Date())}.json`
       a.click()
       URL.revokeObjectURL(url)
       setHinweis('Datei wurde heruntergeladen.')

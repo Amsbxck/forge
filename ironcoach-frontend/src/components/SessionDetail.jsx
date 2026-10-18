@@ -1,3 +1,4 @@
+import { paceText } from '../utils/dates'
 import { useEffect, useRef, useState } from 'react'
 import Modal from './Modal'
 import { DISCIPLINE_COLOR, DISCIPLINE_LABEL } from '../utils/colors'
@@ -37,8 +38,14 @@ export default function SessionDetail({ session: s, onClose }) {
 
   const hrData = (streams.hr || []).map((v, i) => ({ t: i * 10, hr: v }))
   const wattsData = (streams.watts || []).map((v, i) => ({ t: i * 10, watt: v }))
-  const paceData = (streams.pace || []).map((v, i) => ({ t: i * 10, pace: v }))
-  const speedData = (streams.speed || []).map((v, i) => ({ t: i * 10, speed: v }))
+  // Beim Lauf immer Pace, nie Geschwindigkeit — egal, ob die Einheit per
+  // Datei (früher nur `pace`) oder über Strava (früher nur `speed`) kam.
+  const istLauf = s.discipline === 'run'
+  const paceQuelle = streams.pace?.length
+    ? streams.pace
+    : istLauf ? (streams.speed || []).map(v => (v > 0 ? Math.round((60 / v) * 100) / 100 : null)) : []
+  const paceData = paceQuelle.map((v, i) => ({ t: i * 10, pace: v }))
+  const speedData = istLauf ? [] : (streams.speed || []).map((v, i) => ({ t: i * 10, speed: v }))
   const swimInfo = streams.swim_info || null
 
   // Scroll to top on open + lock body scroll
@@ -100,7 +107,7 @@ export default function SessionDetail({ session: s, onClose }) {
           {s.max_hr && <Stat label="MAX HR" value={`${s.max_hr} bpm`} color="#ef4444" />}
           {s.avg_watts && <Stat label="AVG POWER" value={`${s.avg_watts}W`} color="#a855f7" />}
           {s.normalized_power && <Stat label="NP" value={`${s.normalized_power}W`} color="#a855f7" />}
-          {s.avg_pace_min_km && <Stat label="PACE" value={`${s.avg_pace_min_km.toFixed(2)} /km`} />}
+          {s.avg_pace_min_km && <Stat label="PACE" value={paceText(s.avg_pace_min_km, s.discipline)} />}
           {s.tss && <Stat label="TSS" value={s.tss.toFixed ? s.tss.toFixed(0) : s.tss} color="#00d4ff" />}
         </div>
 
@@ -137,13 +144,13 @@ export default function SessionDetail({ session: s, onClose }) {
         {/* Power chart */}
         {wattsData.length > 0 && (
           <div>
-            <SectionTitle>POWER</SectionTitle>
+            <SectionTitle>LEISTUNG</SectionTitle>
             <ResponsiveContainer width="100%" height={240}>
               <LineChart data={wattsData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.gridStroke} vertical={false} />
                 <XAxis dataKey="t" tickFormatter={formatTime} tick={CHART_STYLE.tickStyle} axisLine={false} tickLine={false} />
                 <YAxis domain={['auto', 'auto']} tick={CHART_STYLE.tickStyle} axisLine={false} tickLine={false} unit="W" />
-                <Tooltip formatter={(v) => [`${v}W`, 'Power']} labelFormatter={formatTime} contentStyle={CHART_STYLE.contentStyle} />
+                <Tooltip formatter={(v) => [`${v} W`, 'Leistung']} labelFormatter={formatTime} contentStyle={CHART_STYLE.contentStyle} />
                 <Line type="monotone" dataKey="watt" stroke="#a855f7" strokeWidth={1.5} dot={false} activeDot={{ r: 3, fill: '#a855f7' }} />
               </LineChart>
             </ResponsiveContainer>
@@ -159,7 +166,7 @@ export default function SessionDetail({ session: s, onClose }) {
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.gridStroke} vertical={false} />
                 <XAxis dataKey="t" tickFormatter={formatTime} tick={CHART_STYLE.tickStyle} axisLine={false} tickLine={false} />
                 <YAxis reversed domain={['auto', 'auto']} tick={CHART_STYLE.tickStyle} axisLine={false} tickLine={false} unit=" /km" />
-                <Tooltip formatter={(v) => [`${v} min/km`, 'Pace']} labelFormatter={formatTime} contentStyle={CHART_STYLE.contentStyle} />
+                <Tooltip formatter={(v) => [paceText(v, 'run'), 'Pace']} labelFormatter={formatTime} contentStyle={CHART_STYLE.contentStyle} />
                 <Line type="monotone" dataKey="pace" stroke="#22c55e" strokeWidth={1.5} dot={false} activeDot={{ r: 3, fill: '#22c55e' }} />
               </LineChart>
             </ResponsiveContainer>
@@ -169,13 +176,13 @@ export default function SessionDetail({ session: s, onClose }) {
         {/* Speed chart */}
         {speedData.length > 0 && (
           <div>
-            <SectionTitle>SPEED</SectionTitle>
+            <SectionTitle>TEMPO</SectionTitle>
             <ResponsiveContainer width="100%" height={240}>
               <LineChart data={speedData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CHART_STYLE.gridStroke} vertical={false} />
                 <XAxis dataKey="t" tickFormatter={formatTime} tick={CHART_STYLE.tickStyle} axisLine={false} tickLine={false} />
                 <YAxis domain={['auto', 'auto']} tick={CHART_STYLE.tickStyle} axisLine={false} tickLine={false} unit=" km/h" />
-                <Tooltip formatter={(v) => [`${v} km/h`, 'Speed']} labelFormatter={formatTime} contentStyle={CHART_STYLE.contentStyle} />
+                <Tooltip formatter={(v) => [`${v} km/h`, 'Tempo']} labelFormatter={formatTime} contentStyle={CHART_STYLE.contentStyle} />
                 <Line type="monotone" dataKey="speed" stroke="#00d4ff" strokeWidth={1.5} dot={false} activeDot={{ r: 3, fill: '#00d4ff' }} />
               </LineChart>
             </ResponsiveContainer>
@@ -190,14 +197,14 @@ export default function SessionDetail({ session: s, onClose }) {
         {/* HR zones */}
         {s.hr_zones && (
           <div>
-            <SectionTitle>HR ZONES</SectionTitle>
+            <SectionTitle>PULSZONEN</SectionTitle>
             <HRZoneChart zones={s.hr_zones} />
           </div>
         )}
 
         {!hrData.length && !wattsData.length && !paceData.length && !speedData.length && !s.hr_zones && (
           <p className="text-[var(--text-muted)] text-xs font-mono text-center py-4">
-            No time-series data available (FIT uploads only).
+            Keine Zeitreihen vorhanden.
           </p>
         )}
       </div>

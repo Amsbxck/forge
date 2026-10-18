@@ -16,9 +16,11 @@ class AthleteProfileOut(BaseModel):
     z3_hr_max: int
     z4_hr_min: int
     z4_hr_max: int
-    race_date: date
-    race_goal: str
-    plan_start_date: date
+    # Ohne Saisonziel leer: Im Profil stehen nur Platzhalter aus der
+    # Registrierung, und die Seite zählte auf ein erfundenes Rennen herunter.
+    race_date: date | None = None
+    race_goal: str | None = None
+    plan_start_date: date | None = None
     threshold_hr: int | None = None
     threshold_pace_s_per_km: int | None = None
     threshold_source: str | None = None
@@ -151,6 +153,11 @@ class WeeklyPlanOut(BaseModel):
     plan_text: str | None
     adjustments_applied: list[str] | None
     generated_at: datetime
+    # Ob die Woche storniert werden kann — vom Server, nach seiner Regel
+    # (`plan_storno.storno_pruefung`). Die Oberfläche rechnete das vorher
+    # selbst und anders.
+    stornierbar: bool | None = None
+    storno_grund: str | None = None
 
     class Config:
         from_attributes = True
@@ -237,6 +244,25 @@ class RaceGoalIn(BaseModel):
     goal_time: str | None = None
     plan_weeks: int | None = None
     plan_start_date: date | None = None
+
+
+class RaceGoalPatch(BaseModel):
+    """Änderung an einem Ziel. Alles optional, aber jedes Feld geprüft.
+
+    Vorher nahm der Endpunkt ein rohes dict: ein Text als Datum endete in der
+    Datenbank als 500er, ein leeres `plan_start_date` wurde gespeichert (und
+    jede Woche hieß danach Woche 1), und die Priorität liess sich gar nicht
+    ändern.
+    """
+    priority: str | None = None
+    sport: str | None = None
+    distance: str | None = None
+    race_date: date | None = None
+    race_name: str | None = None
+    goal_time: str | None = None
+    plan_weeks: int | None = Field(default=None, ge=4, le=60)
+    plan_start_date: date | None = None
+    is_active: bool | None = None
 
 
 class RaceGoalOut(BaseModel):
@@ -345,6 +371,9 @@ class WeekMetrics(BaseModel):
     hr_zones_avg: dict | None
     hrv_latest: float | None
     hrv_status: str | None
+    # Wann der Wert gemessen wurde. Ohne Datum zeigte die Kachel „HRV heute"
+    # auch eine Messung von letzter Woche — als grün.
+    hrv_measured_at: date | None = None
 
 
 class TrendPoint(BaseModel):

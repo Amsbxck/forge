@@ -226,7 +226,6 @@ def detect_from_session(session: TrainingSession) -> dict | None:
     if not runden:
         return None
 
-    letzter_einwand = None
     for d_lang, d_kurz in PAARE:
         r_lang = _passende_runde(runden, d_lang)
         r_kurz = _passende_runde(runden, d_kurz)
@@ -238,8 +237,11 @@ def detect_from_session(session: TrainingSession) -> dict | None:
             # Nicht stillschweigend das nächstkürzere Paar nehmen: Das läge
             # dann ebenso daneben, nur unauffälliger. Der Grund wird
             # gemeldet, damit er behoben werden kann.
-            letzter_einwand = einwand
-            continue
+            #
+            # Hier stand bis eben `continue` — genau das stille Ausweichen,
+            # das der Kommentar ausschliesst: Ein unplausibles 400/200 ergab
+            # eine CSS aus dem Einschwimmen über 100 m.
+            return {"einwand": einwand}
 
         css = css_from_times(r_lang["t"], r_kurz["t"], d_lang, d_kurz)
         if css is None:
@@ -266,11 +268,6 @@ def detect_from_session(session: TrainingSession) -> dict | None:
             },
         }
 
-    # Kein brauchbares Paar. Wenn es an der Plausibilität lag, wird der Grund
-    # zurückgegeben statt nur "nichts gefunden" — sonst sucht der Athlet den
-    # Fehler bei der App statt beim Test.
-    if letzter_einwand:
-        return {"einwand": letzter_einwand}
     return None
 
 

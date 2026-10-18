@@ -56,6 +56,14 @@ async def reconcile_activities(
         .filter(TrainingSession.strava_activity_id.in_(ids))
         .all()
     } if ids else set()
+    # Endgültig gelöschte gelten als bekannt — sonst kamen sie zurück.
+    from models import GeloeschteStravaAktivitaet
+    known |= {
+        row[0]
+        for row in db.query(GeloeschteStravaAktivitaet.strava_activity_id)
+        .filter(GeloeschteStravaAktivitaet.strava_activity_id.in_(ids))
+        .all()
+    } if ids else set()
 
     results: list[dict] = []
     counts: dict[str, int] = {}
@@ -72,6 +80,10 @@ async def reconcile_activities(
                 sync_obsidian=not dry_run, dry_run=dry_run,
             )
         except Exception as e:
+            # Zurückrollen, bevor es weitergeht: Nach einem Datenbankfehler
+            # steht die Transaktion auf „abgebrochen", und jede weitere
+            # Aktivität dieses Laufs scheiterte sonst an derselben Stelle.
+            db.rollback()
             logger.error("Aktivität %s konnte nicht verarbeitet werden: %s", activity_id, e)
             result = {"activity_id": activity_id, "action": "error", "error": str(e)}
         counts[result["action"]] = counts.get(result["action"], 0) + 1
@@ -101,6 +113,11 @@ async def check_subscription(db: Session, expected_url: str | None = None) -> di
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
+    # Die eigene Subscription-ID merken — der Webhook verwirft damit
+    # Ereignisse, die nicht von ihr stammen.
+    from routers.strava_webhook import remember_subscription
+    remember_subscription(subs)
+
     payload = {
         "status": "ok",
         "count": len(subs),
@@ -125,8 +142,11 @@ async def run_full_reconcile(db: Session, days: int = 14) -> dict:
     """Was der Cron-Job stündlich macht: Strava nachziehen, dann Obsidian-Outbox."""
     from services.obsidian.sync import sync_pending
 
+    import asyncio
+
     activities = await reconcile_activities(db, days=days)
-    obsidian = sync_pending(db)
+    # Im eigenen Thread — der Vault-Client blockiert (siehe ingest.nachbearbeiten).
+    obsidian = await asyncio.to_thread(sync_pending, db)
     return {
         "ran_at": datetime.utcnow().isoformat(),
         "activities": activities,

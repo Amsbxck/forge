@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getHealthStatus, reportIllness, reportRecovered } from '../services/api'
+import { isoTag } from '../utils/dates'
+import { fehlerText } from '../utils/fehler'
 import HealthIcon from './HealthIcon'
 import Modal from './Modal'
 import BodyMap from './BodyMap'
@@ -45,11 +47,15 @@ const LEER_FORM = { kind: 'illness', severity: 'mild', fever: false, body_part: 
 function ReportDialog({ onClose, onDone }) {
   const [form, setForm] = useState(LEER_FORM)
   const [busy, setBusy] = useState(false)
+  // Vorher ohne Fehlerfang: Ein 422 oder 500 ließ den Dialog offen und
+  // stumm, und man drückte noch einmal.
+  const [fehler, setFehler] = useState(null)
 
   const senden = async () => {
     setBusy(true)
+    setFehler(null)
     try {
-      await reportIllness({
+      const { data } = await reportIllness({
         kind: form.kind,
         severity: form.severity,
         fever: form.severity === 'severe' ? form.fever : false,
@@ -59,7 +65,9 @@ function ReportDialog({ onClose, onDone }) {
         start_date: form.start_date || null,
         note: form.note || null,
       })
-      onDone()
+      onDone(data)
+    } catch (e) {
+      setFehler(fehlerText(e, 'Die Meldung konnte nicht gespeichert werden.'))
     } finally { setBusy(false) }
   }
 
@@ -141,7 +149,7 @@ function ReportDialog({ onClose, onDone }) {
         <label className="block">
           <span className={`${LABEL} block mb-1`}>SEIT WANN (LEER = HEUTE)</span>
           <input
-            type="date" max={new Date().toISOString().slice(0, 10)}
+            type="date" max={isoTag(new Date())}
             className="rounded-lg px-3 py-2 text-sm font-mono text-[#e8eaf0] outline-none w-full"
             style={FIELD_STYLE} value={form.start_date}
             onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
@@ -158,6 +166,10 @@ function ReportDialog({ onClose, onDone }) {
             onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
           />
         </label>
+
+        {fehler && (
+          <div className="text-[11px] font-mono" style={{ color: '#ef4444' }}>{fehler}</div>
+        )}
 
         <div className="flex gap-2 pt-1">
           <button
@@ -194,17 +206,26 @@ export default function HealthStatus({ variant = 'bar', onChanged }) {
 
   useEffect(() => { load() }, [load])
 
-  const nachMeldung = async (text) => {
+  const nachMeldung = async (text, antwort) => {
     setHinweis(text)
     await load()
-    onChanged?.()
+    // Die Antwort mitgeben: Der Wochenplan verfolgt damit die Neuplanung
+    // und sagt, wenn sie nicht geklappt hat.
+    onChanged?.(antwort)
   }
 
   const gesund = async () => {
     setBusy(true)
     try {
-      await reportRecovered({})
-      await nachMeldung('Willkommen zurück. Der Wiedereinstiegsplan wird erstellt.')
+      const { data } = await reportRecovered({})
+      await nachMeldung(
+        data.plan_wird_angepasst
+          ? 'Willkommen zurück. Der Wiedereinstiegsplan wird erstellt.'
+          : 'Willkommen zurück.',
+        data,
+      )
+    } catch (e) {
+      setHinweis(fehlerText(e, 'Gesundmeldung fehlgeschlagen.'))
     } finally { setBusy(false) }
   }
 
@@ -222,9 +243,14 @@ export default function HealthStatus({ variant = 'bar', onChanged }) {
   const dialogNode = dialog && (
     <ReportDialog
       onClose={() => setDialog(false)}
-      onDone={async () => {
+      onDone={async (antwort) => {
         setDialog(false)
-        await nachMeldung('Gemeldet. Der Wochenplan wird im Hintergrund angepasst.')
+        await nachMeldung(
+          antwort?.plan_wird_angepasst
+            ? 'Gemeldet. Der Wochenplan wird im Hintergrund angepasst.'
+            : 'Gemeldet.',
+          antwort,
+        )
       }}
     />
   )

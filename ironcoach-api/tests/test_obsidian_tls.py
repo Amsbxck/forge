@@ -109,7 +109,7 @@ def test_verbindungstest_gibt_die_vervollstaendigte_adresse_zurueck(client, db):
     """
     from models import AthleteProfile
 
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     profil.obsidian_api_key = "geheim"
     db.commit()
 

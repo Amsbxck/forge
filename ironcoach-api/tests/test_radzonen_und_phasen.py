@@ -126,7 +126,7 @@ def test_historische_notiz_wird_nicht_ueberschrieben(db):
     from models import TrainingSession, User
     from services.classification import classify_session
 
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     einheit = TrainingSession(
         user_id=nutzer.id, session_date=date(2026, 5, 1), discipline="bike",
         duration_min=90, normalized_power=200, week_number=18,

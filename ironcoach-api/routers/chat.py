@@ -26,6 +26,110 @@ def _tag(wert):
         return None
 
 
+def _ganze_woche(db: Session, profile, gemeinsam: dict, entwurf: dict):
+    """Eine im Chat neu geschriebene Woche prüfen und als Plan anlegen.
+
+    Gibt (plan_oder_None, hinweis_fuer_die_antwort) zurück.
+
+    Bis hierher wurde der Entwurf ungeprüft gespeichert: Die Wochennummer kam
+    vom Modell (das sie aus dem gezeigten JSON abschreibt), der Plan landete
+    unter dem Montag dieser Nummer, während seine Tage andere Daten trugen —
+    und die Projektion räumte dann die Einheiten einer fremden Woche ab. Eine
+    Nummer, die keine Zahl war, endete in einem 500er. Vergangene und
+    erledigte Tage waren ungeschützt, und die Phase kam vom Modell, sodass
+    eine Testwoche ihr „Benchmark" verlieren konnte.
+
+    Jetzt:
+      * Die Woche folgt aus den **Daten** der Tage. Liegen sie nicht in einer
+        einzigen Kalenderwoche, wird nichts gespeichert.
+      * Die Nummer wird aus dem Montag gerechnet, nicht übernommen.
+      * Gibt es für die Woche schon einen Plan, laufen die neuen Tage durch
+        `merge_days` — vergangene, absolvierte und ersetzte Tage bleiben.
+      * Die Phase einer bestehenden Woche bleibt; ohne Vorgänger gilt dieselbe
+        Regel wie bei der Planerstellung.
+    """
+    from core.deps import get_plan_anchor
+    from core.wochen import kalenderwoche
+    from services.plan_generator import get_week_for_date
+    from services.plan_merge import gesperrte_daten, merge_days, plan_text_aus
+    from services.plan_selection import plan_der_woche
+
+    tage = [t for t in entwurf.get("days") or [] if isinstance(t, dict)]
+    daten = sorted({d for d in (_tag(t.get("date")) for t in tage) if d is not None})
+    if not daten:
+        return None, (
+            "\n\nDer neue Plan wurde nicht gespeichert: Die Tage tragen kein "
+            "gültiges Datum."
+        )
+    montag, sonntag = kalenderwoche(daten[0])
+    if daten[-1] > sonntag:
+        return None, (
+            "\n\nDer neue Plan wurde nicht gespeichert: Seine Tage reichen über "
+            "zwei Kalenderwochen. Bitte die Woche einzeln anfragen."
+        )
+
+    anker = get_plan_anchor(db) or profile
+    nummer = get_week_for_date(anker, montag)
+    basis = plan_der_woche(db, montag)
+
+    if basis is not None and (basis.plan_content or {}).get("days"):
+        inhalt, uebernommen, abgewiesen = merge_days(
+            basis.plan_content or {}, tage, gesperrte_daten=gesperrte_daten(db, basis.id)
+        )
+        # Neue Tage, die es in der alten Fassung nicht gab, gehören trotzdem
+        # in diese Woche — `merge_days` weist sie als „nicht in dieser Woche"
+        # ab, weil es nur bestehende Daten ersetzt. Hier liegen sie per
+        # Prüfung oben sicher in der Woche.
+        vorhanden = {_tag(t.get("date")) for t in inhalt.get("days") or []}
+        dazu = [t for t in tage if _tag(t.get("date")) not in vorhanden
+                and _tag(t.get("date")) >= date.today()]
+        if dazu:
+            inhalt["days"] = sorted(
+                (inhalt.get("days") or []) + dazu,
+                key=lambda t: (_tag(t.get("date")) or montag),
+            )
+            uebernommen += [str(_tag(t.get("date"))) for t in dazu]
+            abgewiesen = [a for a in abgewiesen if "nicht in dieser Woche" not in a]
+        for feld in ("coaching_comment", "adjustments"):
+            if entwurf.get(feld):
+                inhalt[feld] = entwurf[feld]
+        hinweis = ""
+        if abgewiesen:
+            hinweis = (
+                "\n\nNicht geändert: " + ", ".join(abgewiesen)
+                + ". Vergangene, absolvierte und ersetzte Tage bleiben stehen."
+            )
+        if not uebernommen:
+            return None, hinweis
+        phase = basis.plan_phase
+    else:
+        inhalt = dict(entwurf)
+        inhalt["days"] = [t for t in tage if (_tag(t.get("date")) or montag) >= montag]
+        hinweis = ""
+        phase = (
+            gemeinsam["phase"] if gemeinsam.get("offseason") or gemeinsam.get("base_period")
+            else entwurf.get("phase") or gemeinsam.get("phase")
+        )
+
+    inhalt["week"] = nummer
+    inhalt["week_start"] = str(montag)
+    inhalt["week_end"] = str(sonntag)
+    plan = WeeklyPlan(
+        user_id=profile.user_id,
+        week_number=nummer,
+        week_start=montag,
+        week_end=sonntag,
+        plan_phase=phase,
+        plan_content=inhalt,
+        plan_text=plan_text_aus(inhalt, nummer, montag, sonntag),
+        adjustments_applied=(
+            ((basis.adjustments_applied or []) if basis is not None else [])
+            + (entwurf.get("adjustments") or ["Woche im Chat neu geplant"])
+        ),
+    )
+    return plan, hinweis
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(body: ChatMessageIn, db: Session = Depends(get_db)):
     # Die JÜNGSTEN Nachrichten, nicht die ältesten: mit asc().limit(20) sah
@@ -79,13 +183,13 @@ async def chat(body: ChatMessageIn, db: Session = Depends(get_db)):
     # Der Plan der **laufenden Woche**, nicht der zuletzt erzeugte: Wer sich
     # eine spätere Woche vorausplanen lässt, bekam sonst im Chat diese Woche
     # als "aktuell" vorgehalten.
-    latest_plan = (
-        db.query(WeeklyPlan)
-        .filter(WeeklyPlan.week_number == current_week)
-        .order_by(WeeklyPlan.generated_at.desc())
-        .first()
-        or db.query(WeeklyPlan).order_by(WeeklyPlan.generated_at.desc()).first()
-    )
+    #
+    # Über den Montag und nach derselben Regel wie Plankachel und Kalender.
+    # Vorher über die Wochennummer (nach einem Zielwechsel eine andere Woche)
+    # und mit Rückfall auf den neuesten Plan **irgendeiner** Woche — genau das,
+    # was dieser Kommentar vermeiden wollte.
+    from services.plan_selection import plan_der_woche
+    latest_plan = plan_der_woche(db)
     plan_text = latest_plan.plan_text if latest_plan else None
     plan_content = latest_plan.plan_content if latest_plan else None
 
@@ -147,42 +251,11 @@ async def chat(body: ChatMessageIn, db: Session = Depends(get_db)):
     # Mandantenfilter unsichtbar, und der Athlet bekäme eine Antwort mit dem
     # Hinweis auf einen geänderten Plan, den es nirgends gibt.
     if updated_plan and updated_plan.get("days") and profile and profile.user_id:
-        target_week = updated_plan.get("week", current_week + 1)
-        # Startdatum aus dem Saisonziel, ersatzweise aus dem Profil — dieselbe
-        # Reihenfolge wie in der Planerstellung. Aus dem Profil allein datierte
-        # der Chat die Woche anders als der Generator dieselbe Woche.
-        from core.deps import get_plan_anchor
-        anker = get_plan_anchor(db) or profile
-        plan_start = getattr(anker, "plan_start_date", None) or profile.plan_start_date
-        week_start, week_end = get_week_dates(target_week, plan_start)
-        plan_text_lines = [f"Wochenplan {target_week} ({week_start} – {week_end})", ""]
-        for day in updated_plan["days"]:
-            training_type = day.get("training_type")
-            type_suffix = f" [{training_type}]" if training_type else ""
-            plan_text_lines.append(
-                f"{day.get('day', '?')} ({day.get('date', '?')}): "
-                f"{str(day.get('session_type', '')).upper()}{type_suffix} "
-                f"{day.get('duration_min', '')}min — {day.get('notes', '')}"
-            )
-        plan_text_lines.append("")
-        plan_text_lines.append(updated_plan.get("coaching_comment", ""))
-
-        db_plan = WeeklyPlan(
-            user_id=profile.user_id,
-            week_number=target_week,
-            week_start=week_start,
-            week_end=week_end,
-            # In der Off Season steht die Phase fest; vom Modell übernommen
-            # hieße sie mal "Off Season" und mal "Base 1".
-            plan_phase=(
-                gemeinsam["phase"] if gemeinsam.get("offseason")
-                else updated_plan.get("phase")
-            ),
-            plan_content=updated_plan,
-            plan_text="\n".join(plan_text_lines),
-            adjustments_applied=updated_plan.get("adjustments", []),
-        )
-        db.add(db_plan)
+        db_plan, hinweis = _ganze_woche(db, profile, gemeinsam, updated_plan)
+        if hinweis:
+            reply += hinweis
+        if db_plan is not None:
+            db.add(db_plan)
 
     # Teiländerung: nur die gelieferten Tage ersetzen, der Rest bleibt
     # wortgleich stehen. Das ist der Normalfall für Umstellungen innerhalb der
@@ -215,11 +288,9 @@ async def chat(body: ChatMessageIn, db: Session = Depends(get_db)):
             # Absolvierte Tage sperren: Ihre Vorgabe nachträglich auf das zu
             # setzen, was gemacht wurde, ergäbe eine Planerfüllung, die nie
             # stattgefunden hat.
-            gesperrt = {
-                p.planned_date for p in db.query(PlannedSession)
-                .filter(PlannedSession.plan_id == basis.id,
-                        PlannedSession.status == "completed").all()
-            }
+            from services.plan_merge import gesperrte_daten, plan_text_aus
+
+            gesperrt = gesperrte_daten(db, basis.id)
             inhalt, uebernommen, abgewiesen = merge_days(
                 basis.plan_content or {}, neue_tage, gesperrte_daten=gesperrt
             )
@@ -235,14 +306,15 @@ async def chat(body: ChatMessageIn, db: Session = Depends(get_db)):
                     week_end=basis.week_end,
                     plan_phase=basis.plan_phase,
                     plan_content=inhalt,
-                    plan_text=basis.plan_text,
+                    plan_text=plan_text_aus(
+                        inhalt, basis.week_number, basis.week_start, basis.week_end),
                     adjustments_applied=(basis.adjustments_applied or []) + [grund],
                 )
                 db.add(db_plan)
             if abgewiesen:
                 reply += (
                     "\n\nNicht geändert: " + ", ".join(abgewiesen)
-                    + ". Vergangene und bereits absolvierte Tage bleiben stehen."
+                    + ". Vergangene, absolvierte und ersetzte Tage bleiben stehen."
                 )
 
     chat_user_id = profile.user_id if profile else None
@@ -253,7 +325,26 @@ async def chat(body: ChatMessageIn, db: Session = Depends(get_db)):
     if db_plan is not None:
         from services.plan_projection import project_plan
         db.refresh(db_plan)
-        project_plan(db, db_plan)
+        if not project_plan(db, db_plan):
+            reply += (
+                "\n\nHinweis: Der Plan ist gespeichert, aber seine Einheiten "
+                "konnten nicht in den Kalender übernommen werden. Bitte die "
+                "Woche neu laden; bleibt sie leer, den Plan neu erstellen."
+            )
+        else:
+            # Dieselbe Nachzählung wie nach `/plan/anpassen` — der Chat
+            # prüfte bisher nicht, ob eine Änderung die Grundbasis aushebelt.
+            try:
+                from services.week_shape import nach_anpassung
+                befund = nach_anpassung(
+                    db, db_plan.week_start, db_plan.week_end, db_plan.plan_phase,
+                    user_id=db_plan.user_id,
+                ) if db_plan.week_start and db_plan.week_end else None
+                if befund:
+                    reply += f"\n\n{befund}"
+            except Exception as e:  # pragma: no cover - darf die Antwort nie reißen
+                import logging
+                logging.getLogger(__name__).warning("Wochenform nach Chat fehlgeschlagen: %s", e)
         try:
             from services.obsidian.plan_note import sync_plan_note
             sync_plan_note(db, db_plan)

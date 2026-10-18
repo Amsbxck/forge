@@ -5,7 +5,8 @@ plan_content ist der Claude-Rohoutput und bleibt die Quelle für Anzeige und PDF
 Die Projektion gibt jeder geplanten Einheit zusätzlich eine DB-Identität, damit
 Drag & Drop sie verschieben und der Ist/Soll-Abgleich sie referenzieren kann.
 
-Die Projektion ist idempotent: sie ersetzt die Zeilen genau eines Plans.
+Die Projektion ist idempotent: sie ersetzt die Zeilen genau einer
+Kalenderwoche eines Athleten.
 
 Wichtig: Solange Migration 005 nicht gelaufen ist, existiert die Tabelle nicht.
 project_plan() darf deshalb unter keinen Umständen die Plangenerierung
@@ -196,9 +197,33 @@ def project_plan(db: Session, plan: WeeklyPlan, commit: bool = True) -> int:
         # Hintergrundjob ohne gesetzten Kontext, sammelte sie sonst die
         # Planeinheiten **aller** Athleten dieser Wochennummer ein — und
         # löschte sie im nächsten Schritt.
-        existing_query = db.query(PlannedSession).filter(
-            PlannedSession.week_number == plan.week_number
-        )
+        #
+        # „Diese Woche" heißt die **Kalenderwoche** des Plans, nicht seine
+        # Wochennummer. Die Nummer ist relativ zum Anker (Saisonziel oder
+        # Profil) und meint nach jedem Zielwechsel, mit jeder neuen Saison
+        # und beim Wechsel vom Profil zum ersten Ziel eine andere Woche. Über
+        # sie gelöscht, verschwanden erledigte Einheiten vergangener Saisons,
+        # sobald eine neue Woche mit derselben Nummer projiziert wurde — samt
+        # Zuordnung der echten Einheiten. Gelöscht wird deshalb, was zu einem
+        # Plan desselben Montags gehört oder in dessen sieben Tagen liegt.
+        existing_query = db.query(PlannedSession)
+        if plan.week_start is not None:
+            from sqlalchemy import or_
+
+            gleiche_woche = db.query(WeeklyPlan.id).filter(
+                WeeklyPlan.week_start == plan.week_start
+            )
+            if plan.user_id is not None:
+                gleiche_woche = gleiche_woche.filter(WeeklyPlan.user_id == plan.user_id)
+            existing_query = existing_query.filter(or_(
+                PlannedSession.plan_id == plan.id,
+                PlannedSession.plan_id.in_(gleiche_woche.scalar_subquery()),
+                PlannedSession.planned_date.between(
+                    plan.week_start, plan.week_start + timedelta(days=6)
+                ),
+            ))
+        else:
+            existing_query = existing_query.filter(PlannedSession.plan_id == plan.id)
         if plan.user_id is not None:
             existing_query = existing_query.filter(PlannedSession.user_id == plan.user_id)
         existing = existing_query.all()
@@ -212,6 +237,10 @@ def project_plan(db: Session, plan: WeeklyPlan, commit: bool = True) -> int:
                 "matched_session_id": row.matched_session_id,
                 "replacement": row.replacement,
                 "replacement_min": row.replacement_min,
+                # Beide fehlten hier: Ein Ersatz behielt nach jeder
+                # Neuprojektion nur Text und Dauer, Sportart und Stufe waren weg.
+                "replacement_discipline": getattr(row, "replacement_discipline", None),
+                "replacement_intensity": getattr(row, "replacement_intensity", None),
                 "moved_from_date": row.moved_from_date,
             }
             for row in existing
@@ -291,17 +320,35 @@ def backfill_all(db: Session, limit: int | None = None) -> dict:
     if not planned_sessions_available(db):
         return {"projected_plans": 0, "sessions": 0, "skipped": 0, "reason": "table_missing"}
 
-    query = db.query(WeeklyPlan).order_by(WeeklyPlan.week_number.asc())
+    # Je Kalenderwoche nur der **aktive** Plan — dieselbe Auswahl wie überall
+    # (`plan_selection.pick_plan`). Vorher wurden alle Pläne nacheinander
+    # projiziert, und weil jeder die Zeilen seiner Woche ersetzt, blieb der
+    # zuletzt bearbeitete stehen statt des aktiven.
+    from services.plan_selection import pick_plan
+
+    montage = (
+        db.query(WeeklyPlan.user_id, WeeklyPlan.week_start)
+        .filter(WeeklyPlan.week_start.isnot(None))
+        .distinct()
+        .order_by(WeeklyPlan.week_start.asc())
+        .all()
+    )
     if limit:
-        query = query.limit(limit)
+        montage = montage[:limit]
 
     projected, total, skipped = 0, 0, 0
-    for plan in query.all():
-        written = project_plan(db, plan, commit=False)
+    for user_id, montag in montage:
+        plan = pick_plan(db.query(WeeklyPlan).filter(
+            WeeklyPlan.user_id == user_id, WeeklyPlan.week_start == montag,
+        ))
+        if plan is None:
+            continue
+        # Einzeln committen: Bei `commit=False` verwarf ein Fehler in Plan k
+        # per Rollback auch alles davor, das aber schon mitgezählt war.
+        written = project_plan(db, plan, commit=True)
         if written:
             projected += 1
             total += written
         else:
             skipped += 1
-    db.commit()
     return {"projected_plans": projected, "sessions": total, "skipped": skipped}

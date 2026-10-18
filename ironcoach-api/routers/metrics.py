@@ -1,6 +1,6 @@
 from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -20,15 +20,22 @@ def week_metrics(db: Session = Depends(get_db)):
     from core.deps import total_weeks_for
     from core.race_types import season_state
 
+    from core.deps import get_active_goal
+
     anchor = get_plan_anchor(db)
     current_week = get_current_week(anchor) if anchor else 1
     total_weeks = total_weeks_for(anchor) if anchor else 33
-    race_date = getattr(anchor, "race_date", None)
+    # Der Renntag nur aus dem Saisonziel. Ohne Ziel ist der Anker das Profil,
+    # und dort steht der Platzhalter aus der Registrierung (heute + 180) —
+    # das Dashboard zählte auf ein Rennen herunter, das es nicht gibt, und
+    # meldete danach „seit dem Rennen".
+    goal = get_active_goal(db)
+    race_date = getattr(goal, "race_date", None)
     # Startdatum mitgeben, sonst gilt die Zeit vor dem Aufbau als
     # "preparation" und die Oberfläche zeigt "Woche 1 von 24" für einen
     # Zeitraum, der Monate vor Woche 1 liegt.
     plan_start = getattr(anchor, "plan_start_date", None)
-    state = season_state(race_date, plan_start=plan_start)
+    state = season_state(race_date, plan_start=plan_start) if goal else "preparation"
 
     # Nach Datum, nicht nach Planwoche — siehe `kalenderwoche`.
     woche_von, woche_bis = kalenderwoche(date.today())
@@ -89,6 +96,7 @@ def week_metrics(db: Session = Depends(get_db)):
         hr_zones_avg=hr_zones_avg,
         hrv_latest=latest_hrv.rmssd if latest_hrv else None,
         hrv_status=latest_hrv.hrv_status if latest_hrv else None,
+        hrv_measured_at=latest_hrv.measured_at if latest_hrv else None,
     )
 
 
@@ -146,13 +154,17 @@ def _profile_out(db: Session, profile):
     from schemas import AthleteProfileOut
     from core.deps import get_plan_anchor, total_weeks_for
 
+    from core.deps import get_active_goal
+
     anchor = get_plan_anchor(db) or profile
     out = AthleteProfileOut.model_validate(profile)
     out.current_week = get_current_week(anchor)
     out.total_weeks = total_weeks_for(anchor)
-    renntag = getattr(anchor, "race_date", None)
-    if renntag:
-        out.race_date = renntag
+    # Renntag und Zielzeit nur aus dem Saisonziel — ohne Ziel leer statt
+    # Platzhalter (siehe `week_metrics`).
+    goal = get_active_goal(db)
+    out.race_date = getattr(goal, "race_date", None)
+    out.race_goal = getattr(goal, "goal_time", None)
     # Auch das Startdatum aus dem Ziel: Im Profil steht der Platzhalter aus
     # der Registrierung. Ohne diese Zeile beurteilt die Profilseite die
     # Grundlagenphase gegen ein Datum, das mit dem Ziel nichts zu tun hat.
@@ -288,20 +300,22 @@ class IntakeIn(BaseModel):
     trotzdem als aufgenommen vermerkt — sonst ginge das Fenster bei jedem
     Aufruf wieder auf.
     """
-    max_hr: int | None = None
-    threshold_hr: int | None = None
-    threshold_pace_s_per_km: int | None = None
-    ftp_watts: int | None = None
-    css_pace_s_per_100m: float | None = None
-    swim_threshold_hr: int | None = None
+    # Mit Wertebereichen: Ohne sie nahm der Einstieg eine FTP von 0 oder
+    # einen Maximalpuls von 1000 an, und jede Vorgabe danach war Unsinn.
+    max_hr: int | None = Field(default=None, ge=100, le=230)
+    threshold_hr: int | None = Field(default=None, ge=80, le=220)
+    threshold_pace_s_per_km: int | None = Field(default=None, ge=150, le=600)
+    ftp_watts: int | None = Field(default=None, ge=50, le=600)
+    css_pace_s_per_100m: float | None = Field(default=None, ge=50, le=240)
+    swim_threshold_hr: int | None = Field(default=None, ge=80, le=220)
     # Pulszonen, entweder alle oder keine.
-    z1_hr_max: int | None = None
-    z2_hr_min: int | None = None
-    z2_hr_max: int | None = None
-    z3_hr_min: int | None = None
-    z3_hr_max: int | None = None
-    z4_hr_min: int | None = None
-    z4_hr_max: int | None = None
+    z1_hr_max: int | None = Field(default=None, ge=40, le=230)
+    z2_hr_min: int | None = Field(default=None, ge=40, le=230)
+    z2_hr_max: int | None = Field(default=None, ge=40, le=230)
+    z3_hr_min: int | None = Field(default=None, ge=40, le=230)
+    z3_hr_max: int | None = Field(default=None, ge=40, le=230)
+    z4_hr_min: int | None = Field(default=None, ge=40, le=230)
+    z4_hr_max: int | None = Field(default=None, ge=40, le=230)
 
 
 @router.get("/metrics/ftp-check")
@@ -410,7 +424,13 @@ def submit_intake(body: IntakeIn = IntakeIn(), db: Session = Depends(get_db)):
 
     if any(f in daten for f in ("max_hr", "ftp_watts", *ZONEN)):
         profile.zones_source = "manual"
-        profile.zones_updated_at = datetime.utcnow()
+        # Bewusst **ohne** `zones_updated_at`: Das Datum zählt als Messung, und
+        # an ihm hängt die 90-Tage-Sperre der Testwoche. Mit Datum konnte wer
+        # beim Einstieg seine Garmin-Werte eintrug, die Einstiegs-Testwoche drei
+        # Monate lang nicht buchen — entgegen dem, was dieser Docstring
+        # verspricht.
+    if "ftp_watts" in daten:
+        profile.ftp_source = "manual"
     if any(f in daten for f in ("threshold_hr", "threshold_pace_s_per_km")):
         profile.threshold_source = "manual"
     if "css_pace_s_per_100m" in daten:
@@ -436,7 +456,7 @@ class SwimTestIn(BaseModel):
     d_kurz_m: int | None = None
     css_pace_s_per_100m: float | None = None
     # Eigener Schwellenpuls fürs Wasser; optional.
-    swim_threshold_hr: int | None = None
+    swim_threshold_hr: int | None = Field(default=None, ge=80, le=220)
 
 
 @router.post("/profile/swim-test")
@@ -620,6 +640,10 @@ def clear_swim_test(db: Session = Depends(get_db)):
     profile.css_source = None
     profile.css_t400_s = None
     profile.css_t200_s = None
+    # Auch die Strecken: Sonst stand nach dem Zurücksetzen und einem neuen
+    # 400/200-Wert noch „200/100 m" daneben.
+    profile.css_dist_lang_m = None
+    profile.css_dist_kurz_m = None
     profile.swim_threshold_hr = None
     profile.swim_threshold_source = None
     db.commit()
@@ -643,10 +667,49 @@ def update_profile(data: dict, db: Session = Depends(get_db)):
     # Feld liesse sie sich in der Oberfläche nicht von der Voreinstellung
     # unterscheiden, und das automatische Ableiten würde sie kommentarlos
     # ersetzen.
+    # Zahlenfelder vorab prüfen. Vorher ging ein Text wie „abc" bis zu
+    # `int()` durch und endete als 500er; eine FTP von 0 oder −5 wurde
+    # gespeichert und machte jede Wattvorgabe danach zu null.
+    BEREICHE = {
+        "ftp_watts": (50, 600), "max_hr": (100, 230), "threshold_hr": (80, 220),
+        "threshold_pace_s_per_km": (150, 600),
+        **{k: (40, 230) for k in ZONEN},
+    }
+    for feld, (unten, oben) in BEREICHE.items():
+        if feld not in data:
+            continue
+        wert = data[feld]
+        if isinstance(wert, bool) or not isinstance(wert, (int, float, str)):
+            raise HTTPException(status_code=422, detail=f"{feld}: keine Zahl")
+        try:
+            zahl = float(str(wert).replace(",", "."))
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"{feld}: „{wert}“ ist keine Zahl")
+        if zahl != int(zahl):
+            raise HTTPException(status_code=422, detail=f"{feld}: bitte eine ganze Zahl")
+        if not unten <= zahl <= oben:
+            raise HTTPException(
+                status_code=422, detail=f"{feld}: {int(zahl)} liegt außerhalb von {unten}–{oben}")
+        data[feld] = int(zahl)
+
+    # Der Maximalpuls gegen das Zonenende — auch dann, wenn nur er geändert
+    # wird. Vorher lief die Prüfung nur mit, wenn Zonen im selben Aufruf kamen,
+    # und ein Maximalpuls unter dem Ende von Z4 ging durch.
+    if "max_hr" in data and not any(k in data for k in ZONEN):
+        z4_ende = profile.z4_hr_max
+        if z4_ende and data["max_hr"] < z4_ende:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Maximalpuls ({data['max_hr']}) liegt unter dem Ende von Z4 "
+                       f"({z4_ende}). Zonen zuerst anpassen.",
+            )
+
     if "ftp_watts" in data:
         profile.ftp_source = "manual"
 
-    allowed = {"ftp_watts", "max_hr", "name", "race_goal",
+    # `race_goal` nicht mehr: Die Zielzeit gehört zum Saisonziel, und das
+    # Profilfeld floss nur noch als fremder Platzhalter in den Prompt.
+    allowed = {"ftp_watts", "max_hr", "name",
                "threshold_hr", "threshold_pace_s_per_km",
                *ZONEN}
     zone_fields = {"ftp_watts", "max_hr", "threshold_hr",

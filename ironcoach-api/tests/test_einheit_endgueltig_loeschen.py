@@ -43,7 +43,7 @@ PFAD = "Training/bike/Offseason 2026/base/2026-09-20--999.md"
 
 
 def _einheit(db, pfad=PFAD):
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     s = TrainingSession(
         user_id=nutzer.id, session_date=date(2026, 9, 20), discipline="bike",
         duration_min=90, week_number=1, obsidian_path=pfad,

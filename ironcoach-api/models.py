@@ -1,10 +1,12 @@
 from datetime import date, datetime
 from sqlalchemy import (
     Integer, String, Float, Date, DateTime, Text, BigInteger, ARRAY, Boolean, ForeignKey,
+    Index, UniqueConstraint, text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import JSONB
 from database import Base
+from core.geheim import VerschluesselterText
 
 
 class User(Base):
@@ -26,7 +28,7 @@ class User(Base):
     # Betreiber der Installation. Betrifft nur Einstellungen, die für alle
     # gelten — etwa den Strava-Webhook, von dem es je Anwendung nur einen gibt.
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
 
     # --- Kontosicherheit ---
     # Bestätigte Adresse. Ohne sie kann sich jemand mit einer fremden E-Mail
@@ -80,7 +82,7 @@ class AuthAction(Base):
     token_hash: Mapped[str] = mapped_column(String, nullable=False, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
 
 
 class AthleteProfile(Base):
@@ -95,7 +97,7 @@ class AthleteProfile(Base):
     # Amirs persönliche Zahlen als Vorgabe, sodass jeder neue Athlet mit
     # dessen FTP und dessen Herzfrequenzzonen startete. Was hier steht, gilt
     # nur bis zur Benchmark-Woche — zones_source hält fest, ob gemessen wurde.
-    ftp_watts: Mapped[int] = mapped_column(Integer, default=200)
+    ftp_watts: Mapped[int | None] = mapped_column(Integer, default=200, nullable=True)
     # Woher die FTP stammt: "manual" (eingetragen, etwa aus einem
     # Stufentest am Smart Trainer), "benchmark" (aus dem 20-Minuten-Test
     # abgeleitet), leer (Voreinstellung). Eigenes Feld, weil `zones_source`
@@ -133,17 +135,17 @@ class AthleteProfile(Base):
     css_t200_s: Mapped[int | None] = mapped_column(Integer)
     css_dist_lang_m: Mapped[int | None] = mapped_column(Integer)
     css_dist_kurz_m: Mapped[int | None] = mapped_column(Integer)
-    max_hr: Mapped[int] = mapped_column(Integer, default=190)
-    z1_hr_max: Mapped[int] = mapped_column(Integer, default=133)
-    z2_hr_min: Mapped[int] = mapped_column(Integer, default=134)
-    z2_hr_max: Mapped[int] = mapped_column(Integer, default=162)
-    z3_hr_min: Mapped[int] = mapped_column(Integer, default=163)
-    z3_hr_max: Mapped[int] = mapped_column(Integer, default=171)
-    z4_hr_min: Mapped[int] = mapped_column(Integer, default=172)
-    z4_hr_max: Mapped[int] = mapped_column(Integer, default=181)
-    race_date: Mapped[date] = mapped_column(Date, default=date(2026, 8, 31))
-    race_goal: Mapped[str] = mapped_column(String, default="sub 5:30h 70.3")
-    plan_start_date: Mapped[date] = mapped_column(Date, default=date(2026, 1, 19))
+    max_hr: Mapped[int | None] = mapped_column(Integer, default=190, nullable=True)
+    z1_hr_max: Mapped[int | None] = mapped_column(Integer, default=133, nullable=True)
+    z2_hr_min: Mapped[int | None] = mapped_column(Integer, default=134, nullable=True)
+    z2_hr_max: Mapped[int | None] = mapped_column(Integer, default=162, nullable=True)
+    z3_hr_min: Mapped[int | None] = mapped_column(Integer, default=163, nullable=True)
+    z3_hr_max: Mapped[int | None] = mapped_column(Integer, default=171, nullable=True)
+    z4_hr_min: Mapped[int | None] = mapped_column(Integer, default=172, nullable=True)
+    z4_hr_max: Mapped[int | None] = mapped_column(Integer, default=181, nullable=True)
+    race_date: Mapped[date | None] = mapped_column(Date, default=date(2026, 8, 31), nullable=True)
+    race_goal: Mapped[str | None] = mapped_column(String, default="sub 5:30h 70.3", nullable=True)
+    plan_start_date: Mapped[date | None] = mapped_column(Date, default=date(2026, 1, 19), nullable=True)
 
     # Individuelle Trainingsregeln — was bisher als Schienbein-Protokoll fest
     # im Prompt stand. Jeder Athlet pflegt seine eigenen Einschränkungen
@@ -178,7 +180,9 @@ class AthleteProfile(Base):
     # Bis hierher stand die Vault-Anbindung in der .env und zeigte auf genau
     # einen Rechner. Ein zweiter Athlet hätte in fremde Notizen geschrieben.
     obsidian_base_url: Mapped[str | None] = mapped_column(String)
-    obsidian_api_key: Mapped[str | None] = mapped_column(String)
+    # Verschlüsselt abgelegt (`core/geheim.py`) — im Klartext gab eine
+    # Datenbanksicherung Schreibzugriff auf die Vaults aller Athleten.
+    obsidian_api_key: Mapped[str | None] = mapped_column(VerschluesselterText)
     # NULL heißt „automatisch": Bei einer .ts.net-Adresse aus `tailscale serve`
     # gibt es ein gültiges Zertifikat und es wird geprüft, bei einer nackten
     # IP spricht man direkt mit dem Plugin und dessen selbstsigniertem
@@ -186,7 +190,7 @@ class AthleteProfile(Base):
     obsidian_verify_tls: Mapped[bool | None] = mapped_column(Boolean)
     obsidian_vault_subdir: Mapped[str | None] = mapped_column(String)
 
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
 
 
 class RaceGoal(Base):
@@ -222,7 +226,7 @@ class RaceGoal(Base):
     plan_start_date: Mapped[date | None] = mapped_column(Date)
 
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
 
     @property
     def total_weeks(self) -> int:
@@ -276,7 +280,7 @@ class RaceResult(Base):
     # Foto vom Rennen. Nur der Dateiname, nicht der volle Pfad — sonst hinge
     # der Datensatz am Ablageort und ein Umzug bräche jede Verknüpfung.
     image_file: Mapped[str | None] = mapped_column(String)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
 
     @property
     def label(self) -> str:
@@ -318,7 +322,7 @@ class TrainingSession(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     fit_file_path: Mapped[str | None] = mapped_column(String)
     streams: Mapped[dict | None] = mapped_column(JSONB)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # --- Ist/Soll-Abgleich (Modul 4) ---
@@ -332,11 +336,14 @@ class TrainingSession(Base):
     deviation_note: Mapped[str | None] = mapped_column(Text)
 
     # --- Obsidian-Sync (Modul 3) ---
-    # obsidian_path wird beim ersten Sync gesetzt und danach eingefroren:
-    # er ist die Wahrheit, auch wenn sich actual_type später ändert.
+    # obsidian_path ist der Ort der Note beim letzten Sync. Ändert sich die
+    # Intensitätsstufe, verschiebt der nächste Sync die Note und trägt den
+    # neuen Pfad hier ein.
     # obsidian_synced_at IS NULL = offene Arbeit für den Reconcile-Job (Outbox).
     obsidian_path: Mapped[str | None] = mapped_column(String)
     obsidian_synced_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Abgelehnte Schreibversuche in Folge (siehe obsidian.sync.MAX_FEHLVERSUCHE).
+    obsidian_fehlversuche: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     obsidian_content_hash: Mapped[str | None] = mapped_column(String)
 
     # Was der Athlet selbst zur Einheit sagt. Bis hierher gab es das nur in
@@ -408,7 +415,7 @@ class WeeklyPlan(Base):
     plan_text: Mapped[str | None] = mapped_column(Text)
     claude_prompt: Mapped[str | None] = mapped_column(Text)
     adjustments_applied: Mapped[list | None] = mapped_column(ARRAY(Text))
-    generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
 
 
 class PlannedSession(Base):
@@ -474,9 +481,9 @@ class PlannedSession(Base):
     # mehrere Einheiten auf denselben Tag fallen.
     day_index: Mapped[int] = mapped_column(Integer, default=0)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=True
     )
 
     @property
@@ -505,7 +512,7 @@ class ChatMessage(Base):
     role: Mapped[str] = mapped_column(String, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     context_week: Mapped[int | None] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
 
 
 
@@ -516,12 +523,15 @@ class StravaCredentials(Base):
     user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
-    athlete_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Eindeutig: Ein Strava-Athlet gehört zu genau einem Konto (Migration 039).
+    # Vorher ließ er sich an zwei Konten hängen; der Webhook nahm irgendeines,
+    # und der stündliche Abgleich des anderen scheiterte jede Stunde.
+    athlete_id: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
     access_token: Mapped[str] = mapped_column(String, nullable=False)
     refresh_token: Mapped[str] = mapped_column(String, nullable=False)
     expires_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    scope: Mapped[str] = mapped_column(String, default="activity:read_all")
-    connected_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    scope: Mapped[str | None] = mapped_column(String, default="activity:read_all", nullable=True)
+    connected_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
 
 
 class HealthEvent(Base):
@@ -536,6 +546,13 @@ class HealthEvent(Base):
     """
 
     __tablename__ = "health_events"
+    # Wie in Migration 014: höchstens eine offene Meldung je Nutzer. Hier
+    # gespiegelt, damit die Tests (Schema aus den Modellen) dieselbe Regel
+    # haben wie der Betrieb — vorher gab es den Index nur dort.
+    __table_args__ = (
+        Index("ix_health_events_open", "user_id", unique=True,
+              postgresql_where=text("end_date IS NULL")),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int | None] = mapped_column(
@@ -558,7 +575,7 @@ class HealthEvent(Base):
     body_part: Mapped[str | None] = mapped_column(String)
 
     note: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
 
     @property
     def is_open(self) -> bool:
@@ -593,4 +610,25 @@ class ApiUsage(Base):
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     cost_eur: Mapped[float] = mapped_column(Float, default=0.0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, index=True, nullable=True)
+
+
+class GeloeschteStravaAktivitaet(Base):
+    """Eine Strava-Aktivität, die der Athlet endgültig gelöscht hat.
+
+    Ohne diesen Vermerk kam sie beim nächsten Abgleich zurück: Hartes Löschen
+    entfernt die Zeile samt `strava_activity_id`, der Abgleich hält die
+    Aktivität danach für neu und legt sie wieder an — mit neuer Vault-Notiz.
+    Gerade bei der Doppelaufnahme (zwei Geräte, zwei Strava-Aktivitäten), für
+    die das Löschen gedacht ist.
+    """
+    __tablename__ = "geloeschte_strava_aktivitaeten"
+    __table_args__ = (UniqueConstraint("user_id", "strava_activity_id",
+                                       name="uq_geloeschte_strava_nutzer_aktivitaet"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    strava_activity_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    geloescht_am: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)

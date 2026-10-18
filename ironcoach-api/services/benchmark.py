@@ -270,8 +270,8 @@ def create_benchmark_plan(db: Session, user=None):
     woche = get_week_for_date(anker, start) if anker else 1
 
     # Nicht zweimal dieselbe Woche anlegen — erkannt am Montag, nicht an der
-    # Wochennummer. Die Nummer entsteht aus `max(1, …)` und ist vor dem Beginn
-    # des Aufbaus für jedes Datum 1: Die Testwoche hätte dann dieselbe Nummer
+    # Wochennummer. Die Nummer entstand früher aus `max(1, …)` und war vor dem
+    # Beginn des Aufbaus für jedes Datum 1: Die Testwoche hätte dann dieselbe Nummer
     # wie ein längst bestehender Plan, und statt sie anzulegen käme dieser
     # fremde Plan zurück.
     # Ausdrücklich nach Nutzer gefiltert: Der Mandantenfilter greift nur mit
@@ -320,11 +320,33 @@ def create_benchmark_plan(db: Session, user=None):
     db.add(plan)
     db.flush()
     plan_id = plan.id
-    project_plan(db, plan)
+    projiziert = project_plan(db, plan)
+    # Die Werte festhalten, bevor das Commit sie verfallen lässt: Mit dem
+    # Commit ist die Sperre frei, und ein Storno aus einem zweiten Tab kann
+    # den Plan im selben Augenblick löschen. Ein anschließendes `refresh`
+    # endete dann in einem 500er, obwohl alles richtig gelaufen war — angelegt
+    # und auf Wunsch wieder entfernt.
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy.orm import make_transient
+
+    stand = {
+        attr.key: getattr(plan, attr.key)
+        for attr in sa_inspect(WeeklyPlan).column_attrs
+    }
     # Fehlt die Projektionstabelle, kehrt `project_plan` ohne Speichern zurück.
     db.commit()
     if db.query(WeeklyPlan.id).filter(WeeklyPlan.id == plan_id).first() is None:
-        raise RuntimeError("Testwoche konnte nicht angelegt werden — die Projektion ist gescheitert.")
+        if not projiziert:
+            raise RuntimeError(
+                "Testwoche konnte nicht angelegt werden — die Projektion ist gescheitert."
+            )
+        # Angelegt und gleich danach storniert: kein Fehler, sondern der
+        # Wille des Athleten. Den Stand von vor dem Commit zurückgeben.
+        make_transient(plan)
+        for feld, wert in stand.items():
+            setattr(plan, feld, wert)
+        plan.storniert = True
+        return plan, True
     db.refresh(plan)
 
     try:
@@ -369,7 +391,7 @@ def maybe_autoderive(db: Session) -> dict | None:
         if anchor is None or not 1 <= get_current_week(anchor) <= 2:
             return None
 
-    result = derive_zones(db, days=21, apply=True)
+    result = derive_zones(db, days=21, apply=True, von_hand=False)
     if result.get("status") == "ok" and result.get("applied"):
         logger.info("Zonen automatisch aus Benchmark übernommen: %s", result["applied"])
         return result
@@ -503,11 +525,27 @@ def _kein_test(effort: dict, session, profil) -> dict | None:
     return None
 
 
-def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
+def derive_zones(db: Session, days: int = 21, apply: bool = False,
+                 von_hand: bool = True) -> dict:
     """FTP, Schwellen-HF, Pace und Zonen aus den Testeinheiten ableiten.
 
     apply=False meldet nur, was sich ergäbe. Ohne verwertbare Daten wird
     nichts gesetzt — geschätzte Zonen wären schlimmer als gar keine.
+
+    `von_hand` unterscheidet die zwei Wege, auf denen übernommen wird:
+
+      * **True** — der Athlet hat auf „Übernehmen" gedrückt, nach einem
+        Vergleich alt gegen neu. Dann gilt das Testergebnis, auch über einen
+        selbst eingetragenen Wert: Ein frischer Test darf alte Zahlen
+        korrigieren.
+      * **False** — die automatische Übernahme nach einem Import. Dann bleiben
+        von Hand eingetragene Werte (CSS, Schwellenpace, Schwellenpuls)
+        stehen; das Ergebnis wird gemeldet, aber nicht geschrieben. Dieselbe
+        Rangordnung wie beim HRV-Band: Was der Athlet selbst eingetragen hat,
+        geht einer stillen Automatik vor.
+
+    Vorher galt beides zugleich: Zwei Kommentare nebeneinander behaupteten das
+    Gegenteil, und die Automatik überschrieb den Handwert.
     """
     from services.fit_parser import calculate_hr_zones  # noqa: F401  (Konsistenzprüfung)
 
@@ -530,7 +568,9 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
     # Die derzeit gesetzten Werte mitgeben: ohne sie sieht der Athlet beim
     # Übernehmen nicht, was sich ändert — und ein Testergebnis, das eine
     # sorgfältig eingetragene Zahl ersetzt, soll er vorher sehen.
-    aktuell = db.query(AthleteProfile).first()
+    from core.deps import get_profile
+
+    aktuell = get_profile(db)
     if aktuell is not None:
         result["current"] = {
             "ftp_watts": aktuell.ftp_watts,
@@ -692,6 +732,11 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
                 "date": treffer["date"],
                 "t400_s": treffer["t400_s"],
                 "t200_s": treffer["t200_s"],
+                # Die Strecken mit — sie standen nur im Treffer, und beim
+                # Übernehmen wurden sie hier gesucht. Nach einem 200/100-Test
+                # stand dadurch die 200-m-Zeit ohne Strecke im Profil.
+                "d_lang_m": treffer.get("d_lang_m"),
+                "d_kurz_m": treffer.get("d_kurz_m"),
                 # Ausdrücklich gekennzeichnet: aus Runden abgeleitet heißt
                 # geraten, welche Bahn der Test war.
                 "hinweis": (
@@ -769,10 +814,16 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
         }
 
     if apply:
-        profile = db.query(AthleteProfile).first()
+        profile = get_profile(db)
         if profile is None:
             return {**result, "status": "no_profile"}
         applied = []
+        stehen_gelassen = []
+
+        def _handwert(quelle_feld: str) -> bool:
+            """Bleibt ein von Hand gesetzter Wert stehen? Nur bei der Automatik."""
+            return not von_hand and getattr(profile, quelle_feld, None) == "manual"
+
         # FTP nur in einer Testwoche. Der Vorschlag entsteht auch sonst — als
         # Gegenprobe zum Trainerwert —, geschrieben wird er nur, solange gerade
         # getestet wird. Ausserhalb einer Testwoche wäre eine neue Schwelle eine
@@ -780,7 +831,9 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
         # aus den stärksten zwanzig Minuten einer Grundlagenausfahrt, Monate vor
         # dem Aufbau, nach einem ganz normalen Strava-Import.
         if result.get("ftp_vorschlag"):
-            if ist_benchmark_woche(db):
+            if _handwert("ftp_source"):
+                stehen_gelassen.append("ftp_watts")
+            elif ist_benchmark_woche(db):
                 profile.ftp_watts = result["ftp_vorschlag"]
                 profile.ftp_source = "benchmark"
                 applied.append("ftp_watts")
@@ -791,31 +844,38 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
                     f"Testwoche — diese Woche ist keine. Wenn der Wert stimmt, trag "
                     f"ihn hier ein."
                 )
-        # Ohne Rücksicht auf "manual": Das Übernehmen ist eine bewusste
-        # Handlung nach einem Vergleich alt gegen neu. Eine Sperre hier hieße,
-        # dass ein frischer Test die alten Zahlen nicht korrigieren darf.
         if result.get("threshold_pace_s_per_km"):
-            profile.threshold_pace_s_per_km = result["threshold_pace_s_per_km"]
-            applied.append("threshold_pace_s_per_km")
+            if _handwert("threshold_source"):
+                stehen_gelassen.append("threshold_pace_s_per_km")
+            else:
+                profile.threshold_pace_s_per_km = result["threshold_pace_s_per_km"]
+                applied.append("threshold_pace_s_per_km")
         if result.get("threshold_hr"):
-            profile.threshold_hr = result["threshold_hr"]
-            profile.threshold_source = "auto"
-            applied.append("threshold_hr")
-        # Ein von Hand eingetragener CSS-Wert wird nicht überschrieben: er
-        # stammt vom Athleten und ist verlässlicher als die Ableitung.
+            if _handwert("threshold_source"):
+                stehen_gelassen.append("threshold_hr")
+            else:
+                profile.threshold_hr = result["threshold_hr"]
+                profile.threshold_source = "auto"
+                applied.append("threshold_hr")
         if result.get("swim_threshold_hr"):
-            profile.swim_threshold_hr = result["swim_threshold_hr"]
-            profile.swim_threshold_source = "auto"
-            applied.append("swim_threshold_hr")
+            if _handwert("swim_threshold_source"):
+                stehen_gelassen.append("swim_threshold_hr")
+            else:
+                profile.swim_threshold_hr = result["swim_threshold_hr"]
+                profile.swim_threshold_source = "auto"
+                applied.append("swim_threshold_hr")
         if result.get("css_pace_s_per_100m"):
-            quelle = result["sources"].get("css", {})
-            profile.css_pace_s_per_100m = result["css_pace_s_per_100m"]
-            profile.css_source = "auto"
-            profile.css_t400_s = quelle.get("t400_s")
-            profile.css_t200_s = quelle.get("t200_s")
-            profile.css_dist_lang_m = quelle.get("d_lang_m")
-            profile.css_dist_kurz_m = quelle.get("d_kurz_m")
-            applied.append("css_pace_s_per_100m")
+            if _handwert("css_source"):
+                stehen_gelassen.append("css_pace_s_per_100m")
+            else:
+                quelle = result["sources"].get("css", {})
+                profile.css_pace_s_per_100m = result["css_pace_s_per_100m"]
+                profile.css_source = "auto"
+                profile.css_t400_s = quelle.get("t400_s")
+                profile.css_t200_s = quelle.get("t200_s")
+                profile.css_dist_lang_m = quelle.get("d_lang_m")
+                profile.css_dist_kurz_m = quelle.get("d_kurz_m")
+                applied.append("css_pace_s_per_100m")
         if result.get("max_hr") and result.get("hr_zones"):
             zones = result["hr_zones"]
             profile.max_hr = result["max_hr"]
@@ -827,9 +887,17 @@ def derive_zones(db: Session, days: int = 21, apply: bool = False) -> dict:
             profile.z4_hr_min = zones["z3_max"] + 1
             profile.z4_hr_max = zones["z4_max"]
             applied.append("hr_zones")
-        profile.zones_source = "benchmark"
-        profile.zones_updated_at = datetime.utcnow()
+        # Herkunft und Messdatum nur, wenn tatsächlich etwas Gemessenes
+        # übernommen wurde. Vorher standen beide auch dann, wenn nichts
+        # geschrieben war — etwa nur ein FTP-Vorschlag ausserhalb einer
+        # Testwoche. Die 90-Tage-Uhr begann neu, und neben Platzhaltern stand
+        # „(gemessen)".
+        if applied:
+            profile.zones_source = "benchmark"
+            profile.zones_updated_at = datetime.utcnow()
         db.commit()
+        if stehen_gelassen:
+            result["nicht_ueberschrieben"] = stehen_gelassen
         result["applied"] = applied
 
     return result

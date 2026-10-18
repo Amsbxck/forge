@@ -326,6 +326,7 @@ def sync_session(
         session.obsidian_path = path
         session.obsidian_synced_at = datetime.utcnow()
         session.obsidian_content_hash = notes.content_hash(content)
+        session.obsidian_fehlversuche = 0
         if commit:
             db.commit()
 
@@ -342,6 +343,14 @@ def sync_session(
         return {"status": "unavailable", "session_id": session.id, "error": str(e)}
     except ObsidianError as e:
         logger.error("Obsidian-Fehler für Session %s: %s", session.id, e)
+        # Mitzählen: Eine Ablehnung wiederholt sich beim nächsten Versuch
+        # genauso (siehe MAX_FEHLVERSUCHE).
+        session.obsidian_fehlversuche = (session.obsidian_fehlversuche or 0) + 1
+        if commit:
+            try:
+                db.commit()
+            except Exception:  # pragma: no cover
+                db.rollback()
         return {"status": "error", "session_id": session.id, "error": str(e)}
     except Exception as e:  # pragma: no cover - Sync darf nie den Aufrufer reißen
         logger.exception("Unerwarteter Fehler beim Obsidian-Sync von Session %s", session.id)
@@ -355,15 +364,29 @@ def sync_session_by_id(db: Session, session_id: int) -> dict:
     return sync_session(db, session)
 
 
-def pending_sessions(db: Session, days: int = 30, limit: int = 50) -> list[TrainingSession]:
-    """Die Outbox: Einheiten, die noch nie erfolgreich synchronisiert wurden."""
-    cutoff = date.today() - timedelta(days=days)
+# Nach so vielen abgelehnten Versuchen (4xx, nicht „nicht erreichbar") fasst
+# die Outbox eine Einheit nicht mehr an. Vorher lief sie stündlich und für
+# immer gegen dieselbe Ablehnung.
+MAX_FEHLVERSUCHE = 5
+
+
+def pending_sessions(db: Session, days: int | None = None, limit: int = 50) -> list[TrainingSession]:
+    """Die Outbox: Einheiten, die noch nie erfolgreich synchronisiert wurden.
+
+    Das Fenster entspricht dem Strava-Nachholen (90 Tage). Mit 30 Tagen blieb
+    beim ersten Verbinden alles ältere ohne Notiz, und nur ein Wartungsaufruf
+    ohne Knopf holte es nach.
+    """
+    from core.config import settings
+
+    cutoff = date.today() - timedelta(days=days or settings.STRAVA_BACKFILL_DAYS)
     return (
         db.query(TrainingSession)
         .filter(
             TrainingSession.obsidian_synced_at == None,  # noqa: E711
             TrainingSession.deleted_at == None,  # noqa: E711
             TrainingSession.session_date >= cutoff,
+            TrainingSession.obsidian_fehlversuche < MAX_FEHLVERSUCHE,
         )
         .order_by(TrainingSession.session_date.desc())
         .limit(limit)
@@ -371,7 +394,7 @@ def pending_sessions(db: Session, days: int = 30, limit: int = 50) -> list[Train
     )
 
 
-def sync_pending(db: Session, days: int = 30, limit: int = 50) -> dict:
+def sync_pending(db: Session, days: int | None = None, limit: int = 50) -> dict:
     """Offene Syncs abarbeiten. Bricht beim ersten Ausfall ab.
 
     Wenn Obsidian weg ist, sind auch alle folgenden Versuche vergeblich —

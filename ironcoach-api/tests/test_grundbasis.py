@@ -43,7 +43,7 @@ def woche(db):
     """
     from models import PlannedSession, User, WeeklyPlan
 
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     angelegt = []
 
     def bauen(tage: list[list[str]], phase: str = "Grundlage", start: date = MONTAG):
@@ -175,11 +175,14 @@ def test_ein_ruhetag_ist_kein_platz(woche, db):
 
 
 def test_phase_ohne_kraftvorgabe_meldet_nichts(woche, db):
-    """Taper und Wettkampfwoche haben `gym: 0` — „0 von 0" wäre Rauschen."""
+    """Die Wettkampfwoche hat `gym: 0` — „0 von 0" wäre Rauschen.
+
+    (Der Taper hat inzwischen eine kurze, schwere Einheit — siehe
+    `PHASENREGELN["Taper"]`.)"""
     from services.week_shape import _kraftluecke
 
-    uid = woche(VOLL, phase="Taper")
-    gb = grundbasis(db, MONTAG, SONNTAG, user_id=uid, phase="Taper")
+    uid = woche(VOLL, phase="Race Week")
+    gb = grundbasis(db, MONTAG, SONNTAG, user_id=uid, phase="Race Week")
     assert gb["gym_soll"] == 0
     assert gb["vorhanden"] is False
     assert _kraftluecke(gb) is None

@@ -3,7 +3,7 @@ import { getProfile, updateProfile, getStravaStatus, getStravaAuthUrl, getActive
 import PasswordChange from '../components/PasswordChange'
 import AccountSection from '../components/AccountSection'
 import Thresholds from '../components/Thresholds'
-import { daysUntil } from '../utils/dates'
+import { daysUntil, parseTag } from '../utils/dates'
 import { HR_ZONE_COLOR } from '../utils/colors'
 import HrvRange from '../components/HrvRange'
 import ZoneEditor from '../components/ZoneEditor'
@@ -43,7 +43,7 @@ export default function Profile() {
       ])
       setProfile(p.data)
       setZielSport(z.data?.sport || null)
-      setForm({ ftp_watts: p.data.ftp_watts, max_hr: p.data.max_hr, name: p.data.name, race_goal: p.data.race_goal })
+      setForm({ ftp_watts: p.data.ftp_watts, max_hr: p.data.max_hr, name: p.data.name })
       setStrava(s.data)
       // Nach den übrigen Daten und mit eigenem Fehlerfang: Die Prüfung liest
       // Leistungsdaten mehrerer Fahrten und darf die Seite nicht aufhalten.
@@ -247,9 +247,9 @@ export default function Profile() {
                 {daysLeft !== null && daysLeft < 0
                   ? 'OFF SEASON'
                   /* Vor dem Aufbaustart zählt keine Vorbereitungswoche. */
-                  : profile.plan_start_date && new Date(profile.plan_start_date) > new Date()
+                  : profile.plan_start_date && parseTag(profile.plan_start_date) > new Date()
                   ? 'GRUNDLAGE'
-                  : `WEEK ${profile.current_week}${profile.total_weeks ? ` / ${profile.total_weeks}` : ''}`}
+                  : `WOCHE ${profile.current_week}${profile.total_weeks ? ` / ${profile.total_weeks}` : ''}`}
               </div>
             )}
           </div>

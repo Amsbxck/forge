@@ -29,7 +29,7 @@ from services.hrv_baseline import (
 @pytest.fixture
 def messreihe(db):
     """Genug Messungen für eine Grundlinie, mit bekannter Streuung."""
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     db.query(HrvMeasurement).delete()
     db.commit()
     werte = [70, 75, 80, 85, 90, 72, 78, 82, 88, 74, 76, 84, 86, 79, 81, 83]
@@ -104,7 +104,7 @@ def test_ohne_obere_grenze_keine_aussage():
 def test_zu_wenige_messungen_ergeben_keine_spanne(db):
     """Geraten wäre schlechter als offen zu sagen, dass die Grundlinie noch
     entsteht."""
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     db.query(HrvMeasurement).delete()
     db.add(HrvMeasurement(user_id=nutzer.id, measured_at=date.today(), rmssd=80))
     db.commit()

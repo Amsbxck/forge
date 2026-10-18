@@ -1,3 +1,4 @@
+import { paceText } from '../utils/dates'
 import { useState } from 'react'
 import SessionDetail from './SessionDetail'
 import { DISCIPLINE_COLOR, DISCIPLINE_LABEL, HR_ZONE_COLOR } from '../utils/colors'
@@ -41,17 +42,17 @@ export default function SessionCard({ session: s }) {
 
         <div className="flex flex-wrap gap-4 text-sm flex-1">
           {s.duration_min && <Stat label="Duration" value={`${s.duration_min} min`} />}
-          {s.distance_km && <Stat label="Distance" value={`${s.distance_km} km`} />}
-          {s.avg_hr && <Stat label="Avg HR" value={`${s.avg_hr} bpm`} />}
-          {s.avg_watts && <Stat label="Avg Power" value={`${s.avg_watts}W`} />}
+          {s.distance_km && <Stat label="Distanz" value={`${s.distance_km} km`} />}
+          {s.avg_hr && <Stat label="Ø Puls" value={`${s.avg_hr} bpm`} />}
+          {s.avg_watts && <Stat label="Ø Leistung" value={`${s.avg_watts}W`} />}
           {s.normalized_power && <Stat label="NP" value={`${s.normalized_power}W`} />}
           {s.tss && <Stat label="TSS" value={s.tss.toFixed(1)} accent={cfg.color} />}
           {s.avg_pace_min_km && (
             <Stat
               label="Pace"
               value={s.discipline === 'swim'
-                ? `${s.avg_pace_min_km.toFixed(2)} /100m`
-                : `${s.avg_pace_min_km.toFixed(2)} /km`}
+                ? paceText(s.avg_pace_min_km, 'swim')
+                : paceText(s.avg_pace_min_km, s.discipline)}
             />
           )}
         </div>

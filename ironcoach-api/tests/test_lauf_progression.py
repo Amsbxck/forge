@@ -116,7 +116,7 @@ def test_beide_klammern_stehen_im_prompt(db):
     from models import TrainingSession, User
     from services.season_summary import prompt_block
 
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     angelegt = []
     try:
         for tage_her, km in ((40, 8.0), (34, 8.0), (31, 17.0), (9, 9.0)):
@@ -161,7 +161,7 @@ def test_wiederholte_verwerfung_wird_zur_auskunft(db):
     from models import PlannedSession, TrainingSession, User, WeeklyPlan
     from services.season_summary import _belastbarkeit
 
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     plan = WeeklyPlan(
         user_id=nutzer.id, week_number=1, week_start=HEUTE - timedelta(days=20),
         week_end=HEUTE - timedelta(days=14), plan_phase="Base 1", plan_content={},

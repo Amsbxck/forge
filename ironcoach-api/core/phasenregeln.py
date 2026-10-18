@@ -102,8 +102,17 @@ PHASENREGELN: dict[str, dict] = {
         "qualitaet": (2, 2),
         # Das Vierwochenfenster gilt nur hier — siehe BLOCK_FENSTER_WOCHEN.
         "block_moeglich": True,
-        "gym": 1,
-        "leitsatz": "Sweet Spot bleibt die Brot-und-Butter-Einheit.",
+        # Zwei, wie in Grundlage: einmal Oberkörper, einmal Unterkörper und
+        # Rumpf (Kraftdokument). Die Aufbaustudien bei Triathleten nutzten
+        # zwei Einheiten pro Woche; hier stand eine.
+        "gym": 2,
+        # Vorher: „Sweet Spot bleibt die Brot-und-Butter-Einheit." Das
+        # Raddokument sagt das Gegenteil — Sweet Spot ist im Aufbau nicht der
+        # Haupttreiber, der mittlere Bereich bleibt begrenzt (Muñoz 2014).
+        "leitsatz": (
+            "Die harten Reize tragen 30/15, 4×8 und 4–6×5 im Wechsel. Sweet "
+            "Spot und Tempo bleiben Beiwerk und im Umfang begrenzt."
+        ),
         "rad": ("sweet_spot", "threshold_lang", "4x8", "4-6x5", "30/15"),
         # Laufdokument, Aufbau: „1 threshold + 1 track VO2max — Track:
         # 1000s/1200s/4×4, 15/15 or 30/30 as variety". Die beiden kurzen
@@ -129,19 +138,24 @@ PHASENREGELN: dict[str, dict] = {
             "nicht härter."
         ),
         "rad": ("wettkampftempo_rad", "threshold_lang", "4x8"),
+        # Steigerungen gehören in jede Phase (Laufdokument: „strides
+        # 1–2×/week"); im Peak fehlten sie, obwohl das Glossar sie dort nennt.
         # Laufdokument, Peak: „track reps ≥ 3 min; 10-20-30 as a
         # time-efficient option". Vorher stand hier gar kein VO2max-Laufformat,
         # obwohl das Dokument sie im Peak ausdrücklich behält — nur die kurzen
         # (15/15, 30/30) fallen hier weg.
         "lauf": ("wettkampftempo_lauf", "schwelle_intervalle", "1000er",
-                 "1200er", "4x4", "10-20-30", "langer_lauf"),
+                 "1200er", "4x4", "10-20-30", "steigerungen", "langer_lauf"),
         "zusatz": "Ab hier eine der beiden Schwimmeinheiten im Freiwasser.",
     },
     "Taper": {
         "zaehlt_als_qualitaet": QUALITAET_STRENG,
         "doppel": (),
         "qualitaet": (1, 2),
-        "gym": 0,
+        # Eine kurze, schwere Einheit mit wenigen Sätzen. Für den Taper gibt es
+        # keine eigene Studie; die nächste Evidenz ist die Erhaltungsregel
+        # („keep load heavy, cut sets"). Hier stand 0.
+        "gym": 1,
         "leitsatz": (
             "Umfang um 40–60 % senken, **Intensität und Frequenz halten**. "
             "Harte Einheiten werden kürzer, nicht gestrichen — wer die "
@@ -167,10 +181,10 @@ PHASENREGELN: dict[str, dict] = {
     },
 }
 
-# Off Season und die Grundlagenphase bringen ihre eigenen Blöcke mit
-# (`services/offseason.py`, `services/base_period.py`). Für sie gibt es hier
-# bewusst keinen Eintrag — zwei Quellen für dieselbe Vorgabe wären der nächste
-# Widerspruch.
+# Die Off Season bringt ihren eigenen Block mit (`services/offseason.py`) und
+# hat hier bewusst keinen Eintrag — zwei Quellen für dieselbe Vorgabe wären der
+# nächste Widerspruch. Die Grundlage hat dagegen einen (oben): Ihr Text kommt
+# aus `services/base_period.py`, Zähler und Doppeltage aber von hier.
 OHNE_PHASENTABELLE = ("Off Season",)
 
 

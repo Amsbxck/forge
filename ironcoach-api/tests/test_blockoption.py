@@ -31,7 +31,7 @@ def aufbauwochen(db):
     """Vier Wochen Vorgaben, je Woche ein eigener Plan."""
     from models import PlannedSession, User, WeeklyPlan
 
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     angelegt = []
 
     def woche(start: date, harte: int, nummer: int):

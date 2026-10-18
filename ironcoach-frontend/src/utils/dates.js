@@ -83,3 +83,16 @@ export function montagMitVersatz(versatz = 0) {
   tag.setDate(tag.getDate() + versatz * 7)
   return kalenderwoche(tag).von
 }
+
+/** Pace in Minuten (dezimal, wie das Backend sie speichert) als „m:ss".
+ *
+ *  Beim Schwimmen steht dort die Zeit je 100 m, sonst je Kilometer. Vorher
+ *  hieß es überall „/km" und dezimal — ein Schwimmen mit 1:45/100 m stand als
+ *  „1.75 /km" da.
+ */
+export function paceText(minuten, disziplin) {
+  if (minuten == null || !Number.isFinite(minuten)) return null
+  const gesamt = Math.round(minuten * 60)
+  const text = `${Math.floor(gesamt / 60)}:${String(gesamt % 60).padStart(2, '0')}`
+  return disziplin === 'swim' ? `${text} /100 m` : `${text} /km`
+}

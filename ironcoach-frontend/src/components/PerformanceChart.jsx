@@ -1,3 +1,4 @@
+import { isoTag, parseTag } from '../utils/dates'
 import { useEffect, useMemo, useState } from 'react'
 import { getPmc } from '../services/api'
 import {
@@ -28,13 +29,13 @@ export function calculatePMC(sessions) {
   const dates = Object.keys(dailyTSS).sort()
   if (!dates.length) return []
 
-  const start = new Date(dates[0] + 'T00:00:00Z')
-  const end = new Date()
-  const todayUTC = end.toISOString().slice(0, 10)
-  const endUTC = new Date(todayUTC + 'T00:00:00Z')
+  // Lokale Tage, nicht UTC: Kurz nach Mitternacht war „heute" in UTC noch
+  // gestern, und die Kurve endete einen Tag zu früh.
+  const start = parseTag(dates[0])
+  const heute = isoTag(new Date())
   const allDays = []
-  for (let d = new Date(start); d <= endUTC; d.setUTCDate(d.getUTCDate() + 1)) {
-    allDays.push(d.toISOString().slice(0, 10))
+  for (let d = new Date(start); isoTag(d) <= heute; d.setDate(d.getDate() + 1)) {
+    allDays.push(isoTag(d))
   }
 
   let atl = 0, ctl = 0
@@ -63,7 +64,7 @@ export function calculatePMC(sessions) {
  *  die Ermüdung die Fitness überholt hat. */
 export function formLabel(tsb) {
   if (tsb == null) return '—'
-  return tsb >= 5 ? 'Fresh' : tsb >= -10 ? 'Optimal' : tsb >= -20 ? 'Fatigued' : 'Overloaded'
+  return tsb >= 5 ? 'Frisch' : tsb >= -10 ? 'Optimal' : tsb >= -20 ? 'Ermüdet' : 'Überlastet'
 }
 
 export function formColor(tsb) {
@@ -72,10 +73,10 @@ export function formColor(tsb) {
 }
 
 function filterByDays(data, days) {
-  const today = new Date().toISOString().slice(0, 10)
-  const cutoff = new Date(today + 'T00:00:00Z')
-  cutoff.setUTCDate(cutoff.getUTCDate() - days)
-  const cutoffStr = cutoff.toISOString().slice(0, 10)
+  const cutoff = new Date()
+  cutoff.setHours(0, 0, 0, 0)
+  cutoff.setDate(cutoff.getDate() - days)
+  const cutoffStr = isoTag(cutoff)
   return data.filter(d => d.date >= cutoffStr)
 }
 
@@ -89,7 +90,7 @@ const CustomTooltip = ({ active, payload }) => {
       <div className="font-mono" style={{ color: 'var(--text-secondary)' }}>{d.date}</div>
       {d.tss != null && <div style={{ color: '#e8eaf0' }}>TSS: <span className="font-mono font-bold" style={{ color: '#00d4ff' }}>{d.tss}</span></div>}
       <div style={{ color: '#e8eaf0' }}>CTL (Fitness): <span className="font-mono font-bold" style={{ color: '#00d4ff' }}>{d.ctl}</span></div>
-      <div style={{ color: '#e8eaf0' }}>ATL (Fatigue): <span className="font-mono font-bold" style={{ color: '#f97316' }}>{d.atl}</span></div>
+      <div style={{ color: '#e8eaf0' }}>ATL (Ermüdung): <span className="font-mono font-bold" style={{ color: '#f97316' }}>{d.atl}</span></div>
       <div className="border-t pt-1" style={{ borderColor: '#1e2228' }}>
         Form (TSB): <span className="font-mono font-bold" style={{ color: tsbColor }}>{d.tsb > 0 ? '+' : ''}{d.tsb}</span>
       </div>
@@ -125,7 +126,7 @@ export default function PerformanceChart({ sessions }) {
   if (!sessions?.length || !pmcData.length) {
     return (
       <div className="text-center py-8 text-sm font-mono" style={{ color: 'var(--text-secondary)' }}>
-        No training data available for PMC yet.
+        Noch keine Trainingsdaten für die Formkurve.
       </div>
     )
   }
@@ -180,7 +181,7 @@ export default function PerformanceChart({ sessions }) {
 
       <div className="flex gap-5 text-xs px-1" style={{ color: 'var(--text-secondary)' }}>
         <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block" style={{ background: '#00d4ff' }} /> CTL Fitness</span>
-        <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block" style={{ background: '#f97316' }} /> ATL Fatigue</span>
+        <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block" style={{ background: '#f97316' }} /> ATL Ermüdung</span>
         <span className="flex items-center gap-2">
           <span className="flex gap-0.5">
             <span className="w-1.5 h-3 rounded-sm inline-block opacity-70" style={{ background: '#22c55e' }} />
@@ -194,7 +195,7 @@ export default function PerformanceChart({ sessions }) {
       <div className="flex gap-3 flex-wrap">
         {[
           { label: 'CTL Fitness', value: latest?.ctl, color: '#00d4ff' },
-          { label: 'ATL Fatigue', value: latest?.atl, color: '#f97316' },
+          { label: 'ATL Ermüdung', value: latest?.atl, color: '#f97316' },
           { label: `TSB Form · ${tsbLabel}`, value: `${latest?.tsb > 0 ? '+' : ''}${latest?.tsb}`, color: tsbColor },
         ].map(({ label, value, color }) => (
           <div key={label} className="border rounded-lg px-3 py-2 flex-1 min-w-[100px]" style={{ background: '#0d0f17', borderColor: '#1e2228' }}>

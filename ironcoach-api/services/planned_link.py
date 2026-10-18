@@ -57,12 +57,22 @@ def release_planned(db: Session, session: TrainingSession, commit: bool = True) 
         ergebnis = {"status": "bleibt_erfuellt", "planned_id": planned_id,
                     "verbleibend": len(verbleibend)}
     else:
-        planned.status = "planned"
+        # Nur „erledigt" geht zurück auf „geplant". Ein ersetzter oder
+        # ausgelassener Tag ist eine Entscheidung des Athleten, keine Folge
+        # der Zuordnung — vorher wurde auch sie zurückgesetzt, und die
+        # Ersatzeinheit verschwand aus dem Wochenplan.
+        if planned.status == "completed":
+            planned.status = "planned"
         planned.matched_session_id = None
         ergebnis = {"status": "freigegeben", "planned_id": planned_id}
 
     session.planned_session_id = None
     session.match_confidence = None
+    # Die Abweichungsnotiz verglich mit genau dieser Vorgabe — ohne sie ist
+    # sie falsch. Und die Vault-Notiz muss neu geschrieben werden: Ohne
+    # zurückgesetzten Zeitstempel fasst der Abgleich sie nicht mehr an.
+    session.deviation_note = None
+    session.obsidian_synced_at = None
     if commit:
         db.commit()
     logger.info("Vorgabe %s nach Löschen von Einheit %s: %s",

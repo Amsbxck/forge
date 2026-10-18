@@ -57,7 +57,31 @@ def _validate(kind: str, severity: str, body_part: str | None = None) -> None:
         )
 
 
-async def _regenerate(user_id: int | None, reason: str) -> None:
+# Stand der letzten Neuplanung je Nutzer. Die Neuplanung läuft im Hintergrund
+# (sie dauert eine Minute und länger); die Antwort auf die Meldung kann ihr
+# Ergebnis also nicht enthalten. Vorher behauptete sie trotzdem
+# „plan_wird_angepasst: true", auch wenn das Budget erschöpft war oder das
+# Modell scheiterte — der Fehler stand nur im Log. Jetzt fragt die Oberfläche
+# hier nach. Im Speicher genügt: Nach einem Neustart ist die Neuplanung
+# ohnehin abgebrochen, und „unbekannt" ist dann die ehrliche Auskunft.
+_NEUPLANUNG: dict[int, dict] = {}
+
+
+def _ziel_montag(heute: date | None = None) -> date:
+    """Die Woche, die nach einer Meldung neu geplant wird.
+
+    Sonntags die kommende: Die laufende hat dann nur noch diesen einen Tag,
+    und vorher wurden sechs vergangene Tage neu geplant.
+    """
+    from datetime import timedelta
+    from core.wochen import montag_von
+
+    heute = heute or date.today()
+    montag = montag_von(heute)
+    return montag + timedelta(days=7) if heute.weekday() == 6 else montag
+
+
+async def _regenerate(user_id: int | None, reason: str, montag: date | None = None) -> None:
     """Wochenplan neu erstellen. Darf die Meldung nie mitreißen.
 
     Die Generierung legt eine neue Zeile an und überschreibt nichts — der
@@ -71,21 +95,46 @@ async def _regenerate(user_id: int | None, reason: str) -> None:
     """
     from core.tenancy import acting_as
     from database import SessionLocal
+    from services.api_budget import BudgetExhausted
     from services.plan_generator import generate_and_save_plan
 
     if user_id is None:
         logger.warning("Neuplanung ohne Nutzerbezug angefordert — übersprungen")
         return
 
+    montag = montag or _ziel_montag()
+    _NEUPLANUNG[user_id] = {"status": "laeuft", "montag": str(montag), "detail": None}
     db = SessionLocal()
     try:
         with acting_as(user_id):
-            await generate_and_save_plan(db, special_requests=reason)
+            plan = await generate_and_save_plan(db, special_requests=reason, montag=montag)
+        _NEUPLANUNG[user_id] = {
+            "status": "fertig", "montag": str(montag), "plan_id": plan.id, "detail": None,
+        }
         logger.info("Plan nach Gesundheitsmeldung neu erstellt (Nutzer %s)", user_id)
+    except BudgetExhausted:
+        _NEUPLANUNG[user_id] = {
+            "status": "fehlgeschlagen", "montag": str(montag),
+            "detail": "Das Guthaben für Planerstellungen ist aufgebraucht — "
+                      "der Plan wurde nicht angepasst.",
+        }
     except Exception as e:
         logger.warning("Neuplanung nach Gesundheitsmeldung fehlgeschlagen: %s", e)
+        _NEUPLANUNG[user_id] = {
+            "status": "fehlgeschlagen", "montag": str(montag),
+            "detail": "Der Plan konnte nicht automatisch angepasst werden. "
+                      "Erstelle die Woche im Planfenster neu.",
+        }
     finally:
         db.close()
+
+
+@router.get("/health/neuplanung")
+def neuplanung(user: User | None = Depends(get_current_user)):
+    """Wie es um die Neuplanung nach der letzten Meldung steht."""
+    if user is None:
+        return {"status": "unbekannt"}
+    return _NEUPLANUNG.get(user.id, {"status": "unbekannt"})
 
 
 @router.get("/health/status")
@@ -122,6 +171,16 @@ async def report_illness(
     # "Schnupfen" meldet und zwei Tage später Fieber bekommt, meldet nicht
     # eine zweite Krankheit, sondern eine Verschlechterung derselben.
     event = health_service.open_event(db, user)
+    if event is not None and event.kind != body.kind:
+        # Eine andere **Art** ist eine neue Episode, keine Verschlechterung:
+        # Wer verletzt war und jetzt krank wird, hat zwei Ereignisse. Vorher
+        # wurde die alte Episode überschrieben, samt Art und Körperstelle — die
+        # Verletzung verschwand aus dem Verlauf.
+        from datetime import timedelta
+
+        event.end_date = max(event.start_date, beginn - timedelta(days=1))
+        db.flush()
+        event = None
     if event is not None:
         event.kind = body.kind
         event.severity = body.severity
@@ -150,21 +209,31 @@ async def report_illness(
     db.refresh(event)
 
     guidance = health_service.guidance(db, user)
-    if body.adjust_plan:
+    angestossen = bool(body.adjust_plan and user is not None)
+    if angestossen:
         art = "verletzt" if body.kind == "injury" else "krank"
+        montag = _ziel_montag()
+        _NEUPLANUNG[user.id] = {"status": "laeuft", "montag": str(montag), "detail": None}
         background.add_task(
             _regenerate,
-            user.id if user else None,
+            user.id,
+            # Aus dem gespeicherten Stand, nicht aus der Anfrage: Fieber wird
+            # nur bei einer Krankheit gespeichert, der Text sagte es auch bei
+            # einer Verletzung.
             f"Der Athlet hat sich {art} gemeldet "
-            f"({health_service.severity_label(body.kind, body.severity)}"
-            f"{', mit Fieber' if body.fever else ''}). Plane die laufende Woche entsprechend um.",
+            f"({health_service.severity_label(event.kind, event.severity)}"
+            f"{', mit Fieber' if event.fever else ''}). Plane die Woche entsprechend um.",
+            montag,
         )
 
     return {
         "created": neu,
         "event": health_service.event_to_dict(event),
         "guidance": guidance.to_dict(),
-        "plan_wird_angepasst": body.adjust_plan,
+        # Angestoßen, nicht erledigt — das Ergebnis steht unter
+        # `/health/neuplanung`.
+        "plan_wird_angepasst": angestossen,
+        "neuplanung": _NEUPLANUNG.get(user.id) if angestossen else None,
     }
 
 
@@ -193,18 +262,23 @@ async def report_recovered(
     db.refresh(event)
 
     guidance = health_service.guidance(db, user)
-    if body.adjust_plan:
+    angestossen = bool(body.adjust_plan and user is not None)
+    if angestossen:
+        montag = _ziel_montag()
+        _NEUPLANUNG[user.id] = {"status": "laeuft", "montag": str(montag), "detail": None}
         background.add_task(
             _regenerate,
-            user.id if user else None,
+            user.id,
             f"Der Athlet ist nach {event.days} Tagen Ausfall wieder gesund. "
-            "Plane den Wiedereinstieg für die laufende Woche.",
+            "Plane den Wiedereinstieg für diese Woche.",
+            montag,
         )
 
     return {
         "event": health_service.event_to_dict(event),
         "guidance": guidance.to_dict(),
-        "plan_wird_angepasst": body.adjust_plan,
+        "plan_wird_angepasst": angestossen,
+        "neuplanung": _NEUPLANUNG.get(user.id) if angestossen else None,
     }
 
 

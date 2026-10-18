@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from core.config import settings
 from core.deps import bestaetigung_noetig, require_user
 from core.security import (
     create_access_token, hash_action_token, hash_password, lock_duration,
@@ -103,14 +104,27 @@ def register(
     if existing:
         raise HTTPException(status_code=409, detail="E-Mail ist bereits vergeben")
 
+    from sqlalchemy.exc import IntegrityError
+
     user = User(
         email=body.email,
         name=body.name,
         password_hash=hash_password(body.password),
         is_active=True,
+        # Bei einer frischen Installation gibt es sonst keinen Admin — nur
+        # Migration 010 setzte einen, für ein bestimmtes Konto. ADMIN_EMAIL
+        # benennt, wer es wird.
+        is_admin=bool(settings.ADMIN_EMAIL) and body.email == settings.ADMIN_EMAIL.strip().lower(),
     )
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # Zwei gleichzeitige Registrierungen mit derselben Adresse: Die
+        # Prüfung oben sahen beide als frei, die Datenbank lässt nur eine
+        # durch. Vorher endete die zweite in einem 500er.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="E-Mail ist bereits vergeben")
     db.refresh(user)
 
     # Ohne Profil hätte der neue Nutzer weder Zonen noch Planstart, und jede
@@ -154,17 +168,19 @@ def register(
 def login(body: LoginIn, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == body.email).first()
 
-    # Gesperrte Konten zuerst: ohne diese Prüfung ließe sich weiterraten,
-    # solange man nur das richtige Passwort trifft.
+    # Eine Meldung für alles: falsche Adresse, falsches Passwort, gesperrtes
+    # Konto. Vorher kam bei einer Sperre ein 429 mit Wartezeit — aber nur für
+    # Adressen, die es gibt. Fünf falsche Versuche verrieten also, ob jemand
+    # ein Konto hat. Die Sperre gilt weiter; sie wird nur nicht angekündigt.
+    # Wer sich ausgesperrt hat, kommt über „Passwort vergessen" sofort wieder
+    # hinein (das Zurücksetzen hebt die Sperre auf).
+    fehlermeldung = (
+        "E-Mail oder Passwort ist falsch. Nach mehreren Fehlversuchen ist die "
+        "Anmeldung für einige Minuten gesperrt — „Passwort vergessen“ hilft sofort."
+    )
     if user and user.locked_until and user.locked_until > datetime.utcnow():
-        wartezeit = int((user.locked_until - datetime.utcnow()).total_seconds() // 60) + 1
-        raise HTTPException(
-            status_code=429,
-            detail=f"Zu viele Fehlversuche. Bitte in {wartezeit} Minuten erneut versuchen.",
-        )
+        raise HTTPException(status_code=401, detail=fehlermeldung)
 
-    # Gleiche Meldung für falsche Adresse und falsches Passwort, damit sich
-    # nicht herausfinden lässt, welche Konten existieren.
     if not user or not user.is_active or not verify_password(body.password, user.password_hash):
         if user:
             user.failed_logins = (user.failed_logins or 0) + 1
@@ -176,7 +192,7 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
                     user.id, user.failed_logins, dauer,
                 )
             db.commit()
-        raise HTTPException(status_code=401, detail="E-Mail oder Passwort ist falsch")
+        raise HTTPException(status_code=401, detail=fehlermeldung)
 
     if user.failed_logins or user.locked_until:
         user.failed_logins = 0
@@ -465,7 +481,24 @@ def forgot_password(
     sich über dieses Feld herausfinden, wer ein Konto hat.
     """
     user = db.query(User).filter(User.email == body.email).first()
+    zuletzt = None
     if user and user.is_active:
+        zuletzt = (
+            db.query(AuthAction)
+            .filter(AuthAction.user_id == user.id, AuthAction.kind == "password_reset")
+            .order_by(AuthAction.created_at.desc())
+            .first()
+        )
+    # Höchstens eine Mail je Minute und Konto. Vorher ließ sich das Feld in
+    # einer Schleife abschicken — jeder Aufruf eine Mail, bis das Tageskontingent
+    # beim Mailanbieter aufgebraucht war und auch Bestätigungsmails anderer
+    # Nutzer nicht mehr rausgingen. Die Antwort bleibt dieselbe, damit sie
+    # nichts über das Konto verrät.
+    if zuletzt is not None and zuletzt.created_at and (
+        datetime.utcnow() - zuletzt.created_at
+    ).total_seconds() < NEUSENDEN_SPERRE_S:
+        logger.info("Zurücksetzen für Nutzer %s gedrosselt", user.id)
+    elif user and user.is_active:
         token = _issue_action(db, user, "password_reset", RESET_HOURS)
         background.add_task(send_password_reset, user.email, user.name, token)
         logger.info("Passwort-Zurücksetzen angefordert für Nutzer %s", user.id)
@@ -492,6 +525,11 @@ def reset_password(body: ResetIn, db: Session = Depends(get_db)):
     user = _consume_action(db, body.token, "password_reset")
 
     user.password_hash = hash_password(body.new_password)
+    # Die Sperre nach Fehlversuchen endet hier: Wer den Link aus der Mail hat,
+    # ist der Inhaber. So kann niemand ein fremdes Konto durch absichtliche
+    # Fehlversuche dauerhaft aussperren.
+    user.failed_logins = 0
+    user.locked_until = None
     # Wer das Passwort zurücksetzt, hat es vermutlich nicht mehr allein in
     # der Hand: alle bestehenden Sitzungen verfallen.
     user.tokens_valid_from = datetime.utcnow()
@@ -543,7 +581,7 @@ class DeleteIn(BaseModel):
 
 
 @router.delete("/auth/account")
-def delete_account(
+async def delete_account(
     body: DeleteIn,
     db: Session = Depends(get_db),
     user: User = Depends(require_user),
@@ -558,8 +596,24 @@ def delete_account(
     if body.confirm.strip().upper() != "LÖSCHEN":
         raise HTTPException(status_code=422, detail='Bitte "LÖSCHEN" zur Bestätigung eintippen')
 
+    from models import StravaCredentials
     from services.account_export import delete_user_data
+    from services.strava_service import StravaService
+
+    # Die Freigabe bei Strava zurücknehmen, solange die Zugangsdaten noch da
+    # sind — sonst bleibt FORGE dort als autorisierte App stehen.
+    strava_widerrufen = 0
+    for creds in db.query(StravaCredentials).filter(StravaCredentials.user_id == user.id).all():
+        if await StravaService(db).deauthorize(creds.athlete_id):
+            strava_widerrufen += 1
 
     zusammenfassung = delete_user_data(db, user)
+    zusammenfassung["strava_widerrufen"] = strava_widerrufen
     logger.info("Konto %s gelöscht: %s", user.id, zusammenfassung)
-    return {"status": "geloescht", "entfernt": zusammenfassung}
+    return {
+        "status": "geloescht",
+        "entfernt": zusammenfassung,
+        # Ehrlich sagen, was bleibt: Die Notizen im eigenen Vault gehören dem
+        # Athleten und liegen auf seinem Rechner — FORGE löscht sie nicht.
+        "hinweis": "Notizen in deinem Obsidian-Vault bleiben erhalten; sie liegen bei dir.",
+    }

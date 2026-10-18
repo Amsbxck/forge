@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { getSchedulerStatus, syncNow } from '../services/api'
+import { fehlerText } from '../utils/fehler'
 
 /**
  * Sofort-Abgleich mit Strava — derselbe Ablauf wie der stündliche Job.
@@ -36,7 +37,7 @@ export default function SyncButton() {
         setTimeout(() => window.location.reload(), 1400)
       }
     } catch (e) {
-      setResult({ error: e.response?.data?.detail || 'Abgleich fehlgeschlagen' })
+      setResult({ error: fehlerText(e, 'Abgleich fehlgeschlagen') })
       setState('error')
     } finally {
       clearTimeout(resetTimer.current)

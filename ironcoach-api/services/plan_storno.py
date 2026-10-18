@@ -94,6 +94,29 @@ def _obsidian_pfade(db: Session, user, plaene: list[WeeklyPlan]):
     return client, pfade
 
 
+def storno_pruefung(db: Session, user_id: int | None, montag: date,
+                    heute: date | None = None) -> tuple[bool, str | None]:
+    """Ließe sich der Plan dieser Woche stornieren? (stornierbar, Grund)
+
+    Dieselben Grenzen wie `plan_stornieren`, ohne etwas zu ändern — für die
+    Oberfläche, die den Knopf vorher selbst nach einer eigenen, abweichenden
+    Regel ein- und ausblendete.
+    """
+    heute = heute or date.today()
+    start, ende = kalenderwoche(montag)
+    abfrage = db.query(WeeklyPlan.id).filter(WeeklyPlan.week_start == start)
+    if user_id is not None:
+        abfrage = abfrage.filter(WeeklyPlan.user_id == user_id)
+    ids = [z[0] for z in abfrage.all()]
+    if not ids:
+        return False, "Kein Plan"
+    if ende < heute:
+        return False, "Vergangene Wochen bleiben als Protokoll stehen."
+    if start <= heute and _erledigt(db, ids):
+        return False, "In dieser Woche ist schon etwas erledigt — einzelne Tage lassen sich anpassen."
+    return True, None
+
+
 def plan_stornieren(db: Session, user, montag: date,
                     heute: date | None = None) -> dict:
     """Den Plan der Woche, in der `montag` liegt, vollständig entfernen.

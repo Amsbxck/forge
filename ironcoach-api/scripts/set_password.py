@@ -34,7 +34,15 @@ def main() -> int:
             print("Mindestens 8 Zeichen")
             return 1
 
+        from datetime import datetime
+
         user.password_hash = hash_password(password)
+        # Wie beim Zurücksetzen über die Mail: bisherige Sitzungen verfallen,
+        # und eine Sperre nach Fehlversuchen endet. Vorher blieb beides —
+        # wer ausgesperrt war, kam auch mit dem neuen Passwort nicht hinein.
+        user.tokens_valid_from = datetime.utcnow()
+        user.failed_logins = 0
+        user.locked_until = None
         db.commit()
         print(f"Passwort für {email} gesetzt (Nutzer {user.id})")
         return 0

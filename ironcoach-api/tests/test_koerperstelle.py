@@ -23,7 +23,7 @@ from services.health import (
 
 
 def _melde(db, stelle, severity="moderate"):
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     ereignis = HealthEvent(
         user_id=nutzer.id, kind="injury", severity=severity,
         body_part=stelle, start_date=date.today(),
@@ -74,7 +74,7 @@ def test_unbekannte_stelle_gibt_nichts_zurueck():
 def test_die_stelle_steht_ganz_oben_in_der_vorgabe(db):
     """Zuerst wo, dann wie stark — die Reihenfolge ist die der Entscheidung."""
     ereignis = _melde(db, "schienbein")
-    zeilen = guidance(db, db.query(User).first()).lines
+    zeilen = guidance(db, db.query(User).order_by(User.id.asc()).first()).lines
     assert "Schienbein" in zeilen[0]
     assert "Walk-Run" in zeilen[0]
 
@@ -85,7 +85,7 @@ def test_die_stelle_steht_ganz_oben_in_der_vorgabe(db):
 def test_ohne_stelle_bleibt_die_allgemeine_vorgabe(db):
     """Die Angabe ist freiwillig: Wer nicht zeigen kann wo, meldet trotzdem."""
     ereignis = _melde(db, None)
-    zeilen = guidance(db, db.query(User).first()).lines
+    zeilen = guidance(db, db.query(User).order_by(User.id.asc()).first()).lines
     assert zeilen, "eine Verletzungsmeldung muss immer eine Vorgabe erzeugen"
     assert not any("Betroffene Stelle" in z for z in zeilen)
 
@@ -191,7 +191,7 @@ def test_kopfverletzung_bekommt_keine_geraeteliste(db):
     assert ersatz_vorgabe("kopf") == ""
 
     ereignis = _melde(db, "kopf", severity="moderate")
-    zeilen = guidance(db, db.query(User).first()).lines
+    zeilen = guidance(db, db.query(User).order_by(User.id.asc()).first()).lines
     assert any("Kein Training" in z for z in zeilen)
     assert not any("ERSATZTRAINING" in z for z in zeilen)
 
@@ -205,7 +205,7 @@ def test_ohne_stelle_bleibt_der_allgemeine_ersatzhinweis(db):
     assert ersatz_vorgabe(None) is None
 
     ereignis = _melde(db, None, severity="moderate")
-    zeilen = guidance(db, db.query(User).first()).lines
+    zeilen = guidance(db, db.query(User).order_by(User.id.asc()).first()).lines
     assert any("ERSATZTRAINING" in z for z in zeilen)
 
     db.delete(ereignis)

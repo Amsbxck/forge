@@ -14,21 +14,8 @@ from core.race_types import RACE_TYPES, SPORT_LABEL, default_weeks, plan_start_f
 from core.wochen import montag_von
 from database import get_db
 from models import RaceGoal, RaceResult, User
-from schemas import RaceGoalIn, RaceGoalOut, RaceResultIn, RaceResultOut
+from schemas import RaceGoalIn, RaceGoalOut, RaceGoalPatch, RaceResultIn, RaceResultOut
 
-
-def _als_datum(wert):
-    """Ein Datum aus dem PATCH-Rumpf lesen.
-
-    `update_goal` nimmt ein rohes dict, kein Schema — aus JSON kommt das Datum
-    deshalb als Zeichenkette an. Ohne diese Umwandlung wäre `montag_von`
-    darauf gelaufen und hätte mit einem AttributeError abgebrochen.
-    """
-    from datetime import date, datetime
-
-    if isinstance(wert, date):
-        return wert
-    return datetime.strptime(str(wert)[:10], "%Y-%m-%d").date()
 
 router = APIRouter()
 
@@ -101,15 +88,9 @@ def active_goal(db: Session = Depends(get_db), user: User | None = Depends(get_c
     return goal
 
 
-def get_active_goal(db: Session, user: User | None = None) -> RaceGoal | None:
-    """Das Saisonziel. B- und C-Rennen kommen hier nicht in Frage."""
-    query = db.query(RaceGoal).filter(
-        RaceGoal.is_active == True,  # noqa: E712
-        RaceGoal.priority == "A",
-    )
-    if user:
-        query = query.filter(RaceGoal.user_id == user.id)
-    return query.order_by(RaceGoal.race_date.asc()).first()
+# Eine Abfrage für „das Saisonziel", nicht drei: Hier stand eine eigene
+# Kopie, eine weitere in `services/race_calendar.py` (ohne Sortierung).
+from core.deps import get_active_goal  # noqa: E402
 
 
 @router.get("/goals/upcoming", response_model=list[RaceGoalOut])
@@ -188,23 +169,80 @@ def create_goal(
 
 
 @router.patch("/goals/{goal_id}", response_model=RaceGoalOut)
-def update_goal(goal_id: int, body: dict, db: Session = Depends(get_db)):
-    goal = db.query(RaceGoal).filter(RaceGoal.id == goal_id).first()
+def update_goal(
+    goal_id: int,
+    body: RaceGoalPatch,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    """Ein Ziel ändern — mit denselben Folgen wie beim Anlegen.
+
+    Vorher wurden die Felder einzeln übernommen, ohne die Folgen:
+      * Ein verschobenes Renndatum ließ den Planstart stehen; das Rennen lag
+        danach in „Woche 24 von 20", und die Wochen davor hießen Off Season.
+      * Sportart oder Distanz behielten die alte Planlänge.
+      * `is_active: true` machte ein zweites Saisonziel aktiv, ohne das erste
+        zu beenden — welches dann zählte, hing am früheren Datum.
+    """
+    from services.race_calendar import normalize_priority
+
+    query = db.query(RaceGoal).filter(RaceGoal.id == goal_id)
+    if user is not None:
+        query = query.filter(RaceGoal.user_id == user.id)
+    goal = query.first()
     if not goal:
         raise HTTPException(status_code=404, detail="Ziel nicht gefunden")
-    for key in ("race_name", "goal_time", "race_date", "plan_weeks", "plan_start_date", "is_active"):
-        if key in body:
-            wert = body[key]
-            # Derselbe Zwang wie beim Anlegen: sonst konnte ein späteres
-            # Nachbessern des Datums die Planwochen wieder vom Montag lösen.
-            if key == "plan_start_date" and wert:
-                wert = montag_von(_als_datum(wert))
-            setattr(goal, key, wert)
-    if "sport" in body or "distance" in body:
-        sport = body.get("sport", goal.sport)
-        distance = body.get("distance", goal.distance)
-        _validate(sport, distance)
-        goal.sport, goal.distance = sport, distance
+
+    daten = body.model_dump(exclude_unset=True)
+    if "plan_start_date" in daten and daten["plan_start_date"] is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Der Planstart lässt sich ändern, aber nicht leeren — ohne ihn "
+                   "gibt es keine Wochenzählung.",
+        )
+
+    sport = daten.get("sport", goal.sport)
+    distance = daten.get("distance", goal.distance)
+    _validate(sport, distance, daten.get("priority"))
+    prioritaet = normalize_priority(daten["priority"]) if daten.get("priority") else goal.priority
+    art_geaendert = sport != goal.sport or distance != goal.distance
+
+    for feld in ("race_name", "goal_time", "race_date"):
+        if feld in daten and (daten[feld] is not None or feld != "race_date"):
+            setattr(goal, feld, daten[feld])
+    goal.sport, goal.distance, goal.priority = sport, distance, prioritaet
+
+    if prioritaet == "A":
+        # Planlänge: ausdrücklich angegeben, sonst bei geänderter Art die
+        # Vorgabe der neuen Art, sonst wie bisher.
+        if daten.get("plan_weeks"):
+            goal.plan_weeks = daten["plan_weeks"]
+        elif art_geaendert or not goal.plan_weeks:
+            goal.plan_weeks = default_weeks(sport, distance)
+        # Planstart: ausdrücklich angegeben (auf seinen Montag gezogen), sonst
+        # neu aus Renndatum und Länge, sobald sich eines davon geändert hat.
+        if daten.get("plan_start_date"):
+            goal.plan_start_date = montag_von(daten["plan_start_date"])
+        elif {"race_date", "plan_weeks", "sport", "distance"} & daten.keys() or goal.plan_start_date is None:
+            goal.plan_start_date = plan_start_for(goal.race_date, goal.plan_weeks)
+    else:
+        goal.plan_weeks = None
+        goal.plan_start_date = None
+
+    if "is_active" in daten and daten["is_active"] is not None:
+        goal.is_active = daten["is_active"]
+    # Nur ein aktives Saisonziel, wie beim Anlegen.
+    if goal.is_active and prioritaet == "A":
+        andere = db.query(RaceGoal).filter(
+            RaceGoal.id != goal.id,
+            RaceGoal.is_active == True,  # noqa: E712
+            RaceGoal.priority == "A",
+        )
+        if goal.user_id is not None:
+            andere = andere.filter(RaceGoal.user_id == goal.user_id)
+        for anderes in andere.all():
+            anderes.is_active = False
+
     db.commit()
     db.refresh(goal)
     return goal
@@ -415,18 +453,25 @@ def delete_race_image(race_id: int, db: Session = Depends(get_db)):
 
 @router.get("/benchmark/week")
 def benchmark_preview(db: Session = Depends(get_db), user: User | None = Depends(get_current_user)):
-    """Vorschau der Testwoche für das aktive Ziel."""
-    from datetime import date as _date, timedelta
+    """Vorschau der Testwoche — genau so, wie sie angelegt würde.
 
+    Dieselbe Woche und dieselbe Entzerrung wie `create_benchmark_plan`. Vorher
+    rechnete die Vorschau ab dem Planstart des Ziels (meist Monate zurück) und
+    ohne die Off-Season-Entzerrung: Sie zeigte zwei Maximaltests, wo dann einer
+    angelegt wurde, und Daten aus einer vergangenen Woche.
+    """
     from core.deps import get_active_goal
+    from core.race_types import season_state
     from services.benchmark import benchmark_week
+    from services.benchmark_timing import entzerren, naechster_montag
 
     goal = get_active_goal(db, user)
     sport = goal.sport if goal else "triathlon"
-    start = goal.plan_start_date if goal and goal.plan_start_date else _date.today()
-    # Auf Montag ziehen, damit die Woche zur Wochenzählung passt.
-    start = start - timedelta(days=start.weekday())
-    return {"sport": sport, "week_start": str(start), "days": benchmark_week(sport, start)}
+    start = naechster_montag()
+    days = benchmark_week(sport, start)
+    if goal is None or season_state(goal.race_date) == "off_season":
+        days = entzerren(days)
+    return {"sport": sport, "week_start": str(start), "days": days}
 
 
 @router.get("/benchmark/timing")
@@ -505,12 +550,14 @@ def benchmark_plan(db: Session = Depends(get_db), user: User | None = Depends(ge
         "week_number": plan.week_number,
         "week_start": str(plan.week_start),
         # Die Woche über ihr Datum benennen, nicht über die Wochennummer:
-        # Die entsteht aus `max(1, …)` und ist vor dem Beginn der
+        # Die entstand früher aus `max(1, …)` und war vor dem Beginn der
         # Vorbereitung für jedes Datum 1. Die Meldung sagte dann "für Woche 1
         # existiert bereits ein Plan" und nannte im selben Atemzug ein Datum
         # aus dem September — zwei Angaben, die sich widersprechen.
         "message": (
-            "Testwoche angelegt" if created
+            "Testwoche angelegt und inzwischen wieder storniert"
+            if getattr(plan, "storniert", False)
+            else "Testwoche angelegt" if created
             else f"Für die Woche ab {plan.week_start} existiert bereits ein Plan"
         ),
     }

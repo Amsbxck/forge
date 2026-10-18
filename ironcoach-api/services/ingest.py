@@ -82,6 +82,61 @@ def find_existing_session(
     return None, "none"
 
 
+def ist_geloescht(db: Session, activity_id: int) -> bool:
+    """Hat der Athlet diese Strava-Aktivität endgültig gelöscht?"""
+    from models import GeloeschteStravaAktivitaet
+
+    return db.query(GeloeschteStravaAktivitaet.id).filter(
+        GeloeschteStravaAktivitaet.strava_activity_id == activity_id
+    ).first() is not None
+
+
+async def nachbearbeiten(db: Session, session: TrainingSession, result: dict,
+                         sync_obsidian: bool = True) -> dict:
+    """Was nach dem Speichern einer Einheit passiert — für jeden Importweg.
+
+    Klassifizieren und dem Plan zuordnen, in der Testphase die Zonen ableiten,
+    dann nach Obsidian. Vorher stand das nur hier im Strava-Pfad; ein Upload
+    blieb ungeplant, und eine FIT-Testwoche lieferte nie Zonen.
+    """
+    # Erst klassifizieren, dann nach Obsidian — sonst stünde in der Note ein
+    # leeres actual_type und die Abweichung fehlte.
+    try:
+        from services.classification import classify_session
+        classification = classify_session(db, session)
+        result["actual_type"] = classification["actual_type"]
+        result["deviation"] = classification["deviation"]
+    except Exception as e:  # pragma: no cover
+        db.rollback()
+        logger.warning("Klassifizierung für Einheit %s fehlgeschlagen: %s", session.id, e)
+
+    # In der Testphase die Zonen aus den Tests übernehmen — der Sinn der
+    # Benchmark-Woche ist, dass danach niemand Zahlen von Hand eintragen muss.
+    try:
+        from services.benchmark import maybe_autoderive
+        derived = maybe_autoderive(db)
+        if derived:
+            result["zones_derived"] = derived.get("applied")
+    except Exception as e:  # pragma: no cover
+        db.rollback()
+        logger.warning("Automatische Zonenableitung fehlgeschlagen: %s", e)
+
+    if sync_obsidian:
+        # In einem eigenen Thread: Der Vault-Client arbeitet synchron, mit
+        # 20 s Verbindungs-Timeout und Wiederholungen. Direkt im Event-Loop
+        # stand bei einem nicht erreichbaren Vault die ganze API still —
+        # jede Anfrage aller Nutzer, eine Minute pro Notiz.
+        try:
+            import asyncio
+            from services.obsidian.sync import sync_session
+            result["obsidian"] = (await asyncio.to_thread(sync_session, db, session))["status"]
+        except Exception as e:  # pragma: no cover - darf den Ingest nie reißen
+            logger.warning("Obsidian-Sync für Einheit %s fehlgeschlagen: %s", session.id, e)
+            result["obsidian"] = "error"
+
+    return result
+
+
 async def ingest_activity(
     db: Session,
     activity_id: int,
@@ -93,6 +148,10 @@ async def ingest_activity(
 
     dry_run meldet nur, was passieren würde, ohne zu schreiben.
     """
+    # Endgültig gelöscht: nicht wieder anlegen, und ohne Abruf bei Strava.
+    if ist_geloescht(db, activity_id):
+        return {"activity_id": activity_id, "action": "skipped_deleted"}
+
     service = StravaService(db)
     profile = get_profile(db)
     ftp = profile.ftp_watts if profile else None
@@ -148,9 +207,19 @@ async def ingest_activity(
         # Vorhandene Werte bleiben stehen: die FIT-Datei ist die genauere Quelle.
         existing.strava_activity_id = activity_id
         for field in ("avg_watts", "normalized_power", "avg_hr", "max_hr",
-                      "distance_km", "tss", "avg_pace_min_km", "hr_zones"):
+                      "distance_km", "tss", "avg_pace_min_km", "hr_zones", "sport_type"):
             if getattr(existing, field, None) is None and session_data.get(field) is not None:
                 setattr(existing, field, session_data[field])
+        # Der Arbeitsweg kommt von Strava, nicht aus der Datei — dort steht er
+        # nicht. Ohne Übernahme zählte eine als Arbeitsweg markierte Fahrt
+        # weiter als die geplante Einheit.
+        if session_data.get("is_commute"):
+            existing.is_commute = True
+        # Runden ergänzen, wenn die Datei keine hatte: Die CSS-Erkennung
+        # lebt von ihnen.
+        strava_runden = (session_data.get("streams") or {}).get("laps")
+        if strava_runden and not (existing.streams or {}).get("laps"):
+            existing.streams = {**(existing.streams or {}), "laps": strava_runden}
         db.commit()
         logger.info("Aktivität %s mit bestehender Einheit %s verknüpft", activity_id, existing.id)
         session = existing
@@ -170,32 +239,52 @@ async def ingest_activity(
         result["session_id"] = session.id
         logger.info("Aktivität %s als Einheit %s angelegt", activity_id, session.id)
 
-    # Erst klassifizieren, dann nach Obsidian — sonst stünde in der Note ein
-    # leeres actual_type und die Abweichung fehlte.
-    try:
-        from services.classification import classify_session
-        classification = classify_session(db, session)
-        result["actual_type"] = classification["actual_type"]
-        result["deviation"] = classification["deviation"]
-    except Exception as e:  # pragma: no cover
-        logger.warning("Klassifizierung für Einheit %s fehlgeschlagen: %s", session.id, e)
+    return await nachbearbeiten(db, session, result, sync_obsidian=sync_obsidian)
 
-    # In der Testphase die Zonen aus den Tests übernehmen — der Sinn der
-    # Benchmark-Woche ist, dass danach niemand Zahlen von Hand eintragen muss.
-    try:
-        from services.benchmark import maybe_autoderive
-        derived = maybe_autoderive(db)
-        if derived:
-            result["zones_derived"] = derived.get("applied")
-    except Exception as e:  # pragma: no cover
-        logger.warning("Automatische Zonenableitung fehlgeschlagen: %s", e)
 
-    if sync_obsidian:
-        try:
-            from services.obsidian.sync import sync_session
-            result["obsidian"] = sync_session(db, session)["status"]
-        except Exception as e:  # pragma: no cover - darf den Ingest nie reißen
-            logger.warning("Obsidian-Sync für Einheit %s fehlgeschlagen: %s", session.id, e)
-            result["obsidian"] = "error"
+async def aktualisieren(db: Session, activity_id: int, athlete_id: int) -> dict:
+    """Eine bei Strava geänderte Aktivität nachziehen (Webhook `update`).
 
-    return result
+    Bisher kam nur das Anlegen an. Wer eine Fahrt nachträglich als Arbeitsweg
+    markierte (die übliche Reihenfolge — erst hochladen, dann einordnen) oder
+    den Typ korrigierte, sah davon in FORGE nichts: Die Fahrt zählte weiter
+    als die geplante Einheit.
+    """
+    session = db.query(TrainingSession).filter(
+        TrainingSession.strava_activity_id == activity_id
+    ).first()
+    if session is None:
+        return await ingest_activity(db, activity_id, athlete_id)
+
+    activity = await StravaService(db).fetch_activity(activity_id, athlete_id)
+    geaendert = []
+    commute = bool(activity.get("commute"))
+    if commute != bool(session.is_commute):
+        from services.einheit_aenderung import arbeitsweg_setzen
+        arbeitsweg_setzen(db, session, commute)
+        geaendert.append("is_commute")
+    sport = activity.get("sport_type") or activity.get("type")
+    if sport and sport != session.sport_type:
+        session.sport_type = sport
+        session.obsidian_synced_at = None
+        geaendert.append("sport_type")
+    db.commit()
+    return {"activity_id": activity_id, "action": "updated" if geaendert else "unchanged",
+            "geaendert": geaendert, "session_id": session.id}
+
+
+def entfernen(db: Session, activity_id: int) -> dict:
+    """Bei Strava gelöscht (Webhook `delete`): weich löschen, Vorgabe frei.
+
+    Weich, nicht endgültig — gelöscht hat der Athlet bei Strava, nicht hier,
+    und in FORGE stecken womöglich seine Reflexion und die Zuordnung.
+    """
+    session = db.query(TrainingSession).filter(
+        TrainingSession.strava_activity_id == activity_id
+    ).first()
+    if session is None or session.deleted_at is not None:
+        return {"activity_id": activity_id, "action": "unchanged"}
+    from services.einheit_aenderung import weich_loeschen
+    weich_loeschen(db, session)
+    db.commit()
+    return {"activity_id": activity_id, "action": "soft_deleted", "session_id": session.id}

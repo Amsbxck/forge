@@ -32,35 +32,50 @@ async def _reconcile_job() -> None:
     from core.tenancy import SKIP_OPTION, acting_as
     from services.reconcile import run_full_reconcile
 
+    # Erst nur die Nutzer-IDs, dann je Athlet eine **eigene** Session.
+    #
+    # Vorher lief der ganze Job über eine einzige Session. Scheiterte bei einem
+    # Athleten eine Datenbankanweisung, stand die Transaktion danach auf
+    # „abgebrochen" — und schon das Protokollieren im Fehlerzweig
+    # (`creds.user_id` auf dem verfallenen Objekt) warf erneut. Jeder Athlet
+    # hinter dem ersten Fehler bekam keinen Abgleich mehr, jede Stunde wieder.
     db = SessionLocal()
     try:
-        athletes = (
-            db.query(StravaCredentials)
-            .execution_options(**{SKIP_OPTION: True})
-            .all()
-        )
-        if not athletes:
-            logger.info("Reconcile: kein Athlet mit Strava-Verbindung")
-            return
-
-        for creds in athletes:
-            try:
-                with acting_as(creds.user_id):
-                    result = await run_full_reconcile(db, days=settings.RECONCILE_WINDOW_DAYS)
-                logger.info(
-                    "Reconcile Nutzer %s: %s Aktivitäten geprüft, %s | Obsidian: %s",
-                    creds.user_id,
-                    result["activities"].get("checked"),
-                    result["activities"].get("by_action"),
-                    result["obsidian"].get("by_status"),
-                )
-            except Exception:
-                # Ein Athlet mit abgelaufenem Token darf die übrigen nicht aufhalten.
-                logger.exception("Reconcile für Nutzer %s fehlgeschlagen", creds.user_id)
+        nutzer_ids = [
+            row[0] for row in (
+                db.query(StravaCredentials.user_id)
+                .execution_options(**{SKIP_OPTION: True})
+                .all()
+            )
+        ]
     except Exception:
-        logger.exception("Reconcile-Job fehlgeschlagen")
+        logger.exception("Reconcile-Job: Athletenliste nicht lesbar")
+        return
     finally:
         db.close()
+
+    if not nutzer_ids:
+        logger.info("Reconcile: kein Athlet mit Strava-Verbindung")
+        return
+
+    for user_id in nutzer_ids:
+        sitzung = SessionLocal()
+        try:
+            with acting_as(user_id):
+                result = await run_full_reconcile(sitzung, days=settings.RECONCILE_WINDOW_DAYS)
+            logger.info(
+                "Reconcile Nutzer %s: %s Aktivitäten geprüft, %s | Obsidian: %s",
+                user_id,
+                result["activities"].get("checked"),
+                result["activities"].get("by_action"),
+                result["obsidian"].get("by_status"),
+            )
+        except Exception:
+            # Ein Athlet mit abgelaufenem Token darf die übrigen nicht aufhalten.
+            sitzung.rollback()
+            logger.exception("Reconcile für Nutzer %s fehlgeschlagen", user_id)
+        finally:
+            sitzung.close()
 
 
 async def _subscription_job() -> None:

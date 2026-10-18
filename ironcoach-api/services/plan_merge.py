@@ -114,3 +114,45 @@ def merge_days(
 
     inhalt["days"] = [t for tag in reihenfolge for t in bestand[tag]]
     return inhalt, uebernommen, abgewiesen
+
+
+def gesperrte_daten(db, plan_id: int) -> set[date]:
+    """Tage eines Plans, die nicht mehr geändert werden dürfen.
+
+    Dieselbe Auffassung von „erledigt" wie beim Stornieren
+    (`plan_storno._erledigt`): absolviert, durch etwas anderes ersetzt oder
+    einer echten Einheit zugeordnet. Vorher sperrten Chat und Planänderung nur
+    „completed" — ein ersetzter Tag liess sich überschreiben, und die
+    Ersatzangabe ging bei der Neuprojektion verloren.
+    """
+    from models import PlannedSession
+
+    return {
+        p.planned_date
+        for p in db.query(PlannedSession).filter(
+            PlannedSession.plan_id == plan_id,
+            (PlannedSession.matched_session_id.isnot(None))
+            | (PlannedSession.status.in_(("completed", "replaced"))),
+        ).all()
+    }
+
+
+def plan_text_aus(inhalt: dict, week_number: int, week_start, week_end) -> str:
+    """Die Textübersicht eines Plans aus seinen Tagen.
+
+    Nach einer Teiländerung neu gebaut statt vom alten Plan kopiert: Sonst
+    zeigte die Übersicht die alten Tage, während das JSON die neuen trug.
+    """
+    zeilen = [f"Wochenplan {week_number} ({week_start} – {week_end})", ""]
+    for tag in inhalt.get("days") or []:
+        if not isinstance(tag, dict):
+            continue
+        typ = tag.get("training_type")
+        zeilen.append(
+            f"{tag.get('day', '?')} ({tag.get('date', '?')}): "
+            f"{str(tag.get('session_type', '')).upper()}{f' [{typ}]' if typ else ''} "
+            f"{tag.get('duration_min', '')}min — {tag.get('notes', '')}"
+        )
+    zeilen.append("")
+    zeilen.append(inhalt.get("coaching_comment", "") or "")
+    return "\n".join(zeilen)

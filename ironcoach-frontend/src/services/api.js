@@ -32,11 +32,19 @@ api.interceptors.request.use(config => {
 let onUnauthorized = null
 export const setUnauthorizedHandler = (fn) => { onUnauthorized = fn }
 
+// Ausgenommen nur die Anmeldewege selbst — dort heißt 401 „Passwort falsch",
+// nicht „abgemeldet". Vorher war jede `/api/auth/`-Adresse ausgenommen, auch
+// `/api/auth/me`: Mit widerrufenem Token blieb das Bestätigungsfenster dann
+// hängen, weil seine Prüfung nie zur Anmeldung zurückführte.
+const OHNE_ABMELDEN = ['/api/auth/login', '/api/auth/register', '/api/auth/forgot-password',
+  '/api/auth/reset-password', '/api/auth/verify-email', '/api/auth/change-password',
+  '/api/auth/account']
+
 api.interceptors.response.use(
   response => response,
   error => {
     const url = error.config?.url || ''
-    if (error.response?.status === 401 && !url.includes('/api/auth/')) {
+    if (error.response?.status === 401 && !OHNE_ABMELDEN.some(p => url.includes(p))) {
       setToken(null)
       onUnauthorized?.()
     }
@@ -60,7 +68,6 @@ export const getLatestHrv = () => api.get('/api/hrv/latest')
 
 // Metrics
 export const getWeekMetrics = () => api.get('/api/metrics/week')
-export const getTrends = (weeks = 4) => api.get('/api/metrics/trends', { params: { weeks } })
 export const getPmc = () => api.get('/api/metrics/pmc')
 // Passt die hinterlegte FTP noch zu dem, was gefahren wird? Eigener Aufruf,
 // weil die Prüfung die Leistungsdaten mehrerer Fahrten liest.
@@ -97,8 +104,6 @@ export const generatePlan = (requests = '', montag = null) =>
     params: montag ? { requests, montag } : { requests },
     timeout: 180000,
   })
-export const getCurrentPlan = () => api.get('/api/plan/current')
-export const getPlanByWeek = (week) => api.get(`/api/plan/${week}`)
 // Über den Montag statt über die Wochennummer: Die Nummer ist vor dem
 // Beginn des Aufbaus für jedes Datum 1, damit liesse sich nicht blättern.
 export const getPlanByMonday = (montag) => api.get(`/api/plan/am/${montag}`)
@@ -106,14 +111,14 @@ export const getPlanByMonday = (montag) => api.get(`/api/plan/am/${montag}`)
 // Obsidian-Notiz. 30 s: Der Server begrenzt den Obsidian-Teil selbst, aber
 // über Tailscale kann der Verbindungsaufbau trotzdem einige Sekunden dauern.
 export const cancelPlan = (montag) => api.delete(`/api/plan/am/${montag}`, { timeout: 30000 })
-export const downloadPlanPDF = (week) =>
-  api.get(`/api/plan/${week}/pdf`, { responseType: 'blob' })
+// Über den Montag: Die Wochennummer meint nach einem Zielwechsel eine andere
+// Woche, und Woche 0 ließ sich über sie gar nicht exportieren.
+export const downloadPlanPdfByMonday = (montag) =>
+  api.get(`/api/plan/am/${montag}/pdf`, { responseType: 'blob' })
 
 // Planned sessions — normalisierte Projektion des Wochenplans
 export const getPlannedCurrent = () => api.get('/api/planned/current')
-export const getPlannedWeek = (week) => api.get(`/api/planned/week/${week}`)
 export const getPlannedByMonday = (montag) => api.get(`/api/planned/am/${montag}`)
-export const patchPlannedSession = (id, data) => api.patch(`/api/planned/${id}`, data)
 export const setPlannedReplacement = (id, { text, durationMin, discipline, intensity }) =>
   api.post(`/api/planned/${id}/replacement`, {
     text: text || '',
@@ -128,10 +133,8 @@ export const swapPlannedSessions = (aId, bId) =>
 
 // Ziele, Rennen, Benchmark
 export const getRaceTypes = () => api.get('/api/race-types')
-export const getGoals = () => api.get('/api/goals')
 export const getActiveGoal = () => api.get('/api/goals/active')
 export const createGoal = (data) => api.post('/api/goals', data)
-export const updateGoal = (id, data) => api.patch(`/api/goals/${id}`, data)
 export const getRaces = () => api.get('/api/races')
 export const createRace = (data) => api.post('/api/races', data)
 export const updateRace = (id, data) => api.patch(`/api/races/${id}`, data)
@@ -152,15 +155,34 @@ export const getBenchmarkWeek = () => api.get('/api/benchmark/week')
 export const getBenchmarkTiming = () => api.get('/api/benchmark/timing')
 export const createBenchmarkPlan = () => api.post('/api/benchmark/plan')
 export const getOnboardingStatus = () => api.get('/api/onboarding/status')
+// Dasselbe Fenster wie die automatische Übernahme (21 Tage) — mit 60 zeigte
+// der Knopf Werte aus Einheiten, die die Automatik nie berücksichtigt hätte.
 export const deriveZones = (apply = false) =>
-  api.post(`/api/benchmark/derive?apply=${apply}&days=60`)
+  api.post(`/api/benchmark/derive?apply=${apply}&days=21`)
 
 // Chat
-export const sendChat = (message) => api.post('/api/chat', { message })
+// 180 s wie die Planerstellung: Eine Chatantwort mit ganzer Woche braucht
+// genauso lange. Mit 60 s brach die Oberfläche ab, während der Server den
+// Plan speicherte und abrechnete — ein zweiter Versuch verdoppelte beides.
+export const sendChat = (message) => api.post('/api/chat', { message }, { timeout: 180000 })
+export const getChatHistory = () => api.get('/api/chat/history')
 export const clearChat = () => api.delete('/api/chat')
 
 // History
 export const getSessions = (params = {}) => api.get('/api/history/sessions', { params })
+// Alle Einheiten eines Zeitraums, seitenweise geholt — für Diagramme, die
+// mehr als die 50 neuesten brauchen.
+export const getSessionsSeit = async (von) => {
+  const alle = []
+  for (let offset = 0; offset < 20000; offset += 1000) {
+    const { data } = await api.get('/api/history/sessions', {
+      params: { von, limit: 1000, offset, ohne_streams: true },
+    })
+    alle.push(...data)
+    if (data.length < 1000) break
+  }
+  return { data: alle }
+}
 export const softDeleteSession = (id) => api.delete(`/api/history/sessions/${id}`)
 export const hardDeleteSession = (id) => api.delete(`/api/history/sessions/${id}/hard`)
 // Rückfall, wenn Strava das Commute-Kennzeichen nicht mitliefert. Markieren ist
@@ -176,6 +198,8 @@ export const getHistoryPlans = () => api.get('/api/history/plans')
 // Strava
 export const getStravaStatus = () => api.get('/api/strava/status')
 export const getStravaAuthUrl = () => api.get('/api/strava/auth')
+// Nach der Freigabe bei Strava: mit dem angemeldeten Konto bestätigen.
+export const confirmStrava = (vorgang) => api.post('/api/strava/bestaetigen', { vorgang })
 export const getSchedulerStatus = () => api.get('/api/strava/scheduler')
 // Kann je nach Anzahl neuer Aktivitäten dauern — pro Einheit zwei Strava-Requests
 export const syncNow = () => api.post('/api/strava/sync-now', null, { timeout: 180000 })
@@ -193,10 +217,9 @@ export const deleteWebhook = () => api.delete('/api/integrations/strava/webhook'
 
 // --- Gesundheit ---
 export const getHealthStatus = () => api.get('/api/health/status')
-export const getHealthEvents = () => api.get('/api/health/events')
+export const getNeuplanung = () => api.get('/api/health/neuplanung')
 export const reportIllness = (data) => api.post('/api/health/illness', data)
 export const reportRecovered = (data = {}) => api.post('/api/health/recovered', data)
-export const deleteHealthEvent = (id) => api.delete(`/api/health/events/${id}`)
 
 // --- Konto ---
 export const forgotPassword = (email) => api.post('/api/auth/forgot-password', { email })

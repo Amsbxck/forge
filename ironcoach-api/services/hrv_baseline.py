@@ -190,22 +190,51 @@ def recompute_all(db: Session, user: User | None = None) -> int:
 
     Nötig, wenn sich die Grundlinie verschiebt oder eine Spanne eingetragen
     wird — sonst tragen alte Messungen weiter die Farbe von gestern.
+
+    **Eine eingetragene Spanne gilt für alle Messungen** — sie hat unbedingten
+    Vorrang (siehe `thresholds_for`).
+
+    Ohne sie bekommt jede Messung die Farbe nach der Spanne **ihres** Tages:
+    dieselbe Rechnung wie `compute_baseline` (bis zu 30 Messungen aus den
+    letzten 180 Tagen davor), wie das Diagramm sie als Fläche zeichnet. Vorher
+    wurde die ganze Historie gegen die heutige Spanne gefärbt — ein Punkt lag
+    sichtbar in seiner gezeichneten Spanne und war trotzdem rot.
+
+    Gibt es für eine Messung keine Spanne (zu wenige Werte), verliert sie ihre
+    Farbe. Vorher blieb sie stehen, etwa nachdem die eingetragene Spanne
+    gelöscht wurde — gefärbt nach Grenzen, die es nicht mehr gab.
     """
-    baseline = compute_baseline(db, user)
     from core.deps import get_profile
 
-    grenzen = thresholds_for(get_profile(db, user), baseline)
-    if not grenzen:
-        return 0
+    profile = get_profile(db, user)
+    manuell = thresholds_for(profile, None)
 
     query = db.query(HrvMeasurement)
     if user is not None:
         query = query.filter(HrvMeasurement.user_id == user.id)
+    messungen = query.order_by(HrvMeasurement.measured_at.asc(), HrvMeasurement.id.asc()).all()
 
     geaendert = 0
-    for messung in query.all():
+    for i, messung in enumerate(messungen):
+        if manuell is not None:
+            grenzen = manuell
+        else:
+            grenze = messung.measured_at - timedelta(days=FENSTER_TAGE)
+            fenster = [
+                m.rmssd for m in messungen[: i + 1]
+                if m.rmssd and m.measured_at >= grenze
+            ][-MAX_MESSUNGEN:]
+            if len(fenster) < MIN_MESSUNGEN:
+                grenzen = None
+            else:
+                mittel = statistics.fmean(fenster)
+                streuung = statistics.pstdev(fenster)
+                grenzen = {
+                    "gruen_ab": round(mittel - GRUEN_SIGMA * streuung, 1),
+                    "rot_unter": round(mittel - ROT_SIGMA * streuung, 1),
+                }
         neu = status_for(messung.rmssd, grenzen)
-        if neu and messung.hrv_status != neu:
+        if messung.hrv_status != neu:
             messung.hrv_status = neu
             geaendert += 1
     db.commit()

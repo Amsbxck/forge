@@ -425,3 +425,37 @@ def vault_subdir_for(profile) -> str:
 # Bewusst keine Abkürzung wie `get_client()`: Eine parameterlose Funktion
 # lädt dazu ein, sie irgendwo aufzurufen, wo der Athlet bekannt wäre. Wer
 # einen Client braucht, geht über `client_for_profile(profile)`.
+
+
+def adresse_gesperrt(url: str) -> str | None:
+    """Grund, warum der Server diese Adresse nicht aufrufen darf — oder None.
+
+    Die Vault-Adresse gibt der Athlet selbst ein, und der Server ruft sie
+    auf. Ohne Prüfung ließen sich damit Ziele im Netz des Servers ansprechen,
+    die von außen nicht erreichbar sein sollen: der Metadatendienst des
+    Hosters, interne Dienste, im Betrieb auch der Server selbst. Erlaubt
+    bleiben Tailscale-Adressen (100.64.0.0/10) und Namen — dafür ist das Feld
+    da — und im lokalen Betrieb `localhost` und `host.docker.internal`.
+    """
+    import ipaddress
+    from urllib.parse import urlparse
+
+    from core.config import settings
+
+    host = (urlparse(url).hostname or "").lower().rstrip(".")
+    if not host:
+        return None
+    if host in ("metadata.google.internal", "metadata") or host.endswith(".railway.internal"):
+        return "Diese Adresse ist intern und vom Server aus nicht erlaubt."
+    im_betrieb = bool(settings.PUBLIC_BASE_URL or settings.API_BASE_URL or settings.FRONTEND_URL)
+    if host == "localhost" and im_betrieb:
+        return "localhost zeigt im Betrieb auf den Server selbst, nicht auf deinen Rechner."
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return None
+    if ip.is_link_local or ip.is_unspecified or ip.is_multicast:
+        return "Diese Adresse ist vom Server aus nicht erlaubt."
+    if ip.is_loopback and im_betrieb:
+        return "Diese Adresse zeigt im Betrieb auf den Server selbst, nicht auf deinen Rechner."
+    return None

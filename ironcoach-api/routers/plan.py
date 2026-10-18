@@ -11,13 +11,32 @@ from core.wochen import kalenderwoche
 from models import AthleteProfile, User, WeeklyPlan
 from schemas import WeeklyPlanOut
 from services.plan_generator import generate_and_save_plan, get_current_week
-from services.plan_selection import pick_plan as _pick_plan
+from services.plan_selection import active_plan_for_week, pick_plan as _pick_plan, plan_der_woche
+from services.pdf_generator import generate_plan_pdf
+
+_UMLAUTE = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue", "ß": "ss"})
 
 
 def _safe_filename(name: str) -> str:
-    name = name.replace('—', '-').replace('–', '-')
+    """ASCII-Dateiname für den Download-Header.
+
+    Umlaute werden umschrieben statt gestrichen — aus „Übergang" wurde
+    vorher „bergang".
+    """
+    name = name.replace('—', '-').replace('–', '-').replace('·', '-').translate(_UMLAUTE)
     return re.sub(r'[^\x00-\x7f]', '', name).replace(' ', '_')
-from services.pdf_generator import generate_plan_pdf
+
+
+def _pdf_antwort(plan: WeeklyPlan) -> Response:
+    pdf_bytes = generate_plan_pdf({"plan_content": plan.plan_content})
+    filename = _safe_filename(
+        f"IronCoach_{plan.week_start or ''}_Woche_{plan.week_number}_{plan.plan_phase or 'Plan'}.pdf"
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 from core.deps import get_current_user, get_profile, get_plan_anchor
 
 router = APIRouter()
@@ -89,6 +108,13 @@ async def plan_anpassen(
 
     try:
         return await tage_anpassen(db, plan, wunsch)
+    except NoBillingContext:
+        # Wie bei `/plan/generate`: kein Serverfehler, sondern ein Konto, das
+        # sich nicht zuordnen ließ. Hier landete es bisher als 500.
+        raise HTTPException(
+            status_code=503,
+            detail="Anfrage konnte keinem Konto zugeordnet werden — bitte neu anmelden.",
+        )
     except BudgetExhausted:
         raise
     except Exception as e:
@@ -97,13 +123,12 @@ async def plan_anpassen(
 
 @router.get("/plan/current", response_model=WeeklyPlanOut)
 def get_current_plan(db: Session = Depends(get_db)):
-    # Über das Datum, nicht über die Planwochennummer: Die Nummer entsteht
-    # aus `max(1, …)` und fällt vor dem Beginn des Aufbaus für jedes Datum
-    # auf 1 zusammen. Eine Testwoche für die kommende Woche bekäme dann
+    # Über das Datum, nicht über die Planwochennummer: Die Nummer entstand
+    # früher aus `max(1, …)` und fiel vor dem Beginn des Aufbaus für jedes
+    # Datum auf 1 zusammen; heute verschiebt sie sich mit jedem Zielwechsel. Eine Testwoche für die kommende Woche bekäme dann
     # dieselbe Nummer wie die laufende und erschiene hier als aktueller Plan
     # — obwohl sie sieben Tage später liegt.
-    montag, _ = kalenderwoche()
-    plan = _pick_plan(db.query(WeeklyPlan).filter(WeeklyPlan.week_start == montag))
+    plan = plan_der_woche(db)
     if not plan:
         raise HTTPException(status_code=404, detail="Kein Plan für diese Woche — erst /api/plan/generate aufrufen")
     return plan
@@ -111,30 +136,31 @@ def get_current_plan(db: Session = Depends(get_db)):
 
 @router.get("/plan/current/pdf")
 def download_current_plan_pdf(db: Session = Depends(get_db)):
-    plan = _pick_plan(db.query(WeeklyPlan))
+    # Die laufende Kalenderwoche — vorher der neueste Plan überhaupt, also
+    # oft eine vorausgeplante Woche oder die Testwoche.
+    plan = plan_der_woche(db)
     if not plan:
-        raise HTTPException(status_code=404, detail="Kein Plan vorhanden")
-    pdf_bytes = generate_plan_pdf({"plan_content": plan.plan_content})
-    filename = _safe_filename(f"IronCoach_Woche_{plan.week_number}_{plan.plan_phase or 'Plan'}.pdf")
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+        raise HTTPException(status_code=404, detail="Kein Plan für diese Woche")
+    return _pdf_antwort(plan)
+
+
+@router.get("/plan/am/{montag}/pdf")
+def download_plan_pdf_by_monday(montag: date, db: Session = Depends(get_db)):
+    """PDF einer Kalenderwoche. Über den Montag, weil die Wochennummer nach
+    einem Zielwechsel eine andere Woche meint — und Woche 0 sich über sie
+    gar nicht exportieren liess."""
+    plan = plan_der_woche(db, montag)
+    if not plan:
+        raise HTTPException(status_code=404, detail=f"Kein Plan für die Woche ab {kalenderwoche(montag)[0]}")
+    return _pdf_antwort(plan)
 
 
 @router.get("/plan/{week_number}/pdf")
 def download_plan_pdf(week_number: int, db: Session = Depends(get_db)):
-    plan = _pick_plan(db.query(WeeklyPlan).filter(WeeklyPlan.week_number == week_number))
+    plan = active_plan_for_week(db, week_number)
     if not plan:
         raise HTTPException(status_code=404, detail=f"Kein Plan für Woche {week_number}")
-    pdf_bytes = generate_plan_pdf({"plan_content": plan.plan_content})
-    filename = _safe_filename(f"IronCoach_Woche_{week_number}_{plan.plan_phase or 'Plan'}.pdf")
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    return _pdf_antwort(plan)
 
 
 @router.get("/plan/am/{montag}", response_model=WeeklyPlanOut)
@@ -142,19 +168,23 @@ def get_plan_by_monday(montag: date, db: Session = Depends(get_db)):
     """Plan einer Kalenderwoche, angesprochen über ihren Montag.
 
     Neben `/plan/{week_number}`, weil die Wochennummer zum Blättern nicht
-    taugt: Sie entsteht aus `max(1, …)` und ist vor dem Beginn des Aufbaus
-    für jedes Datum 1. "Eine Woche vor" führte dort auf Nummer 2, für die es
+    taugt: Sie entstand früher aus `max(1, …)` und war vor dem Beginn des
+    Aufbaus für jedes Datum 1 (heute verschiebt sie sich mit jedem Zielwechsel). "Eine Woche vor" führte dort auf Nummer 2, für die es
     nie einen Plan gibt — während die kommende Woche unter derselben 1 lag
     wie die laufende und unerreichbar blieb.
 
     Ein beliebiger Tag wird auf seinen Montag gezogen, damit die Adresse
     nicht davon abhängt, welchen Wochentag der Aufrufer geschickt hat.
     """
+    from services.plan_storno import storno_pruefung
+
     start, _ = kalenderwoche(montag)
     plan = _pick_plan(db.query(WeeklyPlan).filter(WeeklyPlan.week_start == start))
     if not plan:
         raise HTTPException(status_code=404, detail=f"Kein Plan für die Woche ab {start}")
-    return plan
+    antwort = WeeklyPlanOut.model_validate(plan)
+    antwort.stornierbar, antwort.storno_grund = storno_pruefung(db, plan.user_id, start)
+    return antwort
 
 
 @router.delete("/plan/am/{montag}")
@@ -174,7 +204,7 @@ def cancel_plan(montag: date, db: Session = Depends(get_db),
 
 @router.get("/plan/{week_number}", response_model=WeeklyPlanOut)
 def get_plan_by_week(week_number: int, db: Session = Depends(get_db)):
-    plan = _pick_plan(db.query(WeeklyPlan).filter(WeeklyPlan.week_number == week_number))
+    plan = active_plan_for_week(db, week_number)
     if not plan:
         raise HTTPException(status_code=404, detail=f"Kein Plan für Woche {week_number}")
     return plan

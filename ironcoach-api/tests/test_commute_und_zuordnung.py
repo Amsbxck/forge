@@ -24,7 +24,7 @@ TAG = date(2026, 10, 7)
 
 @pytest.fixture
 def vorgabe(db):
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     plan = WeeklyPlan(user_id=nutzer.id, week_number=40, week_start=date(2026, 10, 5),
                       week_end=date(2026, 10, 11), plan_phase="Build", plan_content={"days": [1]})
     db.add(plan)
@@ -42,7 +42,7 @@ def vorgabe(db):
 
 
 def _fahrt(db, minuten, commute=False):
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     s = TrainingSession(user_id=nutzer.id, session_date=TAG, discipline="bike",
                         duration_min=minuten, week_number=40, is_commute=commute)
     db.add(s)
@@ -125,7 +125,7 @@ def test_nach_dem_loeschen_greift_die_spaetere_einheit(vorgabe, db):
 
 def test_brick_bleibt_erfuellt_wenn_eine_haelfte_geht(db):
     """Zwei Einheiten an einer Vorgabe: Nicht blind zurücksetzen."""
-    nutzer = db.query(User).first()
+    nutzer = db.query(User).order_by(User.id.asc()).first()
     plan = WeeklyPlan(user_id=nutzer.id, week_number=41, week_start=date(2026, 10, 12),
                       week_end=date(2026, 10, 18), plan_phase="Build", plan_content={"days": [1]})
     db.add(plan); db.commit()

@@ -62,12 +62,37 @@ async def lifespan(app: FastAPI):
     # klickt, und dann ohne erkennbaren Zusammenhang.
     logger.info("Athletenlinks zeigen auf %s", app_url())
 
-    if mail_configured() and not settings.PUBLIC_BASE_URL:
+    if mail_configured() and not (settings.FRONTEND_URL or settings.PUBLIC_BASE_URL):
         raise RuntimeError(
-            "Mailversand ist eingerichtet, PUBLIC_BASE_URL aber nicht. Die Links "
-            "in Bestätigungs- und Passwortmails zeigten dann auf localhost und "
-            "wären für die Empfänger nutzlos."
+            "Mailversand ist eingerichtet, FRONTEND_URL (bzw. PUBLIC_BASE_URL) aber "
+            "nicht. Die Links in Bestätigungs- und Passwortmails zeigten dann auf "
+            "localhost und wären für die Empfänger nutzlos."
         )
+
+    # Weitere Fehlkonfigurationen, die sonst erst im Betrieb auffallen. Als
+    # Warnung, nicht als Abbruch: Eine laufende Installation soll an einer
+    # davon nicht beim nächsten Deploy stehen bleiben.
+    im_betrieb = bool(settings.FRONTEND_URL or settings.PUBLIC_BASE_URL)
+    if im_betrieb and all("localhost" in o or "127.0.0.1" in o for o in settings.cors_origins):
+        logger.warning(
+            "CORS_ORIGINS erlaubt nur localhost — der Browser blockiert dann jede "
+            "Anfrage vom Frontend (%s).", app_url(),
+        )
+    if settings.STRAVA_CLIENT_ID and settings.STRAVA_VERIFY_TOKEN == "ironcoach_webhook_secret":
+        logger.warning(
+            "STRAVA_VERIFY_TOKEN steht auf dem öffentlichen Standardwert. "
+            "Bitte einen eigenen, zufälligen Wert setzen."
+        )
+    if settings.STRAVA_CLIENT_ID and not settings.RECONCILE_ENABLED:
+        logger.warning(
+            "Strava ist eingerichtet, RECONCILE_ENABLED aber aus: Verpasste "
+            "Webhook-Ereignisse werden nie nachgeholt."
+        )
+    if settings.FRONTEND_URL and settings.API_BASE_URL and (
+        settings.API_BASE_URL.rstrip("/") == settings.FRONTEND_URL.rstrip("/")
+    ):
+        logger.warning("API_BASE_URL und FRONTEND_URL sind gleich — der Webhook "
+                       "erreicht so nur dann die API, wenn beide wirklich zusammen laufen.")
 
     # Startet nur, wenn RECONCILE_ENABLED=true gesetzt ist.
     start_scheduler()
@@ -119,7 +144,9 @@ async def bind_current_user(request, call_next):
     user_id = None
     if token:
         payload = decode_access_token(token)
-        if payload:
+        # Zwecktoken (etwa der OAuth-`state`) sind kein Zugang — sie tragen
+        # dieselbe Signatur und würden sonst zehn Minuten lang anmelden.
+        if payload and not payload.get("zweck"):
             try:
                 kandidat = int(payload["sub"])
             except (KeyError, TypeError, ValueError):

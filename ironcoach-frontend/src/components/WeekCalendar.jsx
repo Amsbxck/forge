@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { clearPlannedReplacement, setPlannedReplacement, swapPlannedSessions } from '../services/api'
 import Modal from './Modal'
-import { DISCIPLINE_COLOR, DONE_COLOR, HR_ZONE_COLOR } from '../utils/colors'
+import { DISCIPLINE_COLOR, DONE_COLOR, INTENSITY_META, ZONE_COLOR as ZONE_FARBEN } from '../utils/colors'
+import { fehlerText } from '../utils/fehler'
 
 // Die Farbe für "ersetzt". Bernstein, also aus der Ampelfamilie: Es ist eine
 // Aussage über den Tag, keine Sportart — und sie schlägt deshalb die
@@ -31,16 +32,18 @@ const ERSATZ_SPORTARTEN = [
 // Zonenskala. `sweet_spot` heisst beim Laufen "Tempo" — der Schlüssel bleibt,
 // damit Plan, Verlauf und Auswertung dieselbe Sprache sprechen.
 const ERSATZ_STUFEN = [
-  { key: 'base', label: 'BASE / ENDURANCE', color: HR_ZONE_COLOR[1] },
-  { key: 'sweet_spot', label: 'TEMPO / SWEETSPOT', color: HR_ZONE_COLOR[2] },
-  { key: 'threshold', label: 'THRESHOLD', color: HR_ZONE_COLOR[3] },
-  { key: 'vo2max', label: 'VO₂MAX', color: HR_ZONE_COLOR[4] },
+  { key: 'base', label: 'GRUNDLAGE', color: INTENSITY_META.base.color },
+  { key: 'sweet_spot', label: 'TEMPO / SWEETSPOT', color: INTENSITY_META.sweet_spot.color },
+  { key: 'threshold', label: 'SCHWELLE', color: INTENSITY_META.threshold.color },
+  { key: 'vo2max', label: 'VO₂MAX', color: INTENSITY_META.vo2max.color },
 ]
 
 // Aus der gemeinsamen Farbtabelle abgeleitet — Rahmen, Fläche und Schrift
 // derselben Farbe, nur in unterschiedlicher Deckkraft.
 const TYPE_COLOR = Object.fromEntries(
-  ['rest', 'bike', 'run', 'swim', 'gym', 'brick', 'hike'].map(d => [
+  // `other` fehlte: Ersatztraining (StairMaster, Rudern) fiel auf das Grau
+  // des Ruhetags zurück und sah aus wie ein freier Tag.
+  ['rest', 'bike', 'run', 'swim', 'gym', 'brick', 'hike', 'other'].map(d => [
     d,
     d === 'rest'
       ? { border: '#1e2228', bg: '#111318', text: '#8a909e' }
@@ -48,31 +51,12 @@ const TYPE_COLOR = Object.fromEntries(
   ])
 )
 
-// Zonenfarben aus dem Trainingsmodell — bewusst andere Skala als die
-// Sportartfarben, damit Intensität und Disziplin nicht verwechselt werden.
-const ZONE_COLOR = {
-  Z1: '#2d6a4f',
-  Z2: '#40916c',
-  Z3: '#f4a261',
-  Z4: '#e76f51',
-  Z5: '#e63946',
-  // Die Laufbereiche haben am schnellen Ende zwei Stufen dazubekommen:
-  // Z6 ist vVO2max, Z7 sind Steigerungen. Ohne Eintrag fiel die Markierung
-  // auf Grau zurück — ausgerechnet bei den härtesten Einheiten war die
-  // Farbe damit keine Auskunft mehr. Weiter ins Violette, weil Rot am Ende
-  // der Skala schon belegt ist.
-  Z6: '#c026d3',
-  Z7: '#7c3aed',
-}
-
-// Intensitätsstufen in der Sprache der Trainingslehre. Farbe folgt der Zone,
-// damit sich die Härte einer Woche auf einen Blick ablesen lässt.
-const INTENSITY_META = {
-  base:       { label: 'Base / Endurance', zone: 'Z1–Z2', color: ZONE_COLOR.Z2 },
-  sweet_spot: { label: 'Sweet Spot',       zone: 'Z3',    color: ZONE_COLOR.Z3 },
-  threshold:  { label: 'Threshold',        zone: 'Z4',    color: ZONE_COLOR.Z4 },
-  vo2max:     { label: 'VO₂max',           zone: 'Z5',    color: ZONE_COLOR.Z5 },
-}
+// Zonen- und Stufenfarben aus der gemeinsamen Tabelle (`utils/colors.js`).
+// Hier stand eine eigene Kopie: andere Palette als der Verlauf, und Z6/Z7 in
+// Fuchsia und Violett — den Farben der Sportarten.
+const ZONE_COLOR = Object.fromEntries(
+  Object.entries(ZONE_FARBEN).map(([nummer, farbe]) => [`Z${nummer}`, farbe])
+)
 
 function getColors(type) {
   return TYPE_COLOR[type?.toLowerCase()] || TYPE_COLOR.rest
@@ -562,7 +546,7 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
       onPersisted?.()
     } catch (e) {
       setDays(before)  // Rollback — der Kalender darf nie etwas zeigen, was nicht in der DB steht
-      setError(e.response?.data?.detail || 'Verschieben fehlgeschlagen — Änderung zurückgenommen')
+      setError(fehlerText(e, 'Verschieben fehlgeschlagen — Änderung zurückgenommen'))
     } finally {
       setSavingIds([])
     }

@@ -47,7 +47,7 @@ def leere_einheiten(db):
 
 
 def _einheit(db, tag: date, *, week_number: int, tss: float = 50.0):
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     s = TrainingSession(
         user_id=profil.user_id,
         session_date=tag,
@@ -64,7 +64,7 @@ def _einheit(db, tag: date, *, week_number: int, tss: float = 50.0):
 @pytest.fixture
 def aufbau_beginnt_spaeter(db):
     """Der Fall aus dem Fehlerbericht: Ziel weit weg, Aufbau noch nicht los."""
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     profil.plan_start_date = date.today() + timedelta(days=90)
     profil.race_date = date.today() + timedelta(days=90 + 7 * 33)
     db.commit()
@@ -123,7 +123,7 @@ def test_trend_buendelt_nach_kalenderwoche(client, db, aufbau_beginnt_spaeter):
 
 def test_athlet_im_aufbau_sieht_weiterhin_seine_woche(client, db):
     """Der Fall, der schon vorher stimmte, muss weiter stimmen."""
-    profil = db.query(AthleteProfile).first()
+    profil = db.query(AthleteProfile).order_by(AthleteProfile.id.asc()).first()
     profil.plan_start_date = date.today() - timedelta(days=7 * 30)
     db.commit()
 

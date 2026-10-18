@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import Modal from './Modal'
+import { fehlerText } from '../utils/fehler'
 import { submitIntake } from '../services/api'
 
 /** „5:13" → 313 Sekunden. Leere oder unlesbare Eingabe → null. */
@@ -32,11 +33,14 @@ export default function IntakeDialog({ open, name, onFertig }) {
   const [busy, setBusy] = useState(null)
 
   const setz = (k) => (e) => setF(v => ({ ...v, [k]: e.target.value }))
+  // Nur ganze Zahlen: Der Server erwartet Puls und Watt als ganze Zahl.
+  // Eine Kommazahl kam vorher bis dorthin durch, und die Antwort (eine Liste
+  // von Prüffehlern) ließ den Dialog — und mit ihm die App — abstürzen.
   const zahl = (k) => {
     const v = f[k]
     if (v === undefined || v === '') return undefined
-    const n = Number(v)
-    return Number.isFinite(n) && n > 0 ? n : NaN
+    const n = Number(String(v).replace(',', '.'))
+    return Number.isInteger(n) && n > 0 ? n : NaN
   }
 
   const senden = async (mitWerten) => {
@@ -46,7 +50,7 @@ export default function IntakeDialog({ open, name, onFertig }) {
     if (mitWerten) {
       for (const k of ['max_hr', 'threshold_hr', 'ftp_watts', 'swim_threshold_hr']) {
         const n = zahl(k)
-        if (Number.isNaN(n)) return setFehler('Bitte nur positive Zahlen eintragen.')
+        if (Number.isNaN(n)) return setFehler('Bitte nur ganze, positive Zahlen eintragen.')
         if (n !== undefined) nutzlast[k] = n
       }
 
@@ -65,7 +69,7 @@ export default function IntakeDialog({ open, name, onFertig }) {
         }
         for (const k of ZONEN_FELDER) {
           const n = zahl(k)
-          if (Number.isNaN(n)) return setFehler('Zonengrenzen bitte als Zahl eintragen.')
+          if (Number.isNaN(n)) return setFehler('Zonengrenzen bitte als ganze Zahl eintragen.')
           nutzlast[k] = n
         }
       }
@@ -80,7 +84,7 @@ export default function IntakeDialog({ open, name, onFertig }) {
       await submitIntake(nutzlast)
       onFertig?.()
     } catch (e) {
-      setFehler(e?.response?.data?.detail || 'Speichern fehlgeschlagen.')
+      setFehler(fehlerText(e, 'Speichern fehlgeschlagen.'))
       setBusy(null)
     }
   }

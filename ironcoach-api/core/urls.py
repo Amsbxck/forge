@@ -48,3 +48,14 @@ def app_pfad(pfad: str, **parameter: str) -> str:
 
     ziel = f"{app_url()}/{pfad.lstrip('/')}"
     return f"{ziel}?{urlencode(parameter)}" if parameter else ziel
+
+
+def api_url(anfrage_basis: str | None = None) -> str | None:
+    """Basisadresse der API von außen — für die Strava-Webhook-Adresse.
+
+    `API_BASE_URL`, sonst `PUBLIC_BASE_URL`, sonst die Adresse der Anfrage.
+    """
+    for kandidat in (settings.API_BASE_URL, settings.PUBLIC_BASE_URL, anfrage_basis):
+        if kandidat:
+            return kandidat.rstrip("/")
+    return None

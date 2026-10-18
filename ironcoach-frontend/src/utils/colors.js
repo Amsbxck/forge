@@ -106,6 +106,23 @@ export const ZONE_COLOR = {
   7: '#881337',
 }
 
+/** Die vier Intensitätsstufen — eine Tabelle für Wochenplan und Verlauf.
+ *
+ *  Vorher hielten beide eine eigene Kopie mit eigenen Farben (Grün-Orange-Rot
+ *  aus einer anderen Palette), und der Kalender färbte Z6/Z7 Fuchsia und
+ *  Violett — Farben, die hier ausdrücklich den Sportarten gehören. Die Stufen
+ *  folgen jetzt der Zonenskala oben.
+ */
+export const INTENSITY_META = {
+  base:       { label: 'Grundlage',       short: 'GRUNDLAGE', zone: 'Z1–Z2', color: ZONE_COLOR[2] },
+  sweet_spot: { label: 'Sweet Spot / Tempo', short: 'SWEETSPOT', zone: 'Z3', color: ZONE_COLOR[3] },
+  threshold:  { label: 'Schwelle',        short: 'SCHWELLE',  zone: 'Z4',    color: ZONE_COLOR[4] },
+  vo2max:     { label: 'VO₂max',          short: 'VO₂MAX',    zone: 'Z5+',   color: ZONE_COLOR[5] },
+}
+
+/** Farbe einer Zielzone wie „Z3" oder „Z6". */
+export const zoneColor = (hrZone) => ZONE_COLOR[parseInt(String(hrZone || '').replace(/\D/g, ''), 10)]
+
 export const ACCENT = '#00d4ff'
 
 // --- Erledigt ----------------------------------------------------------------

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getProfileZones, updateProfile } from '../services/api'
 import { ZONE_COLOR } from '../utils/colors'
+import { fehlerText } from '../utils/fehler'
 
 /** Die sieben Grenzen in der Reihenfolge, in der sie aufsteigen müssen. */
 const GRENZEN = [
@@ -145,7 +146,7 @@ export default function ZoneEditor({ profile, onSaved }) {
       setBearbeiten(false)
       onSaved?.()
     } catch (e) {
-      setFehler(e?.response?.data?.detail || 'Speichern fehlgeschlagen.')
+      setFehler(fehlerText(e, 'Speichern fehlgeschlagen.'))
     } finally {
       setSpeichert(false)
     }

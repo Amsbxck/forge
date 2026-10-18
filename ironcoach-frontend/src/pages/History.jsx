@@ -3,13 +3,15 @@ import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts'
 import {
-  getSessions, getHistoryPlans,
+  getSessions, getSessionsSeit, getHistoryPlans,
   softDeleteSession, hardDeleteSession, restoreSession, setSessionCommute
 } from '../services/api'
 import SessionDetail from '../components/SessionDetail'
 
-import { ACCENT, DISCIPLINE_COLOR, DISCIPLINE_LABEL, phaseColor } from '../utils/colors'
+import { ACCENT, DISCIPLINE_COLOR, DISCIPLINE_LABEL, INTENSITY_META, phaseColor } from '../utils/colors'
 import SportIcon from '../components/SportIcon'
+import { isoTag, paceText } from '../utils/dates'
+import { fehlerText } from '../utils/fehler'
 import { disciplineLabel } from '../utils/colors'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -24,16 +26,7 @@ const DISC_CONFIG = Object.fromEntries(
   ])
 )
 
-// Gleiche Stufen und Farben wie im Wochenplan — dieselbe Information darf
-// nicht an zwei Stellen unterschiedlich aussehen.
-const INTENSITY_META = {
-  base:       { short: 'BASE',      zone: 'Z1–Z2', color: '#40916c' },
-  sweet_spot: { short: 'SWEETSPOT', zone: 'Z3',    color: '#f4a261' },
-  threshold:  { short: 'THRESHOLD', zone: 'Z4',    color: '#e76f51' },
-  vo2max:     { short: 'VO₂MAX',    zone: 'Z5',    color: '#e63946' },
-}
-
-const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MONTH_NAMES = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
 
 function formatMonth(ym) {
   const [y, m] = ym.split('-')
@@ -49,7 +42,7 @@ function formatDuration(min) {
 
 function formatPace(val, disc) {
   if (!val) return null
-  return disc === 'swim' ? `${val.toFixed(2)}/100m` : `${val.toFixed(2)}/km`
+  return paceText(val, disc)
 }
 
 // ─── Progress Tab ─────────────────────────────────────────────────────────────
@@ -507,7 +500,7 @@ function SessionsTab({ sessions, showDeleted, onToggleDeleted, onRefresh }) {
           onClick={onToggleDeleted}
           className={`text-xs px-3 py-1.5 rounded-lg border font-mono transition-colors ${showDeleted ? 'border-red-500/40 text-red-400 bg-red-500/10' : 'border-[#1e2228] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
         >
-          {showDeleted ? 'Hide deleted' : 'Show deleted'}
+          {showDeleted ? 'Gelöschte ausblenden' : 'Gelöschte zeigen'}
         </button>
       </div>
 
@@ -582,14 +575,17 @@ function SessionsTab({ sessions, showDeleted, onToggleDeleted, onRefresh }) {
 // ─── Plans Tab ─────────────────────────────────────────────────────────────────
 
 function PlansTab({ plans }) {
-  if (!plans.length) return <p className="text-[var(--text-secondary)] text-sm py-4">No training plans generated yet.</p>
+  if (!plans.length) return <p className="text-[var(--text-secondary)] text-sm py-4">Noch keine Wochenpläne erstellt.</p>
   return (
     <div className="space-y-4">
       {plans.map(p => (
         <div key={p.id} className="bg-[#111318] border border-[#1e2228] rounded-xl p-5">
           <div className="flex justify-between items-start mb-2">
             <span className="font-bold text-[#e8eaf0] tracking-wide" style={{ fontFamily: 'Barlow Condensed, sans-serif', fontSize: '1.05rem' }}>
-              WEEK {p.week_number} — <span style={{ color: phaseColor(p.plan_phase) }}>{p.plan_phase}</span>
+              {/* Negative Wochen liegen vor dem Aufbau — „Woche -3" wäre dort
+                  eine Zahl ohne Bedeutung. */}
+              {p.week_number < 1 ? `VORLAUF ${Math.abs(p.week_number) + 1}` : `WOCHE ${p.week_number}`}
+              {' — '}<span style={{ color: phaseColor(p.plan_phase) }}>{p.plan_phase}</span>
             </span>
             <span className="text-xs font-mono text-[var(--text-secondary)]">{p.week_start} – {p.week_end}</span>
           </div>
@@ -599,7 +595,7 @@ function PlansTab({ plans }) {
           <div className="mt-3 flex flex-wrap gap-1">
             {(p.plan_content?.days || []).map((d, i) => (
               <span key={i} className={`text-xs px-2 py-0.5 rounded-full font-mono ${d.session_type === 'rest' ? 'bg-[#1e2228] text-[var(--text-muted)]' : 'bg-[#1e2228] text-[var(--text-secondary)]'}`}>
-                {d.day.slice(0, 2)}: {d.session_type}
+                {(d.day || '').slice(0, 2)}: {d.session_type}
               </span>
             ))}
           </div>
@@ -612,9 +608,9 @@ function PlansTab({ plans }) {
 // ─── Main ──────────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { key: 'sessions',  label: 'Sessions' },
-  { key: 'progress',  label: 'Progress' },
-  { key: 'plans',     label: 'Training Plans' },
+  { key: 'sessions',  label: 'Einheiten' },
+  { key: 'progress',  label: 'Fortschritt' },
+  { key: 'plans',     label: 'Wochenpläne' },
 ]
 
 export default function History() {
@@ -623,20 +619,42 @@ export default function History() {
   const [tab, setTab] = useState('sessions')
   const [showDeleted, setShowDeleted] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [fehler, setFehler] = useState(null)
+  // Seitenweise statt fest 50: Vorher endete der Verlauf still bei der 50.
+  // Einheit, ohne Hinweis und ohne Weg weiter zurück.
+  const SEITE = 100
+  const [mehrDa, setMehrDa] = useState(false)
+  // Fürs Fortschrittsdiagramm alle Einheiten der letzten zwei Jahre, ohne
+  // Zeitreihen — die Monatsbalken brauchen nur Datum, Dauer und TSS.
+  const [verlauf, setVerlauf] = useState([])
 
   const load = async () => {
     setLoading(true)
+    setFehler(null)
     try {
       const [s, p] = await Promise.all([
-        getSessions({ include_deleted: showDeleted }),
+        getSessions({ include_deleted: showDeleted, limit: SEITE }),
         getHistoryPlans(),
       ])
       setSessions(s.data)
+      setMehrDa(s.data.length === SEITE)
       setPlans(p.data)
+      const vor = new Date(); vor.setFullYear(vor.getFullYear() - 2)
+      getSessionsSeit(isoTag(vor)).then(({ data }) => setVerlauf(data)).catch(() => setVerlauf([]))
     } catch (e) {
-      console.error(e)
+      setFehler(fehlerText(e, 'Verlauf konnte nicht geladen werden.'))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const mehrLaden = async () => {
+    try {
+      const { data } = await getSessions({ include_deleted: showDeleted, limit: SEITE, offset: sessions.length })
+      setSessions(prev => [...prev, ...data])
+      setMehrDa(data.length === SEITE)
+    } catch (e) {
+      setFehler(fehlerText(e, 'Weitere Einheiten konnten nicht geladen werden.'))
     }
   }
 
@@ -645,8 +663,14 @@ export default function History() {
   return (
     <div className="space-y-5 page-enter">
       <h1 className="text-3xl font-bold tracking-tight text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
-        HISTORY
+        VERLAUF
       </h1>
+      {fehler && (
+        <div className="rounded-lg px-3 py-2 font-mono text-xs"
+             style={{ background: '#ef444415', border: '1px solid #ef444430', color: '#ef4444' }}>
+          {fehler}
+        </div>
+      )}
 
       <div className="flex gap-1.5 border-b border-[#1e2228]">
         {TABS.map(t => (
@@ -664,8 +688,21 @@ export default function History() {
         <div className="text-[var(--text-secondary)] font-mono text-sm py-6 text-center tracking-widest">LOADING...</div>
       ) : (
         <>
-          {tab === 'sessions' && <SessionsTab sessions={sessions} showDeleted={showDeleted} onToggleDeleted={() => setShowDeleted(v => !v)} onRefresh={load} />}
-          {tab === 'progress' && <ProgressTab sessions={sessions} />}
+          {tab === 'sessions' && (
+            <>
+              <SessionsTab sessions={sessions} showDeleted={showDeleted} onToggleDeleted={() => setShowDeleted(v => !v)} onRefresh={load} />
+              {mehrDa && (
+                <div className="flex justify-center pt-2">
+                  <button onClick={mehrLaden}
+                          className="px-4 py-2 rounded-lg text-[11px] font-mono tracking-wide"
+                          style={{ background: '#00d4ff15', border: '1px solid #00d4ff33', color: '#00d4ff' }}>
+                    ÄLTERE EINHEITEN LADEN
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+          {tab === 'progress' && <ProgressTab sessions={verlauf.length ? verlauf : sessions} />}
           {tab === 'plans' && <PlansTab plans={plans} />}
         </>
       )}

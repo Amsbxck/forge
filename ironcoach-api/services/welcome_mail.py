@@ -32,7 +32,13 @@ STEPS = [
 
 
 def _app_url() -> str:
-    return (settings.PUBLIC_BASE_URL or "http://localhost:3000").rstrip("/")
+    # Dieselbe Auflösung wie überall (`core/urls.app_url`, mit FRONTEND_URL
+    # zuerst). Hier stand eine eigene Fassung nur mit PUBLIC_BASE_URL: Wer
+    # Frontend und API sauber trennte, verschickte Bestätigungslinks auf die
+    # API — und jeder neue Nutzer landete auf einer 404.
+    from core.urls import app_url
+
+    return app_url()
 
 
 def build_welcome(name: str | None, verify_token: str | None = None) -> tuple[str, str, str]:
@@ -42,7 +48,11 @@ def build_welcome(name: str | None, verify_token: str | None = None) -> tuple[st
     zwei getrennte Mails direkt nach der Registrierung wären eine zu viel,
     und die Bestätigung ist der nächste Schritt.
     """
+    from html import escape
+
     anrede = f"Hallo {name}" if name else "Hallo"
+    # Für die HTML-Fassung maskiert — der Name ist frei eingegeben.
+    anrede_html = f"Hallo {escape(name)}" if name else "Hallo"
     url = _app_url()
     ziel = f"{url}/verify?token={verify_token}" if verify_token else url
     knopf = "ADRESSE BESTÄTIGEN" if verify_token else "ZUR APP"
@@ -96,7 +106,7 @@ Viel Erfolg beim Training.
           <div style="color:#00d4ff;font:800 30px/1 Helvetica,Arial,sans-serif;letter-spacing:.14em">FORGE</div>
           <div style="color:#3a3f4a;font:400 10px/1 Helvetica,Arial,sans-serif;letter-spacing:.2em;margin-top:6px">IRONCOACH AI</div>
 
-          <p style="color:#e8eaf0;font:400 15px/1.6 Helvetica,Arial,sans-serif;margin:26px 0 0">{anrede},</p>
+          <p style="color:#e8eaf0;font:400 15px/1.6 Helvetica,Arial,sans-serif;margin:26px 0 0">{anrede_html},</p>
           <p style="color:#8a909e;font:400 14px/1.7 Helvetica,Arial,sans-serif;margin:12px 0 0">
             schön, dass du da bist. IronCoach plant dein Training nicht nach Schema F, sondern
             anhand dessen, was du tatsächlich tust: jede Einheit wird mit dem Plan abgeglichen,

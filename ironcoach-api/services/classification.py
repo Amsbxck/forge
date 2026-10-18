@@ -220,11 +220,17 @@ def intensity_from_session(session: TrainingSession, ftp: int | None = None) -> 
         np = session.normalized_power
         if np and ftp:
             intensity = np / ftp
+            # Dieselben Grenzen wie `classify_bike` und `RAD_ZONEN`: Die Stufe
+            # „sweet_spot" ist Z3 (76–94 %), „threshold" Z4 (95–105 %),
+            # „vo2max" ab 106 %. Hier stand je Stufe die nächstniedrigere
+            # Grenze — der Fehler, den der Kommentar oben als behoben meldet,
+            # war es nur in `classify_bike`. Eine Fahrt bei 92 % hieß dadurch
+            # Schwelle, eine bei 100 % VO2max.
             if intensity < IF_ENDURANCE:
                 stufe = "base"
-            elif intensity < IF_SWEET_SPOT:
-                stufe = "sweet_spot"
             elif intensity < IF_THRESHOLD:
+                stufe = "sweet_spot"
+            elif intensity < IF_VO2MAX:
                 stufe = "threshold"
             else:
                 stufe = "vo2max"
@@ -306,14 +312,22 @@ def find_best_planned(db: Session, session: TrainingSession) -> tuple[PlannedSes
     # Für eine Woche können mehrere Pläne existieren (Neugenerierung,
     # Chat-Änderung). Nur die Einheiten des jeweils aktiven Plans zählen,
     # sonst wird gegen eine längst ersetzte Fassung gematcht.
-    from services.plan_selection import active_plan_for_week
+    #
+    # Gruppiert nach Kalenderwoche, nicht nach Wochennummer: Die Nummer ist
+    # relativ zum Anker und meint nach einem Zielwechsel eine andere Woche —
+    # alte Einheiten verloren dadurch ihre Zuordnung.
+    from core.wochen import montag_von
+    from services.plan_selection import plan_der_woche
 
-    active_ids: dict[int, int | None] = {}
+    active_ids: dict = {}
     for candidate in candidates:
-        if candidate.week_number not in active_ids:
-            plan = active_plan_for_week(db, candidate.week_number)
-            active_ids[candidate.week_number] = plan.id if plan else None
-    candidates = [c for c in candidates if active_ids.get(c.week_number) == c.plan_id]
+        montag = montag_von(candidate.planned_date)
+        if montag not in active_ids:
+            plan = plan_der_woche(db, montag)
+            active_ids[montag] = plan.id if plan else None
+    candidates = [
+        c for c in candidates if active_ids.get(montag_von(c.planned_date)) == c.plan_id
+    ]
     if not candidates:
         return None, 0.0
 
@@ -500,6 +514,7 @@ def classify_session(db: Session, session: TrainingSession, commit: bool = True,
     if planned is not None and planned.discipline == "brick" and session.discipline in ("bike", "run"):
         components = brick_components(db, planned, session)
 
+    vorher = (session.actual_type, session.planned_session_id, session.deviation_note)
     session.actual_type = actual_type
     session.planned_session_id = planned.id if planned else None
     session.match_confidence = confidence if planned else None
@@ -511,6 +526,14 @@ def classify_session(db: Session, session: TrainingSession, commit: bool = True,
     )
     if not notiz_behalten:
         session.deviation_note = neue_notiz
+
+    # Hat sich an Typ, Zuordnung oder Abweichung etwas geändert, muss die
+    # Vault-Notiz neu geschrieben werden. Ohne zurückgesetzten Zeitstempel
+    # hielt der Abgleich sie für aktuell — nach einem Umschalten des
+    # Arbeitswegs, einem Wiederherstellen oder `classify_all` blieb dort der
+    # alte Stand stehen.
+    if (session.actual_type, session.planned_session_id, session.deviation_note) != vorher:
+        session.obsidian_synced_at = None
 
     if planned is not None:
         # Der Rückverweis fasst nur eine Einheit; bei einem Brick gewinnt
