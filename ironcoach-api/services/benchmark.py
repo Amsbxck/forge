@@ -175,6 +175,20 @@ def benchmark_week(sport: str, start: date) -> list[dict]:
     ]
 
 
+# Warum die Testwoche ein Saisonziel braucht. Eine Stelle für den Satz, weil
+# Anlegen und Vorabprüfung (`/benchmark/timing`) ihn beide nennen.
+OHNE_ZIEL_GRUND = (
+    "Lege zuerst dein Saisonziel an — die Testeinheiten richten sich nach der "
+    "Sportart. Ohne Ziel wären es alle drei Triathlon-Tests, und danach gilt "
+    "die 90-Tage-Sperre."
+)
+
+
+def ohne_ziel_lage() -> dict:
+    return {"moeglich": False, "start": None, "frueheste": None,
+            "gruende": [OHNE_ZIEL_GRUND], "ohne_ziel": True}
+
+
 class BenchmarkGesperrt(RuntimeError):
     """Die Testwoche darf gerade nicht liegen. Trägt Gründe und Ersatztermin."""
 
@@ -197,7 +211,14 @@ def create_benchmark_plan(db: Session, user=None):
 
     profile = get_profile(db, user)
     goal = get_active_goal(db, user)
-    sport = goal.sport if goal else "triathlon"
+    # Ohne Saisonziel keine Testwoche. Die Testeinheiten hängen an der
+    # Sportart des Ziels; ohne Ziel galt Triathlon. Ein Läufer, der vor dem
+    # Anlegen seines Ziels drückte, bekam FTP- und CSS-Test, die nie in eine
+    # Vorgabe eingehen — und konnte die passende Testwoche wegen der
+    # 90-Tage-Sperre erst drei Monate später buchen.
+    if goal is None:
+        raise BenchmarkGesperrt(ohne_ziel_lage())
+    sport = goal.sport
     uid = user.id if user else (profile.user_id if profile else None)
 
     # Je Athlet nur ein Anlegevorgang gleichzeitig.
@@ -347,7 +368,17 @@ def create_benchmark_plan(db: Session, user=None):
             setattr(plan, feld, wert)
         plan.storniert = True
         return plan, True
-    db.refresh(plan)
+    try:
+        db.refresh(plan)
+    except Exception:
+        # Zwischen der Prüfung eben und hier kann der Storno noch zuschlagen —
+        # dasselbe Fenster, nur kleiner. Gleiche Antwort wie oben.
+        db.rollback()
+        make_transient(plan)
+        for feld, wert in stand.items():
+            setattr(plan, feld, wert)
+        plan.storniert = True
+        return plan, True
 
     try:
         from services.obsidian.plan_note import sync_plan_note

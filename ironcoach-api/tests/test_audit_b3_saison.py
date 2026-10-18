@@ -101,8 +101,13 @@ def test_eingetragene_werte_sperren_die_testwoche_nicht(client, db, nutzer, auth
     nicht." Es setzt aber `zones_updated_at = jetzt`, und `pruefe` liest genau
     das als frische Messung — wer beim Einstieg nur seinen Maximalpuls
     einträgt, kann 90 Tage lang keine Testwoche anlegen."""
+    from tests.test_pruefung_adversarial import saisonziel
+
     u = nutzer()
     _profil(db, u, zones_source="default")
+    # Ohne Saisonziel ist die Testwoche ohnehin gesperrt — hier geht es um
+    # die 90-Tage-Uhr.
+    saisonziel(db, u)
     r = client.post("/api/profile/intake", json={"max_hr": 190}, headers=_kopf(u))
     assert r.status_code == 200, r.text
 

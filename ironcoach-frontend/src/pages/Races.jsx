@@ -337,7 +337,8 @@ export default function Races() {
     getBenchmarkTiming()
       .then(({ data }) => setTestTermin(data))
       .catch(() => setTestTermin(null))
-  }, [zones])
+    // Auch nach einem neuen Ziel: Erst mit ihm wird die Testwoche frei.
+  }, [zones, goal])
 
   const distancesFor = useCallback(
     (sport) => types.find(s => s.key === sport)?.distances || [],
@@ -483,7 +484,12 @@ export default function Races() {
   // letzten laufen. Schlägt die Abfrage fehl, bleibt der Knopf frei — der
   // Server prüft ohnehin und antwortet mit dem Grund.
   const testGesperrt = testTermin?.moeglich === false
+  // Ohne Saisonziel ist die Testwoche gesperrt — die Testeinheiten richten
+  // sich nach dessen Sportart. Die Kachel bleibt sichtbar, aber ausgegraut,
+  // und zeigt den Weg zum Ziel statt eines toten Knopfs.
+  const ohneZiel = testTermin ? !!testTermin.ohne_ziel : !goal
   const testKnopf = busy === 'plan' ? 'LEGT AN…'
+    : ohneZiel ? 'ERST ZIEL SETZEN'
     : testTermin?.geplant_ab ? `GEPLANT AB ${formatTag(testTermin.geplant_ab).toUpperCase()}`
     : testGesperrt && testTermin?.frueheste ? `AB ${formatTag(testTermin.frueheste).toUpperCase()}`
     : testGesperrt ? 'GESPERRT'
@@ -847,7 +853,7 @@ export default function Races() {
 
       {/* Zonen aus Testeinheiten */}
       {!loading && (
-        <div className={`${CARD} p-5`}>
+        <div className={`${CARD} p-5 transition-opacity`} style={ohneZiel ? { opacity: 0.6 } : undefined}>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <div className={LABEL}>BENCHMARK</div>
@@ -861,7 +867,13 @@ export default function Races() {
                   Umgekehrt stand „plane die nächste Testwoche ein" neben
                   einem gesperrten Knopf, und der Grund nur im Tooltip — den
                   es auf dem Telefon nicht gibt. */}
-              {testTermin?.geplant_ab ? (
+              {ohneZiel ? (
+                <p className="text-[11px] font-mono mt-2 leading-relaxed max-w-md text-[var(--text-secondary)]">
+                  Lege zuerst dein Saisonziel an. Die Testeinheiten richten sich nach
+                  der Sportart — ein Läufer braucht keinen FTP-Test, ein Radfahrer
+                  keinen Laufschwellentest.
+                </p>
+              ) : testTermin?.geplant_ab ? (
                 <p className="text-[11px] font-mono mt-2 leading-relaxed max-w-md text-[var(--text-secondary)]">
                   Testwoche geplant ab {formatTag(testTermin.geplant_ab)}.{' '}
                   <Link to="/plan" className="underline hover:text-[#00d4ff]">
@@ -886,8 +898,11 @@ export default function Races() {
               ) : null}
             </div>
             <div className="flex gap-2 flex-wrap">
-              <button onClick={planBenchmark} disabled={busy === 'plan' || testGesperrt}
-                      title={testGesperrt ? (testTermin?.gruende || []).join(' ') : undefined}
+              <button onClick={ohneZiel
+                        ? () => { setShowGoalForm(true); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+                        : planBenchmark}
+                      disabled={busy === 'plan' || (testGesperrt && !ohneZiel)}
+                      title={testGesperrt && !ohneZiel ? (testTermin?.gruende || []).join(' ') : undefined}
                       className="px-3 py-2 rounded-lg text-xs font-mono tracking-wide text-[var(--text-secondary)] disabled:opacity-40 disabled:cursor-not-allowed"
                       style={{ background: '#111318', border: '1px solid #1e2228' }}>
                 {testKnopf}

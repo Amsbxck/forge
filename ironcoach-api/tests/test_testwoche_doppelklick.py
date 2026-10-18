@@ -81,6 +81,8 @@ def test_gleichzeitige_anfragen_legen_genau_eine_an(eigener_nutzer, monkeypatch)
     einen an. Jeder Thread bekommt eine eigene Verbindung, und die Schranke
     lässt beide gleichzeitig losgehen.
     """
+    from tests.test_pruefung_adversarial import _mit_saisonziel
+    _mit_saisonziel(eigener_nutzer)
     from models import User, WeeklyPlan
     from services.benchmark import create_benchmark_plan
     from tests.conftest import TestingSessionLocal
@@ -128,6 +130,8 @@ def test_gleichzeitige_anfragen_legen_genau_eine_an(eigener_nutzer, monkeypatch)
 
 def test_zweiter_klick_liefert_dieselbe_woche(eigener_nutzer, db, monkeypatch):
     """Kein Fehler, sondern dieselbe Absicht: der bestehende Plan kommt zurück."""
+    from tests.test_pruefung_adversarial import _mit_saisonziel
+    _mit_saisonziel(eigener_nutzer)
     from services.benchmark import create_benchmark_plan
 
     _frei(monkeypatch)

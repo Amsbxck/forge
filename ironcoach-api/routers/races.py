@@ -489,13 +489,18 @@ def benchmark_timing(db: Session = Depends(get_db), user: User | None = Depends(
         faelligkeit, letzte_testwoche, pruefe,
     )
 
+    from services.benchmark import ohne_ziel_lage
+
     goal = get_active_goal(db, user)
     profil = get_profile(db, user)
     gemessen = getattr(profil, "zones_updated_at", None)
     uid = user.id if user else getattr(profil, "user_id", None)
     testwoche = letzte_testwoche(db, user_id=uid)
-    lage = pruefe(
-        db, getattr(goal, "race_date", None),
+    # Ohne Saisonziel ist die Testwoche gesperrt (siehe
+    # `create_benchmark_plan`) — die Kachel erfährt es hier, bevor jemand
+    # drückt, und zeigt den Weg zum Ziel.
+    lage = ohne_ziel_lage() if goal is None else pruefe(
+        db, goal.race_date,
         gemessen_am=gemessen.date() if gemessen else None,
         testwoche_am=testwoche,
     )
@@ -508,6 +513,7 @@ def benchmark_timing(db: Session = Depends(get_db), user: User | None = Depends(
     stand = faelligkeit(gemessen.date() if gemessen else None)
     return {
         "moeglich": lage["moeglich"],
+        "ohne_ziel": bool(lage.get("ohne_ziel")),
         "start": str(lage["start"]) if lage["start"] else None,
         "frueheste": str(lage["frueheste"]) if lage["frueheste"] else None,
         "gruende": lage["gruende"],
@@ -540,6 +546,7 @@ def benchmark_plan(db: Session = Depends(get_db), user: User | None = Depends(ge
             detail={
                 "message": "Testwoche jetzt nicht sinnvoll",
                 "gruende": e.lage["gruende"],
+                "ohne_ziel": bool(e.lage.get("ohne_ziel")),
                 "frueheste": str(e.lage["frueheste"]) if e.lage["frueheste"] else None,
             },
         )

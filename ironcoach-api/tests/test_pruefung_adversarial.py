@@ -67,6 +67,36 @@ def nutzer_fabrik(db):
     db.commit()
 
 
+def saisonziel(db, nutzer, sport="triathlon", distanz="middle"):
+    """Ein aktives Saisonziel weit in der Zukunft.
+
+    Ohne Ziel legt `create_benchmark_plan` keine Testwoche mehr an — die
+    Testeinheiten richten sich nach der Sportart des Ziels.
+    """
+    from core.race_types import default_weeks, plan_start_for
+    from models import RaceGoal
+
+    renntag = date.today() + timedelta(days=400)
+    wochen = default_weeks(sport, distanz)
+    ziel = RaceGoal(user_id=nutzer.id, sport=sport, distance=distanz, race_date=renntag,
+                    priority="A", plan_weeks=wochen,
+                    plan_start_date=plan_start_for(renntag, wochen), is_active=True)
+    db.add(ziel)
+    db.commit()
+    return ziel
+
+
+def _mit_saisonziel(nutzer):
+    """Saisonziel über eine eigene Sitzung — für die Tests mit Threads."""
+    from tests.conftest import TestingSessionLocal
+
+    sitzung = TestingSessionLocal()
+    try:
+        saisonziel(sitzung, nutzer)
+    finally:
+        sitzung.close()
+
+
 def _plan(db, nutzer, montag, phase="Base 1", tage=2, status="planned",
           adjustments=None, inhalt=None):
     from models import PlannedSession, WeeklyPlan
@@ -161,6 +191,7 @@ def test_viele_gleichzeitige_testwochen_genau_eine(nutzer_fabrik, monkeypatch, a
 
     _frei(monkeypatch)
     nutzer = nutzer_fabrik()
+    _mit_saisonziel(nutzer)
     schranke = threading.Barrier(anzahl)
     ergebnisse, fehler = [], []
 
@@ -208,6 +239,7 @@ def test_gleichzeitig_anlegen_und_stornieren_ohne_deadlock(nutzer_fabrik, monkey
 
     _frei(monkeypatch)
     nutzer = nutzer_fabrik()
+    _mit_saisonziel(nutzer)
     schranke = threading.Barrier(5)
     fehler = []
 
@@ -256,6 +288,7 @@ def test_storno_zwischen_commit_und_projektion(nutzer_fabrik, monkeypatch, treso
 
     _frei(monkeypatch)
     nutzer = nutzer_fabrik()
+    _mit_saisonziel(nutzer)
     angelegt, storniert = threading.Event(), threading.Event()
     original = pp.project_plan
 
