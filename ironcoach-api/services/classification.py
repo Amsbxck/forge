@@ -112,10 +112,17 @@ def classify_run(session: TrainingSession) -> str | None:
     duration = session.duration_min or 0
     zones = session.hr_zones
 
-    # Walk-Run ist Amirs Standardformat: erkennbar an einem hohen Z1-Anteil
-    # mitten in einer Laufeinheit — das sind die Gehpausen.
-    if zones and _z(zones, "z1") >= 30 and _z(zones, "z2", "z3") >= 15:
-        return "walk_run"
+    # Walk-Run nur, wenn wirklich gegangen wurde: Gehtempo (unter 7 km/h)
+    # zwischen Laufabschnitten, sichtbar im Tempoverlauf. Hier stand „viel
+    # Zeit in Z1" als Merkmal — das war das Format eines einzelnen Athleten
+    # während einer Schienbeinverletzung, und es machte jeden lockeren Lauf
+    # mit niedrigem Puls zu einem Walk-Run.
+    tempo = [v for v in ((session.streams or {}).get("speed") or []) if v]
+    if len(tempo) >= 30:
+        gehend = sum(1 for v in tempo if v < 7.0) / len(tempo)
+        laufend = sum(1 for v in tempo if v >= 7.0) / len(tempo)
+        if gehend >= 0.10 and laufend >= 0.50:
+            return "walk_run"
 
     if zones:
         # Getrennt nach Z5 und Z4, damit VO₂max und Threshold auch beim Lauf

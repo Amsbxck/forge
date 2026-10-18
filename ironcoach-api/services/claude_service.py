@@ -381,7 +381,7 @@ async def chat_with_coach(
     greift zu einem der beiden Werkzeuge.
     """
     import json
-    from datetime import date as _date
+    from datetime import date as _date, timedelta as _timedelta
     from core.prompt_templates import DETAILS_FORMAT, TARGETS_FORMAT
     sessions_text = current_week_context.get("sessions_summary", "")
     hrv_text = current_week_context.get("hrv_summary", "")
@@ -443,9 +443,25 @@ async def chat_with_coach(
 
     sportart = {"running": "Lauf", "cycling": "Rad"}.get(
         (current_week_context.get("sport") or "").lower(), "Triathlon")
+    # Die Daten dieser und der kommenden Woche ausgeschrieben. Vorher kannte
+    # der Chat nur „heute" und „gestern" und rechnete die kommende Woche
+    # selbst — bei Tamina landete dadurch jede vereinbarte Einheit einen Tag
+    # später (Montag Schwimmen wurde Dienstag, das Gym blieb, der Lauf
+    # rutschte), obwohl Vorschlag und Zusage im Gespräch stimmten.
+    _montag = today - _timedelta(days=today.weekday())
+    _namen = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+    kalender = "\n".join(
+        f"- {titel}: " + " · ".join(
+            f"{_namen[i]} {(_montag + _timedelta(days=7 * versatz + i)).isoformat()}" for i in range(7)
+        )
+        for versatz, titel in ((0, "Diese Woche"), (1, "Kommende Woche"))
+    )
     system = f"""Du bist der persönliche {sportart}-Coach von {name}.
 
 **HEUTE: {today_str}**  ← Nutze immer dieses Datum als Referenz. "Gestern" = {(_date.fromordinal(today.toordinal() - 1)).isoformat()}.
+
+**Kalender (Wochentag → Datum, EXAKT so verwenden):**
+{kalender}
 
 Athletenkontext: {positions_text}, Phase: {current_week_context.get('phase', 'Base')}, {ftp_text}Ziel: {ziel_text}.
 {abschnitt(current_week_context.get("offseason_block"))}{abschnitt(current_week_context.get("base_block"))}{abschnitt(current_week_context.get("health"))}{abschnitt(current_week_context.get("races"))}{abschnitt(current_week_context.get("constraints_block"))}{abschnitt(current_week_context.get("zones"))}{abschnitt(current_week_context.get("phasen"))}{abschnitt(current_week_context.get("vorrang"))}{abschnitt(current_week_context.get("wochenform"))}
@@ -482,6 +498,10 @@ Athletenkontext: {positions_text}, Phase: {current_week_context.get('phase', 'Ba
    - "Gestern" = exakt {(_date.fromordinal(today.toordinal() - 1)).isoformat()}, schau im Plan UND in den Sessions nach
    - Wenn eine geplante Session NICHT in den Sessions auftaucht: sie wurde nicht gemacht — frag was passiert ist, erfinde keinen Grund
    - Wochentage aus dem Plan EXAKT übernehmen, nicht raten
+   - Datum zu einem Wochentag immer aus dem Kalender oben, nie selbst rechnen
+   - **Was im Gespräch vereinbart ist, wird genau so angelegt.** Hast du einen
+     Wochenvorschlag gemacht und der Athlet hat zugestimmt, steht jede Einheit
+     an dem Tag, den du genannt hast — nicht verschoben, nicht umsortiert.
 
 5. **Plan ändern:** Nur wenn der Athlet ausdrücklich eine Änderung will. Es gibt
    zwei Werkzeuge, und die Wahl ist wichtig:

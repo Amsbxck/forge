@@ -46,6 +46,11 @@ TRAINING_TYPES: dict[str, list[str]] = {
         "intervals",
         "threshold",
         "vo2max",
+        # Lauf im Wettkampftempo — und der Wettkampf selbst. Fehlte, obwohl
+        # die Phasenregeln ihn im Peak verlangen (`wettkampftempo_lauf`): Ein
+        # Halbmarathon kam als `race_pace` vom Coach, die Projektion verwarf
+        # den Typ und setzte den Rückfall ein — Walk-Run.
+        "race_pace",
         "brick_run",
         "long_run",
     ],
@@ -292,9 +297,13 @@ def default_training_type(discipline: str | None) -> str | None:
     etwas zum Vergleichen hat. Wird von der Klassifizierung später anhand der
     Ist-Daten überschrieben.
     """
+    # Lauf: lockerer Dauerlauf, nicht Walk-Run. Walk-Run stammte aus der Zeit
+    # einer Schienbeinverletzung und ist keine Vorgabe für alle — als Rückfall
+    # machte es aus jedem unbekannten Lauftyp eine Gehpause, zuletzt aus einem
+    # Halbmarathon.
     return {
         "bike": "z2_endurance",
-        "run": "walk_run",
+        "run": "z2_endurance",
         "swim": "endurance",
         "gym": "strength",
         "brick": "brick",
