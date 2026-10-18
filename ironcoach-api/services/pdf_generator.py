@@ -554,7 +554,7 @@ def generate_plan_pdf(plan: dict) -> bytes:
     elements.append(Spacer(1, 4 * mm))
     generated = datetime.now().strftime("%d.%m.%Y %H:%M")
     elements.append(Paragraph(
-        f"Erstellt von IronCoach AI am {generated}",
+        f"Erstellt von FORGE am {generated}",
         st["note"]
     ))
 

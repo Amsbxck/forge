@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI):
     shutdown_scheduler()
 
 
-app = FastAPI(title="IronCoach AI", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="FORGE", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

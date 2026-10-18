@@ -32,7 +32,7 @@ _MANAGED_RE = re.compile(
     re.escape(MARKER_START) + r".*?" + re.escape(MARKER_END), re.DOTALL
 )
 
-# Frontmatter-Keys, für die IronCoach zuständig ist. Nur diese dürfen beim
+# Frontmatter-Keys, für die FORGE zuständig ist. Nur diese dürfen beim
 # Merge entfernt werden, wenn sie im neuen Stand fehlen — alles andere hat
 # der Athlet von Hand ergänzt und bleibt unangetastet.
 MANAGED_FRONTMATTER_KEYS = {

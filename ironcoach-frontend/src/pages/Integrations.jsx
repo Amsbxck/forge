@@ -453,7 +453,7 @@ export default function Integrations() {
         <details className="text-[11px] font-mono text-[var(--text-muted)]">
           <summary className="cursor-pointer hover:text-[var(--text-secondary)]">So richtest du es ein</summary>
           <p className="mt-2 leading-relaxed">
-            Dein Vault liegt auf deinem Rechner, IronCoach läuft im Netz. Tailscale legt
+            Dein Vault liegt auf deinem Rechner, FORGE läuft im Netz. Tailscale legt
             zwischen beide eine direkte, verschlüsselte Verbindung — ohne offenen Port,
             ohne Router-Einstellung, ohne Terminal.
           </p>

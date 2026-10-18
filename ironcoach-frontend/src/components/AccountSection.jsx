@@ -91,7 +91,7 @@ export default function AccountSection({ onLoggedOut }) {
       )
       const a = document.createElement('a')
       a.href = url
-      a.download = `ironcoach-daten-${isoTag(new Date())}.json`
+      a.download = `forge-daten-${isoTag(new Date())}.json`
       a.click()
       URL.revokeObjectURL(url)
       setHinweis('Datei wurde heruntergeladen.')

@@ -14,7 +14,7 @@ function Rahmen({ children }) {
                style={{ ...DISPLAY, color: '#00d4ff', letterSpacing: '0.15em', textShadow: '0 0 30px #00d4ff44' }}>
             FORGE
           </div>
-          <div className="text-[10px] font-mono tracking-widest text-[var(--text-muted)] mt-1">IRONCOACH AI</div>
+          <div className="text-[10px] font-mono tracking-widest text-[var(--text-muted)] mt-1">AUSDAUER-COACH</div>
         </div>
         <div className="rounded-xl p-6 space-y-4" style={{ background: '#111318', border: '1px solid #1e2228' }}>
           {children}

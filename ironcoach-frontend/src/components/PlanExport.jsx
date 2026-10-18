@@ -22,7 +22,7 @@ export default function PlanExport({ plan }) {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `IronCoach_${plan.week_start}.pdf`
+      a.download = `FORGE_${plan.week_start}.pdf`
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)

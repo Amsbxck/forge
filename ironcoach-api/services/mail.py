@@ -72,7 +72,7 @@ def _send_brevo(to: str, subject: str, text: str, html: str | None) -> bool:
     nutzlast = {
         "sender": {
             "email": settings.MAIL_FROM,
-            "name": settings.MAIL_FROM_NAME or "IronCoach",
+            "name": settings.MAIL_FROM_NAME or "FORGE",
         },
         "to": [{"email": to}],
         "subject": subject,
@@ -140,7 +140,7 @@ def _schluessel_hinweis() -> str:
 def _send_smtp(to: str, subject: str, text: str, html: str | None) -> bool:
     message = EmailMessage()
     message["Subject"] = subject
-    message["From"] = formataddr((settings.MAIL_FROM_NAME or "IronCoach", settings.MAIL_FROM))
+    message["From"] = formataddr((settings.MAIL_FROM_NAME or "FORGE", settings.MAIL_FROM))
     message["To"] = to
     message.set_content(text)
     if html:

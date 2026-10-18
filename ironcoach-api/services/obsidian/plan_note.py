@@ -144,7 +144,7 @@ def render_plan_note(plan: WeeklyPlan, rows: list[PlannedSession]) -> str:
         f"# Woche {plan.week_number} — {plan.plan_phase or ''}\n\n"
         f"{build_plan_block(plan, rows)}\n\n"
         "## Notizen\n\n"
-        "<!-- Alles ab hier gehört dir. IronCoach fasst diesen Bereich nie an. -->\n\n"
+        "<!-- Alles ab hier gehört dir. FORGE fasst diesen Bereich nie an. -->\n\n"
     )
 
 
@@ -334,19 +334,23 @@ def verwaiste_plannoten_einordnen(
 
 # --- Stornieren -------------------------------------------------------------
 
-_VORLAGE_EIGENES = "<!-- Alles ab hier gehört dir. IronCoach fasst diesen Bereich nie an. -->"
+_VORLAGE_EIGENES = "<!-- Alles ab hier gehört dir. FORGE fasst diesen Bereich nie an. -->"
+# Die frühere Fassung steht in bestehenden Notizen und zählt ebenso wenig als
+# eigener Text.
+_VORLAGE_EIGENES_ALT = "<!-- Alles ab hier gehört dir. IronCoach fasst diesen Bereich nie an. -->"
 
 
 def hat_eigene_notizen(inhalt: str) -> bool:
     """Steht in der Plannotiz etwas, das der Athlet selbst geschrieben hat?
 
-    Abgezogen wird alles, was IronCoach erzeugt: Frontmatter, der verwaltete
+    Abgezogen wird alles, was FORGE erzeugt: Frontmatter, der verwaltete
     Block, die Wochenüberschrift, die Überschrift „## Notizen" und der
     Hinweiskommentar darunter. Bleibt danach Text übrig, gehört er dem
     Athleten — und darf beim Stornieren nicht verschwinden.
     """
     _fm, body = note_utils._parse_frontmatter(inhalt)
-    rest = note_utils._MANAGED_RE.sub("", body).replace(_VORLAGE_EIGENES, "")
+    rest = (note_utils._MANAGED_RE.sub("", body)
+            .replace(_VORLAGE_EIGENES, "").replace(_VORLAGE_EIGENES_ALT, ""))
     for zeile in rest.splitlines():
         z = zeile.strip()
         if not z or z.startswith("# Woche") or z == "## Notizen":

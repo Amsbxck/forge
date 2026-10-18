@@ -53,7 +53,7 @@ services:
       MAIL_USER: ${MAIL_USER:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-}
-      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-IronCoach}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-FORGE}
       MAIL_STARTTLS: ${MAIL_STARTTLS:-true}
       MAIL_SSL: ${MAIL_SSL:-false}
       JWT_SECRET: ${JWT_SECRET:-}

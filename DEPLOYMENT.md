@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide deploys IronCoach AI in three parts:
+This guide deploys FORGE in three parts:
 
 - **Backend + Database** on Railway (FastAPI + Postgres)
 - **Frontend** on Vercel (React/Vite)
@@ -112,7 +112,7 @@ over HTTPS instead, on port 443, which is not filtered:
 MAIL_PROVIDER=brevo
 MAIL_API_KEY=<xkeysib-… from Brevo → SMTP & API → API Keys>
 MAIL_FROM=your@gmail.com        # must be a verified sender in Brevo
-MAIL_FROM_NAME=IronCoach
+MAIL_FROM_NAME=FORGE
 ```
 
 Brevo's free tier sends 300 mails a day and — unlike Resend or Postmark —
@@ -129,7 +129,7 @@ MAIL_PORT=587
 MAIL_USER=your@gmail.com
 MAIL_PASSWORD=<16-character Google app password, no spaces>
 MAIL_FROM=your@gmail.com
-MAIL_FROM_NAME=IronCoach
+MAIL_FROM_NAME=FORGE
 MAIL_STARTTLS=true          # port 587; for port 465 use MAIL_SSL=true instead
 ```
 

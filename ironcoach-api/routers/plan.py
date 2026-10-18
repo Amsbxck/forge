@@ -30,7 +30,7 @@ def _safe_filename(name: str) -> str:
 def _pdf_antwort(plan: WeeklyPlan) -> Response:
     pdf_bytes = generate_plan_pdf({"plan_content": plan.plan_content})
     filename = _safe_filename(
-        f"IronCoach_{plan.week_start or ''}_Woche_{plan.week_number}_{plan.plan_phase or 'Plan'}.pdf"
+        f"FORGE_{plan.week_start or ''}_Woche_{plan.week_number}_{plan.plan_phase or 'Plan'}.pdf"
     )
     return Response(
         content=pdf_bytes,

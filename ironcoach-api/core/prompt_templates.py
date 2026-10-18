@@ -100,7 +100,7 @@ def format_sessions(sessions: list) -> str:
     Abweichung mit in der Zeile.
     """
     if not sessions:
-        return "Keine Einheiten in den letzten 14 Tagen oder IronCoachAI frisch implementiert."
+        return "Keine Einheiten in den letzten 14 Tagen — oder das Konto ist neu."
     lines = []
     for s in sessions:
         # Bei Sportarten außerhalb der geplanten Disziplinen die

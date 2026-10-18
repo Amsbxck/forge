@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     MAIL_USER: str = ""
     MAIL_PASSWORD: str = ""
     MAIL_FROM: str = ""
-    MAIL_FROM_NAME: str = "IronCoach"
+    MAIL_FROM_NAME: str = "FORGE"
     MAIL_STARTTLS: bool = True
     MAIL_SSL: bool = False
 

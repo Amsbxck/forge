@@ -57,7 +57,7 @@ export default function Login({ onAuthenticated }) {
             FORGE
           </div>
           <div className="text-[10px] font-mono tracking-widest text-[var(--text-muted)] mt-1">
-            IRONCOACH AI
+            AUSDAUER-COACH
           </div>
         </div>
 

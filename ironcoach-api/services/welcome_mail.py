@@ -57,14 +57,14 @@ def build_welcome(name: str | None, verify_token: str | None = None) -> tuple[st
     ziel = f"{url}/verify?token={verify_token}" if verify_token else url
     knopf = "ADRESSE BESTÄTIGEN" if verify_token else "ZUR APP"
 
-    subject = "Willkommen bei IronCoach"
+    subject = "Willkommen bei FORGE"
 
     text_steps = "\n\n".join(
         f"{i}. {title}\n   {body}" for i, (title, body) in enumerate(STEPS, 1)
     )
     text = f"""{anrede},
 
-schön, dass du da bist. IronCoach plant dein Training nicht nach Schema F,
+schön, dass du da bist. FORGE plant dein Training nicht nach Schema F,
 sondern anhand dessen, was du tatsächlich tust: jede Einheit wird mit dem
 Plan abgeglichen, und was abweicht, fließt in die nächste Woche ein.
 
@@ -104,11 +104,11 @@ Viel Erfolg beim Training.
              style="max-width:520px;background:#111318;border:1px solid #1e2228;border-radius:12px;padding:28px">
         <tr><td>
           <div style="color:#00d4ff;font:800 30px/1 Helvetica,Arial,sans-serif;letter-spacing:.14em">FORGE</div>
-          <div style="color:#3a3f4a;font:400 10px/1 Helvetica,Arial,sans-serif;letter-spacing:.2em;margin-top:6px">IRONCOACH AI</div>
+          <div style="color:#3a3f4a;font:400 10px/1 Helvetica,Arial,sans-serif;letter-spacing:.2em;margin-top:6px">AUSDAUER-COACH</div>
 
           <p style="color:#e8eaf0;font:400 15px/1.6 Helvetica,Arial,sans-serif;margin:26px 0 0">{anrede_html},</p>
           <p style="color:#8a909e;font:400 14px/1.7 Helvetica,Arial,sans-serif;margin:12px 0 0">
-            schön, dass du da bist. IronCoach plant dein Training nicht nach Schema F, sondern
+            schön, dass du da bist. FORGE plant dein Training nicht nach Schema F, sondern
             anhand dessen, was du tatsächlich tust: jede Einheit wird mit dem Plan abgeglichen,
             und was abweicht, fließt in die nächste Woche ein.
           </p>
