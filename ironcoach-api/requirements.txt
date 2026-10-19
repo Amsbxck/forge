@@ -5,7 +5,10 @@ alembic==1.13.3
 psycopg2-binary==2.9.9
 pydantic-settings==2.5.2
 python-multipart==0.0.9
-anthropic==0.40.0
+# 0.40 kannte weder `output_config` (Effort) noch Thinking-Blöcke, die
+# Sonnet 5.5 immer mitschickt. Bewusst die letzte 0.x: Ab 1.0 läuft das SDK
+# auf httpx2, der Obsidian-Client hier aber auf httpx mit SOCKS-Proxy.
+anthropic==0.125.0
 httpx==0.27.2
 # SOCKS5-Unterstützung für httpx — nötig, damit der Obsidian-Client den
 # Tailscale-Proxy benutzen kann. Ohne das Paket wirft httpx beim Start der

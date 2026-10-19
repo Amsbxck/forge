@@ -8,7 +8,7 @@ Sprache: Bezeichner, Kommentare, Testnamen und Commit-Nachrichten sind deutsch, 
 
 ## Befehle
 
-Alles läuft über Docker Compose (`db` auf 5433, `backend` auf 8000 mit `--reload`, `frontend` auf 3000). Die Quellen sind in die Container gemountet, Änderungen wirken ohne Neubau.
+Alles läuft über Docker Compose (`db` auf 5433, `backend` auf 8000 mit `--reload`, `frontend` auf 3000). Die Quellen sind in die Container gemountet, Änderungen am Code wirken ohne Neubau. Die Pakete aber nicht: Nach einer Änderung an `requirements.txt` braucht es `docker compose up -d --build backend`, sonst läuft im Container still die alte Version weiter (beim Umstieg auf Sonnet 5.5 kannte das alte SDK `output_config` nicht, und jeder Claude-Aufruf scheiterte).
 
 ```bash
 docker compose up --build
@@ -60,12 +60,17 @@ Eine neue Coaching-Regel muss in **alle drei**, sonst kennt sie nur einer:
 Webhook (`routers/strava_webhook.py`) und stündlicher Abgleich (`services/reconcile.py`, APScheduler in `core/scheduler.py`, nur mit `RECONCILE_ENABLED=true`) laufen beide über `services/ingest.ingest_activity`. Das Matching geht zuerst über die Strava-ID, sonst über Datum, Sportart und Dauer (Verknüpfen statt Dublette). FIT/GPX-Upload über `routers/upload.py` + `services/fit_parser.py`. Klassifikation der Einheiten in `services/classification.py`. Danach optional Sync in den Obsidian-Vault des Athleten (`services/obsidian/`, über Tailscale-SOCKS-Proxy, Schlüssel mit Fernet verschlüsselt über `core/geheim.py`).
 
 ### API-Budget
-`services/api_budget.py`: reservieren → abrechnen/freigeben um jeden Claude-Aufruf. Ist das Budget erschöpft, wirft er `BudgetExhausted`, `main.py` antwortet mit 402. Modell über `settings.CLAUDE_MODEL`.
+`services/api_budget.py`: reservieren → abrechnen/freigeben um jeden Claude-Aufruf. Ist das Budget erschöpft, wirft er `BudgetExhausted`, `main.py` antwortet mit 402. Modell über `settings.CLAUDE_MODEL`. Der Preis dazu steht getrennt in `MODEL_PRICES` (`modell:eingabe:ausgabe,…`, Dollar je Million Token). Wer das Modell wechselt, trägt dort den Preis mit ein, sonst rechnet `Settings.model_prices` mit dem Ersatzpreis `MODEL_PRICE_FALLBACK` (3,0/15,0). Beide Werte setzt `docker-compose.yml` ebenfalls, die Vorgabe im Compose gilt also lokal vor der in `config.py`.
 
 ### Dinge, die synchron bleiben müssen
 - `TRAININGSOPTIONEN.md` ↔ `core/phasenregeln.py` (+ `Glossary.jsx`, `src/utils/trainingsoptionen.js`). Ein Test hält Doku und Code zusammen. Compose mountet die `.md` und `researched_training_structures/` read-only in den Container. Ohne diesen Mount schlägt `tests/test_blockoption.py` fehl („Glossar fehlt“).
 - `src/utils/phasen.js` spiegelt `core/race_types.phase_family`.
 - Frontend-API-Aufrufe nur über `src/services/api.js` (hängt das Token an), Fehlertexte über `src/utils/fehler.js`.
+
+### Weitere Verzeichnisse im Wurzelordner
+- `scripts/`: `backup.sh`, `backup-taeglich.sh` (von launchd gestartet, Verbindung aus `~/.ironcoach-db-url`), `restore.sh`.
+- `register_webhook.py`: Strava-Webhook anmelden, auflisten, löschen. Werte nur aus Umgebung oder `.env`, nie als Vorgabe im Code.
+- `backups/` (Datenbanksicherungen mit allen Nutzerdaten im Klartext), `uploads/` und `workouts/` (hochgeladene FIT-Dateien) sowie der venv `ironcoach/` stehen in `.gitignore`. Nichts davon einchecken oder in Ausgaben zitieren.
 
 ## Deployment
 
@@ -81,6 +86,7 @@ GitLab (`main`, Quelle) → Push-Mirror auf GitHub → Railway (Backend + Postgr
 - **HRV-Diagramm:** Die grüne Fläche ist immer die *berechnete* Spanne (gleiche Regeln wie `compute_baseline`, vom Backend mitgeliefert). Die Garmin-Spanne ist eine gestrichelte Linie mit der Marke GARMIN und urteilt allein.
 - **Chat-Wochenplan:** Der Systemprompt enthält einen Kalender mit Wochentag und Datum für diese und die kommende Woche. Mit dem Athleten vereinbarte Tage bleiben, wo sie sind. `walk_run` vergibt `classify_run` nur, wenn der Geschwindigkeitsverlauf ≥ 10 % Gehen (< 7 km/h) **und** ≥ 50 % Laufen zeigt. Ein Rennen ist nie Walk-Run.
 - **Strava-OAuth:** `state` ist ein 10-Minuten-Zwecktoken. Die Rückleitung legt nur einen offenen Vorgang an, verbunden wird erst nach `POST /api/strava/bestaetigen` aus dem angemeldeten Browser.
+- **Sonnet 5.5 mit Effort je Pfad** (`CLAUDE_EFFORT_PLAN` high, `_ANPASSUNG` und `_CHAT` medium in `core/config.py`, übergeben als `output_config`). Kein `tool_choice` „tool“ oder „any“: Sonnet 5.5 antwortet darauf mit 400, das Werkzeug wird über den Systemprompt verlangt. Kein `thinking`- oder `temperature`-Parameter: Thinking läuft immer und zählt in `max_tokens`, deshalb Plan und Chat 16000, Anpassung 8000. SDK bleibt auf 0.x (`anthropic==0.125.0`), 1.x bräuchte httpx2.
 - **Name FORGE statt IronCoach** in allem, was Nutzer sehen: Die App deckt auch reine Lauf- und Radziele ab. Alte Plan-Notizvorlagen werden über `_VORLAGE_EIGENES_ALT` weiter erkannt.
 
 ## Verworfene Ansätze

@@ -15,7 +15,12 @@ client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
 # Ausgabebudget eines ganzen Wochenplans. Gleich groß wie im Chat: Mit 4096
 # schnitt ein Plan mit Doppeltagen und ausgefüllten Blöcken ab, und es fehlten
 # Tage — der Chat hatte dafür schon 8192 und einen Kommentar, warum.
-PLAN_MAX_TOKENS = 8192
+#
+# Seit Sonnet 5.5 zählt das Thinking mit in dieses Budget. Mit 8192 bliebe nach
+# dem Nachdenken auf Effort high zu wenig für sieben ausgefüllte Tage. 16000
+# kostet in der Reservierung kaum mehr als vorher (16000 × $10/M gegenüber
+# 8192 × $15/M). Über rund 21000 verweigert das SDK den Aufruf ohne Streaming.
+PLAN_MAX_TOKENS = 16000
 
 DETAILS_SCHEMA = {
     "type": "object",
@@ -273,7 +278,10 @@ async def generate_weekly_plan(
                 "Verwende immer das create_training_plan Tool für deine Antwort."
             ),
             tools=[PLAN_TOOL],
-            tool_choice={"type": "tool", "name": "create_training_plan"},
+            # Kein erzwungenes Werkzeug mehr: Sonnet 5.5 lehnt `tool_choice`
+            # "tool" und "any" mit 400 ab. Die Systemzeile oben verlangt das
+            # Tool; kommt trotzdem keins, greift der Fehler unten.
+            output_config={"effort": settings.CLAUDE_EFFORT_PLAN},
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception:
@@ -564,6 +572,7 @@ Athletenkontext: {positions_text}, Phase: {current_week_context.get('phase', 'Ba
             max_tokens=PLAN_MAX_TOKENS,
             system=system,
             tools=[ADJUST_DAYS_TOOL, UPDATE_PLAN_TOOL],
+            output_config={"effort": settings.CLAUDE_EFFORT_CHAT},
             messages=messages,
         )
     except Exception:

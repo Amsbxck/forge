@@ -13,6 +13,10 @@ Der Unterschied zum Chat: Hier wird **nur** das Tage-Werkzeug angeboten. Es gibt
 nichts zu entscheiden — wer einen bestehenden Plan anpassen will, will keine neue
 Woche. Das spart den Umweg über die Werkzeugwahl und macht das Ergebnis
 vorhersehbar.
+
+Früher war das Werkzeug zusätzlich über `tool_choice` erzwungen. Sonnet 5.5
+lehnt das mit 400 ab. Jetzt verlangt es der Systemprompt, und es ist das
+einzige angebotene Werkzeug.
 """
 
 import json
@@ -29,8 +33,11 @@ from core.config import settings  # noqa: E402
 MODELL = settings.CLAUDE_MODEL
 
 # Kleiner als beim vollen Plan: Es gehen nur die geänderten Tage zurück, nicht
-# sieben. Mehr Budget würde das Modell nur einladen, die ganze Woche zu liefern.
-MAX_TOKENS = 3000
+# sieben. Hier standen 3000, mit der Begründung, mehr Budget lade zur ganzen
+# Woche ein. Das Modell sieht `max_tokens` aber gar nicht. Seit Sonnet 5.5
+# zählt außerdem das Thinking mit, und 3000 hätte auf Effort medium die Tage
+# abgeschnitten.
+MAX_TOKENS = 8000
 
 
 def _plan_text(plan: WeeklyPlan, rows: list[PlannedSession]) -> str:
@@ -113,6 +120,7 @@ def systemprompt(db: Session, plan: WeeklyPlan, rows: list,
 
 ## Auftrag
 Setze den Wunsch des Athleten um, indem du `adjust_training_days` aufrufst.
+Antworte immer über dieses Werkzeug, nie nur mit Text.
 
 - **Nur die Tage liefern, die sich ändern.** Alles andere bleibt unberührt und
   muss nicht wiederholt werden. Das ist der Zweck dieses Wegs.
@@ -194,7 +202,8 @@ async def tage_anpassen(db: Session, plan: WeeklyPlan, wunsch: str) -> dict:
     try:
         antwort = await client.messages.create(
             model=MODELL, max_tokens=MAX_TOKENS, system=system,
-            tools=[ADJUST_DAYS_TOOL], tool_choice={"type": "tool", "name": "adjust_training_days"},
+            tools=[ADJUST_DAYS_TOOL],
+            output_config={"effort": settings.CLAUDE_EFFORT_ANPASSUNG},
             messages=[{"role": "user", "content": wunsch}],
         )
     except Exception:
@@ -217,6 +226,14 @@ async def tage_anpassen(db: Session, plan: WeeklyPlan, wunsch: str) -> dict:
             grund = (block.input or {}).get("reason")
             if grund:
                 text.append(grund)
+
+    # Abgeschnitten: Ohne diese Prüfung sähe eine abgebrochene Antwort aus wie
+    # „das Modell wollte nichts ändern“. Der Planpfad prüft das schon lange.
+    if getattr(antwort, "stop_reason", None) == "max_tokens":
+        raise ValueError(
+            "Die Anpassung kam unvollständig zurück (abgeschnitten). "
+            "Bitte noch einmal versuchen."
+        )
 
     if not tage:
         return {"status": "keine_aenderung",

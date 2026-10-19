@@ -14,11 +14,26 @@ class Settings(BaseSettings):
     # verlangt: "modell:eingabe:ausgabe,modell:eingabe:ausgabe".
     # Das Modell für Plan, Chat und Tagesanpassung — eine Stelle statt drei
     # fest verdrahteter Zeichenketten. Der Preis dazu steht in MODEL_PRICES.
-    CLAUDE_MODEL: str = "claude-sonnet-4-6"
+    # Sonnet 5.5 statt 4.6: neuer und je Token ein Drittel billiger ($2/$10
+    # statt $3/$15). Sonnet 5.5 denkt immer mit (adaptives Thinking, lässt
+    # sich nicht abschalten); gesteuert wird nur über den Effort unten.
+    CLAUDE_MODEL: str = "claude-sonnet-5-5"
+    # Wie gründlich das Modell je Pfad nachdenkt — low, medium, high, xhigh,
+    # max. Je Pfad statt global, weil die Pfade Unterschiedliches verlangen:
+    # Die Planerstellung muss Phasenregeln, Deload, Rangordnung und
+    # Grundbasis gleichzeitig einhalten, dort lohnt sich jeder Denkschritt.
+    # Tagesanpassung und Chat ändern einen bestehenden Plan oder antworten
+    # auf eine Frage; dort reicht medium und spart Ausgabetoken, die beim
+    # Thinking voll bezahlt werden.
+    CLAUDE_EFFORT_PLAN: str = "high"
+    CLAUDE_EFFORT_ANPASSUNG: str = "medium"
+    CLAUDE_EFFORT_CHAT: str = "medium"
     # Die Zeitzone der Athleten — für Kalendertage aus UTC-Zeitstempeln
     # (FIT, GPX). Der Container selbst läuft ebenfalls darauf (TZ im Dockerfile).
     ZEITZONE: str = "Europe/Berlin"
-    MODEL_PRICES: str = "claude-sonnet-4-6:3.0:15.0"
+    # Der alte Eintrag bleibt stehen: Wer über CLAUDE_MODEL zurück auf 4.6
+    # geht, soll nicht still mit dem Ersatzpreis abgerechnet werden.
+    MODEL_PRICES: str = "claude-sonnet-5-5:2.0:10.0,claude-sonnet-4-6:3.0:15.0"
     MODEL_PRICE_FALLBACK: str = "3.0:15.0"
     USD_TO_EUR: float = 0.92
     STRAVA_CLIENT_ID: str = ""

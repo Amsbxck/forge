@@ -172,8 +172,12 @@ API_BUDGET_EUR=5.0
 API_BUDGET_ENFORCED=true
 
 # Model and its price (input:output USD per million tokens).
-# CLAUDE_MODEL=claude-sonnet-4-6
-# MODEL_PRICES=claude-sonnet-4-6:3.0:15.0
+# CLAUDE_MODEL=claude-sonnet-5-5
+# MODEL_PRICES=claude-sonnet-5-5:2.0:10.0,claude-sonnet-4-6:3.0:15.0
+# Thinking depth per path (low|medium|high|xhigh|max).
+# CLAUDE_EFFORT_PLAN=high
+# CLAUDE_EFFORT_ANPASSUNG=medium
+# CLAUDE_EFFORT_CHAT=medium
 
 # Key for secrets stored in the database (Obsidian API keys). Empty: derived
 # from JWT_SECRET. Set your own if you ever want to rotate JWT_SECRET without
