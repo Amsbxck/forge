@@ -135,7 +135,6 @@ export default function HRVHistoryChart({ data }) {
   }, [data, regeln])
 
   const chartData = useMemo(() => allChartData.slice(-range), [allChartData, range])
-  const manuell = grenzen?.quelle === 'manual'
 
   if (!data?.length) {
     return (
@@ -188,26 +187,25 @@ export default function HRVHistoryChart({ data }) {
               die Spanne, die das Backend an diesem Tag ergeben hätte: Wird die
               Streuung grösser, öffnet sie sich; verschiebt sich das Mittel,
               wandert sie mit. */}
-          {/* Mit eingetragener Garmin-Spanne gilt **sie** — für die Ampel und
-              für jeden Punkt (das Backend färbt dann alle Messungen danach).
-              Dann wird auch sie als Fläche gezeichnet, nicht die berechnete:
-              Sonst lag ein Punkt sichtbar in der grünen Fläche und war rot. */}
-          {manuell && grenzen?.gruen_bis && (
-            <ReferenceArea y1={grenzen.gruen_ab} y2={grenzen.gruen_bis}
-                           fill="#22c55e" fillOpacity={0.10} stroke="none" />
-          )}
-          {!manuell && (
-            <Area dataKey="band" fill="#22c55e" fillOpacity={0.10} stroke="none"
-                  isAnimationActive={false} connectNulls legendType="none"
-                  activeDot={false} />
-          )}
+          {/* Auch mit eingetragener Garmin-Spanne bleibt die berechnete Fläche
+              stehen. Die Prüfung vom 18.10. hatte sie dann ausgeblendet und die
+              Garmin-Spanne als Fläche gezeichnet (Begründung: ein Punkt konnte
+              in der grünen Fläche liegen und trotzdem rot sein). Damit war die
+              Rechnung genau für den Athleten unsichtbar, für den sie gedacht
+              ist: wer seine Garmin-Spanne pflegt und sehen will, was die eigenen
+              Messungen daneben ergeben. Geurteilt wird weiter nach Garmin — das
+              zeigen die gestrichelten Linien mit der Marke GARMIN und der Satz
+              unter dem Diagramm. */}
+          <Area dataKey="band" fill="#22c55e" fillOpacity={0.10} stroke="none"
+                isAnimationActive={false} connectNulls legendType="none"
+                activeDot={false} />
           {/* Die Ränder zusätzlich als feine Linien: Sie machen die Bewegung
               auch dort erkennbar, wo die Fläche flach verläuft, und sie geben
               der Spanne eine Kante statt eines Farbverlaufs. */}
-          <Line type="monotone" dataKey={d => (manuell ? null : d.band?.[1])} stroke="#22c55e" strokeWidth={1}
+          <Line type="monotone" dataKey={d => d.band?.[1]} stroke="#22c55e" strokeWidth={1}
                 strokeOpacity={0.45} strokeDasharray="2 3" dot={false} legendType="none"
                 isAnimationActive={false} connectNulls activeDot={false} name="Spanne oben" />
-          <Line type="monotone" dataKey={d => (manuell ? null : d.band?.[0])} stroke="#22c55e" strokeWidth={1}
+          <Line type="monotone" dataKey={d => d.band?.[0]} stroke="#22c55e" strokeWidth={1}
                 strokeOpacity={0.45} strokeDasharray="2 3" dot={false} legendType="none"
                 isAnimationActive={false} connectNulls activeDot={false} name="Spanne unten" />
 
