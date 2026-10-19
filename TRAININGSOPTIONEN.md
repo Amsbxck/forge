@@ -249,8 +249,9 @@ Diese Dinge macht die App von selbst, du brauchst nicht danach zu fragen:
   Struktur eindeutig passt
 - **Die Einzellauf-Grenze** — steht in jedem Plan, aus dem längsten Lauf der
   letzten 30 Tage
-- **Deload-Wochen** — jeweils die letzte Woche einer Phase, nie die
-  Wettkampfwoche
+- **Deload-Wochen** — jede vierte Woche (drei Belastungswochen, eine
+  Entlastung), durchgehend bis zum Taper; nie im Taper, in der
+  Wettkampfwoche oder direkt davor
 - **Freiwasser** — ab der Peak-Phase ersetzt es eine der Beckeneinheiten
 - **Testwochen** — werden angekündigt, wenn die Werte alt werden
 

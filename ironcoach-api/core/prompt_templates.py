@@ -419,9 +419,12 @@ def build_plan_prompt(
     # Die Deload-Spalte kommt aus derselben Funktion, die auch die aktuelle
     # Woche beurteilt — sonst laufen Tabelle und Vorgabe auseinander, was sie
     # jahrelang taten.
+    def _deloads(start: int, end: int) -> str:
+        wochen = [w for w in range(start, end + 1) if is_deload(w, total_weeks)]
+        return "Deload " + ", ".join(f"W{w}" for w in wochen) if wochen else "–"
+
     rows = [
-        f"| {name} | W{start}–{end} | "
-        f"{'Deload W' + str(end) if is_deload(end, total_weeks) else '–'} |"
+        f"| {name} | W{start}–{end} | {_deloads(start, end)} |"
         for name, start, end in phase_boundaries(total_weeks)
     ]
     season_structure = "" if (base_period or offseason) else "\n".join(

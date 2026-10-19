@@ -146,7 +146,7 @@ const EINTRAEGE = [
   },
   {
     term: 'Deload', full: 'Entlastungswoche', gruppe: 'Trainingsformen', color: BLUE,
-    desc: 'Woche mit deutlich reduziertem Umfang am Ende eines Blocks. Der Trainingsreiz wirkt erst in der Erholung.',
+    desc: 'Woche mit deutlich reduziertem Umfang — jede vierte Woche bis zum Taper (drei Wochen Belastung, eine Entlastung). Der Trainingsreiz wirkt erst in der Erholung.',
   },
 
   // ── Saison und Planung ────────────────────────────────────────────────

@@ -73,10 +73,11 @@ def test_deload_stimmt_mit_der_saisontabelle():
     """Vorgabe und Übersicht im selben Prompt müssen dasselbe sagen."""
     for wochen in (12, 16, 33, 40):
         text = _prompt(1, wochen)
+        import re
         aus_tabelle = {
-            int(teil.split("|")[0].strip())
+            int(w)
             for zeile in text.splitlines() if "Deload W" in zeile
-            for teil in [zeile.split("Deload W", 1)[1]]
+            for w in re.findall(r"W(\d+)", zeile.split("Deload", 1)[1])
         }
         berechnet = {w for w in range(1, wochen + 1) if is_deload(w, wochen)}
         assert aus_tabelle == berechnet, f"{wochen} Wochen: {aus_tabelle} != {berechnet}"

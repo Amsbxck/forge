@@ -246,31 +246,45 @@ def phase_family(phase: str | None) -> str:
     return roh
 
 
+# Belastungsmuster: drei Belastungswochen, eine Entlastungswoche. Das
+# Raddokument nennt „2–3 load weeks + 1 recovery week" (Stöggl 2014: 2 + 1);
+# drei Wochen sind die obere Grenze davon und passen auf die Viererblöcke, in
+# die `phase_for_week` lange Phasen teilt (Base 1, Base 2, Base 3 …).
+DELOAD_RHYTHMUS = 4
+
+
+def deload_wochen(total_weeks: int = 33) -> set[int]:
+    """Alle Entlastungswochen eines Plans: jede vierte Woche bis zum Taper.
+
+    Durchgehend gezählt über Base, Build und Peak, nicht je Phase neu. Je
+    Phase neu begonnen lagen bei 18 Wochen fünf Belastungswochen am Stück
+    (W5–W9), weil die Phasen sechs Wochen lang sind. Vorher gab es überhaupt
+    nur das Phasenende — bei 33 Wochen W12 und W24, mit elf Belastungswochen
+    dazwischen.
+
+    Keine Entlastung im Taper (der selbst Entlastung ist), in der
+    Wettkampfwoche und in der Woche direkt vor dem Taper: zwei Entlastungen
+    hintereinander nähmen dem Peak die Schärfe.
+    """
+    taper_start = next(
+        (start for name, start, _end in phase_boundaries(total_weeks) if name == "Taper"),
+        total_weeks,
+    )
+    return set(range(DELOAD_RHYTHMUS, taper_start - 1, DELOAD_RHYTHMUS))
+
+
 def is_deload(week: int, total_weeks: int = 33) -> bool:
-    """Ist diese Woche eine Entlastungswoche?
+    """Ist diese Woche eine Entlastungswoche? Siehe `deload_wochen`.
 
-    Eine Quelle statt zwei. Im Prompt entschied `week % 4 == 0`, während die
-    Saisonübersicht im selben Prompt die **letzte Woche jeder Phase** als
-    Deload auswies — bei 33 Wochen also W12/24/30 gegen W4/8/12/16/20/24/28/32.
-    Schlimmer: bei 12, 16, 24 und 40 Wochen ist `total_weeks % 4 == 0`, womit
-    die **Wettkampfwoche** als „Volumen −40–50 %" angekündigt wurde.
-
-    Sehr kurze Phasen bekommen keinen Deload: in einer Phase aus zwei Wochen
-    wäre die Hälfte Entlastung.
+    Eine Quelle für Vorgabe und Saisonübersicht im Prompt. Früher entschied
+    dort `week % 4 == 0`, was bei 12, 16, 24 und 40 Wochen die
+    **Wettkampfwoche** zur Entlastungswoche machte; danach nur noch das
+    Phasenende, was in Base und Build bis zu elf Belastungswochen ohne
+    Erholung ergab.
     """
     if week < 1 or week > total_weeks:
         return False
-    if week == total_weeks:  # Wettkampfwoche ist nie ein Deload
-        return False
-    for _name, start, end in phase_boundaries(total_weeks):
-        if start <= week <= end:
-            if end - start + 1 < 4:
-                return False
-            # Die Taperwochen sind schon Entlastung, sie brauchen keine zweite.
-            if _name == "Taper":
-                return False
-            return week == end
-    return False
+    return week in deload_wochen(total_weeks)
 
 
 def plan_start_for(race_date: date, total_weeks: int) -> date:
