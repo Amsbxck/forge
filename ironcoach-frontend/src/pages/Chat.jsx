@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 // Über die gemeinsame Verbindung, nicht über eine eigene axios-Instanz: Die
 // eigene hängte kein Token an, und mit Anmeldung (im Betrieb immer) kam der
 // Verlauf beim Öffnen der Seite stets mit 401 zurück.
-import { sendChat, clearChat, getChatHistory } from '../services/api'
+import { sendChat, clearChat, getBudget, getChatHistory, getHrvLage, getSaison } from '../services/api'
+import { ACCENT, PHASE_COLOR, STATUS_COLOR, phaseColor } from '../utils/colors'
 import { fehlerText } from '../utils/fehler'
+import { blockName } from '../components/leisten/SaisonStrahl'
 
 function TypingIndicator() {
   return (
@@ -27,10 +29,89 @@ function TypingIndicator() {
   )
 }
 
+/** Zeitstempel des Servers (UTC, ohne Zonenangabe) als lokale Uhrzeit.
+ *
+ *  Heute nur die Uhrzeit, sonst mit Tag davor: Ein Verlauf über mehrere Tage
+ *  liest sich sonst wie ein Gespräch, und „mach morgen locker" von vorgestern
+ *  steht neben der Antwort von heute.
+ */
+function zeitpunkt(stempel) {
+  if (!stempel) return null
+  const mitZone = /Z|[+-]\d\d:?\d\d$/.test(stempel) ? stempel : `${stempel}Z`
+  const d = new Date(mitZone)
+  if (Number.isNaN(d.getTime())) return null
+  const uhr = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  const heute = new Date()
+  if (d.toDateString() === heute.toDateString()) return uhr
+  const tag = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+  return `${tag} · ${uhr}`
+}
+
+/** Was der Coach gerade über dich weiß, in einer Zeile.
+ *
+ *  Der Coach antwortet mit Phase, Woche, HRV und Guthaben im Hinterkopf, der
+ *  Athlet sah davon nichts. Fragt er „soll ich heute hart fahren?", hilft es,
+ *  den 7-Tage-Schnitt und die Phase vor Augen zu haben, auf die sich die
+ *  Antwort bezieht. Dieselben Quellen wie Dashboard und Plan
+ *  (`/metrics/saison`, `/hrv/lage`, `/budget`), damit überall dieselbe Zahl
+ *  steht. Fehlt eine, fällt nur ihr Teil weg.
+ */
+function KontextLeiste({ saison, hrv, budget }) {
+  const teile = []
+  if (saison) {
+    if (saison.lage === 'off_season') {
+      const phase = (saison.offseason_phase || 'Formerhalt').toLowerCase()
+      teile.push({ key: 'phase', punkt: PHASE_COLOR.off, text: `OFF SEASON · ${phase === 'übergang' ? 'TRANSITION' : 'MAINTENANCE'}` })
+    } else {
+      // Der Block (Base 2, …) wie im Saisonstrahl, nicht nur die Phase.
+      const inWoche = p => saison.aktuelle_woche >= p.von_woche && saison.aktuelle_woche <= p.bis_woche
+      const phase = (saison.phasen || []).find(inWoche)
+      const block = (phase?.teile || []).find(inWoche) || phase
+      teile.push({
+        key: 'phase',
+        punkt: phaseColor(saison.grundlage ? 'grundlage' : block?.name),
+        text: saison.grundlage ? 'PREP' : blockName(block?.name),
+        zusatz: saison.aktuelle_woche ? `WEEK ${saison.aktuelle_woche}/${saison.total_weeks}` : null,
+      })
+    }
+  }
+  if (hrv?.schnitt_7 != null) {
+    teile.push({
+      key: 'hrv',
+      text: 'HRV Ø 7',
+      wert: `${Math.round(hrv.schnitt_7)} ms`,
+      farbe: STATUS_COLOR[hrv.status] || '#8a909e',
+    })
+  }
+  if (budget) {
+    teile.push({
+      key: 'budget',
+      text: 'CREDIT',
+      wert: `${budget.rest_eur.toFixed(2)} €`,
+      farbe: budget.aufgebraucht ? STATUS_COLOR.red : ACCENT,
+    })
+  }
+  if (!teile.length) return null
+
+  return (
+    <div className="flex items-center gap-x-4 gap-y-1 flex-wrap mb-3 text-[10px] font-mono tracking-widest text-[var(--text-muted)]">
+      {teile.map(t => (
+        <span key={t.key} className="flex items-center gap-1.5 whitespace-nowrap">
+          {t.punkt && <span className="w-1.5 h-1.5 rounded-full" style={{ background: t.punkt }} />}
+          <span style={t.punkt ? { color: t.punkt } : undefined}>{t.text}</span>
+          {t.zusatz && <span className="tabular-nums text-[var(--text-secondary)]">{t.zusatz}</span>}
+          {t.wert && <span className="tabular-nums font-bold" style={{ color: t.farbe }}>{t.wert}</span>}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function Message({ msg, isNew }) {
   const isUser = msg.role === 'user'
+  const zeit = zeitpunkt(msg.created_at)
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
       <div
         className="max-w-[78%] rounded-xl px-4 py-2.5 text-sm leading-relaxed font-mono"
         style={isUser ? {
@@ -50,6 +131,11 @@ function Message({ msg, isNew }) {
       >
         {msg.content}
       </div>
+      {zeit && (
+        <span className={`mt-1 text-[9px] font-mono tabular-nums text-[var(--text-muted)] opacity-70 ${isUser ? 'pr-1' : 'pl-1'}`}>
+          {zeit}
+        </span>
+      )}
     </div>
   )
 }
@@ -86,6 +172,19 @@ export default function Chat() {
 
   useEffect(() => { ladeVerlauf() }, [ladeVerlauf])
 
+  // Die Kontextleiste lädt getrennt vom Verlauf und still: Sie ist Beiwerk,
+  // ein Fehler dort darf das Gespräch nicht blockieren.
+  const [kontext, setKontext] = useState({})
+  const ladeKontext = useCallback(async () => {
+    const [saison, hrv, budget] = await Promise.allSettled([getSaison(), getHrvLage(), getBudget()])
+    setKontext({
+      saison: saison.status === 'fulfilled' ? saison.value.data : null,
+      hrv: hrv.status === 'fulfilled' ? hrv.value.data : null,
+      budget: budget.status === 'fulfilled' ? budget.value.data : null,
+    })
+  }, [])
+  useEffect(() => { ladeKontext() }, [ladeKontext])
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, loading])
@@ -101,6 +200,8 @@ export default function Chat() {
       const history = resp.data.history
       setNewMsgIndex(history.length - 1)
       setMessages(history)
+      // Die Antwort hat Guthaben gekostet; die Leiste soll den neuen Stand zeigen.
+      ladeKontext()
       // Wave effect on container
       setWaving(true)
       setTimeout(() => setWaving(false), 600)
@@ -156,6 +257,8 @@ export default function Chat() {
           </button>
         )}
       </div>
+
+      <KontextLeiste {...kontext} />
 
       {/* Message area */}
       <div

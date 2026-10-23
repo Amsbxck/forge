@@ -68,6 +68,9 @@ export const getLatestHrv = () => api.get('/api/hrv/latest')
 
 // Metrics
 export const getWeekMetrics = () => api.get('/api/metrics/week')
+// Die Saison als Zeitstrahl: Phasen, Deload-Wochen, Rennen, heute. Eine
+// Quelle für Dashboard, Plan, Rennen und Chat (`components/leisten/SaisonStrahl`).
+export const getSaison = () => api.get('/api/metrics/saison')
 export const getPmc = () => api.get('/api/metrics/pmc')
 // Passt die hinterlegte FTP noch zu dem, was gefahren wird? Eigener Aufruf,
 // weil die Prüfung die Leistungsdaten mehrerer Fahrten liest.
@@ -127,6 +130,8 @@ export const downloadPlanPdfByMonday = (montag) =>
 // Planned sessions — normalisierte Projektion des Wochenplans
 export const getPlannedCurrent = () => api.get('/api/planned/current')
 export const getPlannedByMonday = (montag) => api.get(`/api/planned/am/${montag}`)
+// Geplant gegen absolviert, je Disziplin und je geplanter Einheit.
+export const getWochenBilanz = (montag) => api.get(`/api/planned/am/${montag}/bilanz`)
 export const setPlannedReplacement = (id, { text, durationMin, discipline, intensity }) =>
   api.post(`/api/planned/${id}/replacement`, {
     text: text || '',
@@ -254,5 +259,7 @@ export const setThresholds = (data) => api.post('/api/profile/thresholds', data)
 export const clearThresholds = () => api.delete('/api/profile/thresholds')
 // Nur lesen: Die Spanne kommt aus Garmin Connect und ist nicht von Hand änderbar.
 export const getHrvRange = () => api.get('/api/hrv/range')
+// Status, Ø 7 Tage und Spanne — dieselbe Rechnung wie in der Doppeltag-Kachel.
+export const getHrvLage = () => api.get('/api/hrv/lage')
 export const getBudget = () => api.get('/api/budget')
 export const getBudgetUsage = () => api.get('/api/budget/usage')

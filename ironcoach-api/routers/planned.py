@@ -64,6 +64,102 @@ def planned_for_monday(montag: date, db: Session = Depends(get_db)):
     return _einheiten(db, plan_der_woche(db, montag))
 
 
+# Feste Reihenfolge der Disziplinen in der Bilanz — wie im Wettkampf, danach
+# das Ergänzende. Sonst wechselte die Reihenfolge mit der Datenbank.
+_BILANZ_REIHENFOLGE = ("swim", "bike", "run", "brick", "gym")
+
+
+@router.get("/planned/am/{montag}/bilanz")
+def bilanz_der_woche(montag: date, db: Session = Depends(get_db)):
+    """Geplant gegen absolviert — je Disziplin und je geplanter Einheit.
+
+    Der Wochenplan zeigte an einem erledigten Tag nur ein Häkchen. Ob aus
+    60 geplanten Minuten 35 oder 95 wurden, wusste das Backend längst (über
+    `matched_session_id` bzw. `planned_session_id`), gezeigt wurde es nicht.
+
+    Gezählt wird nach Kalenderwoche, nicht nach Planwoche (`kalenderwoche`).
+    Absolviert ist **alles**, was in der Woche stattfand, auch Ungeplantes —
+    das steht zusätzlich getrennt als `ungeplant_min`, damit eine Leiste
+    „mehr als geplant" von „anderes als geplant" unterscheiden kann. Ein
+    ersetzter Tag („war wandern") zählt mit seinen Minuten unter der
+    Ersatz-Sportart, nicht unter der geplanten: Das Rad wurde nicht gefahren.
+    Gelöschte Einheiten zählen nicht, wie überall.
+    """
+    from core.wochen import kalenderwoche
+    from models import TrainingSession
+
+    von, bis = kalenderwoche(montag)
+    geplant = [
+        p for p in (_einheiten(db, plan_der_woche(db, montag)) if planned_sessions_available(db) else [])
+        if (p.discipline or "").lower() != "rest"
+    ]
+    einheiten = (
+        db.query(TrainingSession)
+        .filter(TrainingSession.session_date >= von)
+        .filter(TrainingSession.session_date <= bis)
+        .filter(TrainingSession.deleted_at == None)  # noqa: E711
+        .all()
+    )
+
+    # Verknüpfung in beide Richtungen: Das Matching schreibt je nach Weg die
+    # eine oder die andere Spalte (Webhook/Abgleich vs. Klassifikation).
+    zu_plan: dict[int, list] = {p.id: [] for p in geplant}
+    nach_session = {p.matched_session_id: p.id for p in geplant if p.matched_session_id}
+    verknuepft: set[int] = set()
+    for s in einheiten:
+        pid = s.planned_session_id if s.planned_session_id in zu_plan else nach_session.get(s.id)
+        if pid is not None:
+            zu_plan[pid].append(s)
+            verknuepft.add(s.id)
+
+    disz: dict[str, dict] = {}
+
+    def eimer(d: str | None) -> dict:
+        d = (d or "other").lower()
+        return disz.setdefault(d, {
+            "discipline": d, "geplant_min": 0, "geplant_n": 0,
+            "absolviert_min": 0, "absolviert_n": 0, "ungeplant_min": 0,
+        })
+
+    for p in geplant:
+        b = eimer(p.discipline)
+        b["geplant_min"] += p.duration_min or 0
+        b["geplant_n"] += 1
+        if p.status == "replaced" and p.replacement_min:
+            e = eimer(p.replacement_discipline)
+            e["absolviert_min"] += p.replacement_min
+            e["absolviert_n"] += 1
+            e["ungeplant_min"] += p.replacement_min
+    for s in einheiten:
+        b = eimer(s.discipline)
+        b["absolviert_min"] += s.duration_min or 0
+        b["absolviert_n"] += 1
+        if s.id not in verknuepft:
+            b["ungeplant_min"] += s.duration_min or 0
+
+    def rang(d: str) -> tuple:
+        return (_BILANZ_REIHENFOLGE.index(d) if d in _BILANZ_REIHENFOLGE else len(_BILANZ_REIHENFOLGE), d)
+
+    return {
+        "week_start": von,
+        "disziplinen": [disz[d] for d in sorted(disz, key=rang)],
+        "tss": {
+            "soll": round(sum(p.target_tss or 0 for p in geplant), 1),
+            "ist": round(sum(s.tss or 0 for s in einheiten), 1),
+        },
+        # Schlüssel als Text: JSON kennt keine Zahlenschlüssel, und das
+        # Frontend schlägt mit der id der Karte nach.
+        "einheiten": {
+            str(pid): {
+                "ist_min": sum(s.duration_min or 0 for s in liste),
+                "ist_tss": round(sum(s.tss or 0 for s in liste), 1),
+                "session_ids": [s.id for s in liste],
+            }
+            for pid, liste in zu_plan.items() if liste
+        },
+    }
+
+
 def _einheiten(db: Session, plan: WeeklyPlan | None) -> list[PlannedSession]:
     if plan is None:
         return []

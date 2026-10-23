@@ -1,4 +1,5 @@
 import { STATUS_COLOR } from '../utils/colors'
+import SpannenSkala, { hrvZonen } from './leisten/SpannenSkala'
 
 /** Die HRV als Ampel neben der Doppeltag-Ziehung.
  *
@@ -16,46 +17,14 @@ import { STATUS_COLOR } from '../utils/colors'
  *
  *  Die Skala darunter zeigt, wo der Schnitt in der eigenen Spanne liegt
  *  (rot unter, gelb dazwischen, grün im Band). Ohne Spanne fällt sie weg.
+ *  Sie ist ein gemeinsamer Baustein (`leisten/SpannenSkala`), damit die HRV
+ *  im Dashboard und im Chat genauso aussieht.
  */
 
-const URTEIL = {
+export const HRV_URTEIL = {
   green: 'NORMAL',
-  yellow: 'LEICHT DARUNTER',
-  red: 'UNTER DER SPANNE',
-}
-
-function Skala({ spanne, wert }) {
-  const { rot_unter: rot, gruen_ab: ab, gruen_bis: bis } = spanne || {}
-  if (!rot || !ab || !bis || bis <= rot) return null
-  // Ein Viertel der Spanne Luft auf beiden Seiten, damit ein Wert knapp
-  // außerhalb nicht am Rand klebt.
-  const luft = (bis - rot) * 0.25
-  const min = rot - luft
-  const max = bis + luft
-  const pos = v => `${Math.min(100, Math.max(0, ((v - min) / (max - min)) * 100))}%`
-  const zonen = [
-    [min, rot, STATUS_COLOR.red],
-    [rot, ab, STATUS_COLOR.yellow],
-    [ab, bis, STATUS_COLOR.green],
-    [bis, max, `${STATUS_COLOR.green}55`],
-  ]
-
-  return (
-    <div className="relative mt-2 h-1">
-      {zonen.map(([von, zu, farbe]) => (
-        <div
-          key={von}
-          className="absolute inset-y-0"
-          style={{ left: pos(von), width: `calc(${pos(zu)} - ${pos(von)})`, background: farbe, opacity: 0.35 }}
-        />
-      ))}
-      <div
-        className="absolute -top-[3px] w-[3px] h-[10px] rounded-full -translate-x-1/2 transition-all duration-700"
-        style={{ left: pos(wert), background: '#e8eaf0', boxShadow: '0 0 6px #e8eaf0aa' }}
-        title={`Ø ${wert} ms · Spanne ${ab}–${bis}`}
-      />
-    </div>
-  )
+  yellow: 'SLIGHTLY LOW',
+  red: 'BELOW RANGE',
 }
 
 export default function HrvAmpel({ hrv }) {
@@ -88,14 +57,20 @@ export default function HrvAmpel({ hrv }) {
             className="ml-auto text-[9px] font-mono tracking-widest"
             style={{ color: aktiv }}
           >
-            {URTEIL[hrv.status] || 'NICHT AKTUELL'}
+            {HRV_URTEIL[hrv.status] || 'NOT CURRENT'}
           </span>
         </div>
         <div className="mt-0.5 text-[9px] font-mono tracking-wider text-[var(--text-muted)]">
-          HRV Ø 7 TAGE · {hrv.messungen} {hrv.messungen === 1 ? 'MESSUNG' : 'MESSUNGEN'}
-          {hrv.letzter_wert != null && <> · ZULETZT {Math.round(hrv.letzter_wert)}</>}
+          HRV Ø 7 DAYS · {hrv.messungen} {hrv.messungen === 1 ? 'MEASUREMENT' : 'MEASUREMENTS'}
+          {hrv.letzter_wert != null && <> · LAST {Math.round(hrv.letzter_wert)}</>}
         </div>
-        <Skala spanne={hrv.spanne} wert={hrv.schnitt_7} />
+        <SpannenSkala
+          zonen={hrvZonen(hrv.spanne)}
+          marken={[{
+            wert: hrv.schnitt_7,
+            titel: `Ø ${hrv.schnitt_7} ms · range ${hrv.spanne?.gruen_ab}–${hrv.spanne?.gruen_bis}`,
+          }]}
+        />
       </div>
     </div>
   )

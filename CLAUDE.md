@@ -65,13 +65,38 @@ Jeder Athlet trägt auf **Anbindungen** in der Kachel „GARMIN CONNECT" seinen 
 ### API-Budget
 `services/api_budget.py`: reservieren → abrechnen/freigeben um jeden Claude-Aufruf. Ist das Budget erschöpft, wirft er `BudgetExhausted`, `main.py` antwortet mit 402. Modell über `settings.CLAUDE_MODEL`. Der Preis dazu steht getrennt in `MODEL_PRICES` (`modell:eingabe:ausgabe,…`, Dollar je Million Token). Wer das Modell wechselt, trägt dort den Preis mit ein, sonst rechnet `Settings.model_prices` mit dem Ersatzpreis `MODEL_PRICE_FALLBACK` (3,0/15,0). Beide Werte setzt `docker-compose.yml` ebenfalls, die Vorgabe im Compose gilt also lokal vor der in `config.py`.
 
+### Anzeige-Bausteine (`ironcoach-frontend/src/components/leisten/`)
+Zahlen stehen im Kontext statt als Text, überall in derselben ruhigen Optik (Amir mag die Leisten, Ampellampen und Zierstriche hat er gestrichen):
+- `SpannenSkala`: Wert in der eigenen Spanne, mit `hrvZonen(spanne)`.
+- `SegmentLeiste`: Anteile, wie die Urne, die HF-Zonen der Woche und der Budgetverbrauch.
+- `SollIstLeiste`: Soll als Rahmen, Ist als Füllung, Überschuss schraffiert.
+- `SaisonStrahl`: Phasen, Deloads, Rennen und heute nach Datum. Läuft auf Dashboard, Plan und Rennen.
+  - Gezeichnet werden die Blöcke (`teile` je Phase aus `phase_for_week`, z. B. Base 1–3 zu je 4 Wochen).
+  - Die Kopfzeile zeigt vor dem Planstart „PLAN STARTS IN n WEEKS“, danach den nächsten Block mit Datum. Den nächsten Deload zeigt sie bewusst nicht mehr (Amir: bringt nichts).
+
+Die Verlauf-Seite nutzt dazu `WochenVolumen` (Stunden je Woche, darunter ein Phasenband aus `plan_phase` der Wochenpläne, Deload-Dreiecke nur für die laufende Saison aus `/metrics/saison`) und `TrainingsJahr` (Tages-Heatmap, Farbe = Hauptsportart, Helligkeit = TSS). Sie rechnet nur im Browser aus den geladenen zwei Jahren (`utils/einheiten.js`), gelöschte Einheiten zählen nicht.
+
+Die Leisten und die HRV History sind **englisch beschriftet** (Amirs Wunsch, nur dort; der Rest der App bleibt deutsch).
+
+Die HRV-Karte zeigt Ø 7 und den Tageswert nebeneinander. Die Skala beschriftet ihre Marken (Ø darüber, Ring für heute darunter). Eine 14-Tage-Linie hat Amir gestrichen, ebenso „Tage im Bereich“ in der HRV History. Deren x-Achse ist eine Zeitachse, der Zeitraum zählt nach Tagen statt nach Messungen.
+
+Die Daten kommen aus Lese-Endpunkten, die nichts nachrechnen, sondern die Funktionen des Planers aufrufen:
+- `GET /metrics/saison` (`race_types`),
+- `GET /planned/am/{montag}/bilanz` (Soll/Ist je Disziplin und Einheit, über `planned_session_id` **und** `matched_session_id`),
+- `GET /hrv/lage` (`doppel_urne.hrv_lage`),
+- `je_art` in `GET /budget`.
+
+`hr_zones_avg` in `/metrics/week` ist nach Dauer gewichtet. Getestet in `tests/test_anzeige_endpunkte.py`.
+
 ### Dinge, die synchron bleiben müssen
 - `TRAININGSOPTIONEN.md` ↔ `core/phasenregeln.py` (+ `Glossary.jsx`, `src/utils/trainingsoptionen.js`). Ein Test hält Doku und Code zusammen. Compose mountet die `.md` und `researched_training_structures/` read-only in den Container. Ohne diesen Mount schlägt `tests/test_blockoption.py` fehl („Glossar fehlt“).
 - `src/utils/phasen.js` spiegelt `core/race_types.phase_family`.
 - Frontend-API-Aufrufe nur über `src/services/api.js` (hängt das Token an), Fehlertexte über `src/utils/fehler.js`.
 
 ### Weitere Verzeichnisse im Wurzelordner
-- `scripts/`: `backup.sh`, `backup-taeglich.sh` (von launchd gestartet, Verbindung aus `~/.ironcoach-db-url`), `restore.sh`.
+- `scripts/`: `backup.sh`, `backup-taeglich.sh` (von launchd gestartet, Verbindung aus `~/.ironcoach-db-url`), `restore.sh`, `prod-nach-lokal.sh`.
+  - `prod-nach-lokal.sh` holt die Produktion in die lokale DB, nur lesend und nach einer lokalen Sicherung. Danach löscht es lokal `strava_credentials`, **bevor** das Backend startet. Grund: Ein lokaler Token-Refresh (`RECONCILE_ENABLED`) macht den Refresh-Token der Produktion ungültig.
+  - Das Skript startet Amir selbst. Claude Code darf die Produktionsdaten nicht abziehen, die Berechtigungsprüfung blockiert das.
 - `register_webhook.py`: Strava-Webhook anmelden, auflisten, löschen. Werte nur aus Umgebung oder `.env`, nie als Vorgabe im Code.
 - `backups/` (Datenbanksicherungen mit allen Nutzerdaten im Klartext), `uploads/` und `workouts/` (hochgeladene FIT-Dateien) sowie der venv `ironcoach/` stehen in `.gitignore`. Nichts davon einchecken oder in Ausgaben zitieren.
 

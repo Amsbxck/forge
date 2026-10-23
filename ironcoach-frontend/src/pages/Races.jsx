@@ -5,9 +5,10 @@ import {
   getRaces, createRace, deleteRace,
   getBenchmarkWeek, getBenchmarkTiming, createBenchmarkPlan, deriveZones, getUpcomingRaces, deleteGoal,
   updateProfile,
-  uploadRaceImage, deleteRaceImage, fetchRaceImage, updateRace,
+  uploadRaceImage, deleteRaceImage, fetchRaceImage, updateRace, getSaison,
 } from '../services/api'
 import SeriesBadge from '../components/SeriesBadge'
+import SaisonStrahl from '../components/leisten/SaisonStrahl'
 import Modal from '../components/Modal'
 import BenchmarkGuide from '../components/BenchmarkGuide'
 import { daysUntil, formatTag } from '../utils/dates'
@@ -258,6 +259,8 @@ function Field({ label, ...props }) {
 export default function Races() {
   const [types, setTypes] = useState([])
   const [goal, setGoal] = useState(null)
+  // Die Saison als Strahl unter dem Ziel — Phasen, Deload, B/C-Rennen.
+  const [saison, setSaison] = useState(null)
   const [races, setRaces] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -322,6 +325,8 @@ export default function Races() {
         const g = await getActiveGoal()
         setGoal(g.data)
       } catch { setGoal(null) }
+      // Eigener Fehlerfang: ohne Strahl bleibt die Zielkarte wie bisher.
+      getSaison().then(({ data }) => setSaison(data)).catch(() => setSaison(null))
     } catch (e) {
       setError('Daten konnten nicht geladen werden')
     } finally {
@@ -556,9 +561,13 @@ export default function Races() {
                 {goal.label} · {goal.race_date}
                 {goal.goal_time ? ` · Ziel ${goal.goal_time}` : ''}
               </div>
-              <div className="text-xs font-mono text-[var(--text-muted)] mt-0.5">
-                {goal.total_weeks} Wochen ab {goal.plan_start_date}
-              </div>
+              {/* Ohne Strahl (laufende Saison) die Planlänge als Text; mit
+                  Strahl steht sie dort, samt Phasen. */}
+              {!(saison?.phasen?.length > 0) && (
+                <div className="text-xs font-mono text-[var(--text-muted)] mt-0.5">
+                  {goal.total_weeks} Wochen ab {goal.plan_start_date}
+                </div>
+              )}
             </div>
             <div className="text-right">
               {countdown === 0 ? (
@@ -583,6 +592,15 @@ export default function Races() {
               )}
             </div>
           </div>
+
+          {/* Die Saison bis zu diesem Ziel: Phasen nach Wochen, Deload als
+              Kerben, B- und C-Rennen als Rauten, heute als Strich. Vorher
+              stand dort nur „20 Wochen ab …". */}
+          {countdown >= 0 && saison?.phasen?.length > 0 && (
+            <div className="relative z-10 mt-5 pt-4 border-t border-[#1e2228]">
+              <SaisonStrahl saison={saison} />
+            </div>
+          )}
 
           {/* Ein gelaufenes Ziel bleibt stehen, zählt aber nichts mehr hoch.
               Ohne diesen Hinweis wirkt die Kachel, als liefe die Saison noch. */}

@@ -6,7 +6,15 @@ import {
 import HRVHeatmap from './HRVHeatmap'
 import { getHrvRange } from '../services/api'
 
-import { STATUS_COLOR } from '../utils/colors'
+import { ACCENT, STATUS_COLOR } from '../utils/colors'
+import { isoTag, parseTag } from '../utils/dates'
+
+const TAG_MS = 86400000
+const MONO = { fill: '#a7aebd', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }
+const tagKurz = ms => {
+  const d = new Date(ms)
+  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.`
+}
 
 const RANGE_OPTIONS = [
   { label: '7d', days: 7 },
@@ -78,21 +86,24 @@ function computeBaseline(data, regeln) {
 const CustomTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null
   const d = payload[0]?.payload
+  const tag = parseTag(d?.fullDate)
   return (
     <div className="border rounded-lg px-3 py-2 text-xs space-y-1" style={{ background: '#111318', borderColor: '#1e2228' }}>
-      <div className="font-mono" style={{ color: 'var(--text-secondary)' }}>{d?.fullDate}</div>
+      <div className="font-mono" style={{ color: 'var(--text-secondary)' }}>
+        {tag ? tag.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' }) : d?.fullDate}
+      </div>
       <div className="font-mono font-bold" style={{ color: '#00d4ff' }}>{d?.rmssd} ms rMSSD</div>
       {d?.readiness_score != null && (
-        <div style={{ color: 'var(--text-secondary)' }}>Body Battery: <span style={{ color: '#e8eaf0' }}>{d.readiness_score}</span></div>
+        <div style={{ color: 'var(--text-secondary)' }}>Readiness: <span style={{ color: '#e8eaf0' }}>{d.readiness_score}</span></div>
       )}
       <div style={{ color: 'var(--text-muted)' }} className="font-mono">Trend: {d?.mean} ms</div>
       {/* Die Spanne dieses Tages — hier wird die Bewegung der Rechnung
           ablesbar, statt nur als Fläche sichtbar zu sein. */}
       {d?.band && (
         <div style={{ color: '#22c55e' }} className="font-mono">
-          Normalspanne: {d.band[0]}–{d.band[1]} ms
+          Normal range: {d.band[0]}–{d.band[1]} ms
           {d.bandMitte != null && (
-            <span style={{ color: 'var(--text-muted)' }}> (Mittel {d.bandMitte})</span>
+            <span style={{ color: 'var(--text-muted)' }}> (mean {d.bandMitte})</span>
           )}
         </div>
       )}
@@ -129,54 +140,120 @@ export default function HRVHistoryChart({ data }) {
     const sorted = [...data].sort((a, b) => a.measured_at?.localeCompare(b.measured_at))
     return computeBaseline(sorted, regeln).map(d => ({
       ...d,
-      date: d.measured_at?.slice(5),
+      // Die x-Achse ist eine **Zeit**achse. Vorher stand jede Messung als
+      // gleich breite Kategorie da: Wo bis Anfang Oktober nur jeden zweiten
+      // Tag gemessen wurde, lagen zwei Tage so weit auseinander wie ab dem
+      // 11.10. ein einziger — die täglichen Werte rückten zusammen, die
+      // Beschriftung drängte sich, und eine Lücke war nicht zu sehen.
+      t: parseTag(d.measured_at).getTime(),
       fullDate: d.measured_at,
     }))
   }, [data, regeln])
 
-  const chartData = useMemo(() => allChartData.slice(-range), [allChartData, range])
+  // Nach Tagen, nicht nach Anzahl: `slice(-30)` waren die letzten 30
+  // **Messungen** — bei Messung jeden zweiten Tag also zwei Monate unter „30d".
+  const { chartData, start, ende, ticks, vorher } = useMemo(() => {
+    const heute = parseTag(isoTag(new Date())).getTime()
+    const anfang = heute - (range - 1) * TAG_MS
+    const imFenster = allChartData.filter(d => d.t >= anfang && d.t <= heute)
+    const davor = allChartData.filter(d => d.t >= anfang - range * TAG_MS && d.t < anfang)
+    // Bei 7 Tagen jeder Tag, sonst die Montage: Wochen sind die Einheit,
+    // in der geplant wird, und die Beschriftung bleibt dünn genug.
+    const marken = []
+    for (let t = anfang; t <= heute; t += TAG_MS) {
+      if (range <= 7 || new Date(t).getDay() === 1) marken.push(t)
+    }
+    return { chartData: imFenster, start: anfang, ende: heute, ticks: marken, vorher: davor }
+  }, [allChartData, range])
+
+  // Kopfzahlen: Schnitt des Zeitraums und Richtung gegenüber dem Zeitraum
+  // davor. Der zählt erst ab fünf Messungen — mit zweien wäre die Richtung
+  // Zufall.
+  const schnitt = werte => werte.length ? werte.reduce((a, b) => a + b, 0) / werte.length : null
+  const schnittJetzt = schnitt(chartData.map(d => d.rmssd))
+  const schnittVorher = vorher.length >= 5 ? schnitt(vorher.map(d => d.rmssd)) : null
+  const richtung = schnittJetzt != null && schnittVorher != null ? schnittJetzt - schnittVorher : null
 
   if (!data?.length) {
     return (
       <div className="text-center py-8 text-sm font-mono" style={{ color: 'var(--text-secondary)' }}>
-        Noch keine HRV-Messungen. Trag die erste ein.
+        No HRV measurements yet. Add your first one.
       </div>
     )
   }
 
   return (
     <div className="space-y-4">
-      {/* Range toggle */}
-      <div className="flex gap-1.5">
-        {RANGE_OPTIONS.map(opt => (
-          <button
-            key={opt.days}
-            onClick={() => setRange(opt.days)}
-            className="px-3 py-1 rounded-lg text-xs font-mono transition-colors border"
-            style={{
-              borderColor: range === opt.days ? '#00d4ff44' : '#1e2228',
-              color: range === opt.days ? '#00d4ff' : '#8a909e',
-              background: range === opt.days ? '#00d4ff22' : '#111318',
-            }}
-          >
-            {opt.label}
-          </button>
-        ))}
+      {/* Kennzahlen und Zeitraum in einer Zeile. Gleich gebaute Felder
+          — Name oben, Zahl in derselben Größe auf einer Grundlinie, Einheit
+          klein dahinter —, getrennt durch feine Linien. Vorher hatte jede
+          Zahl ihre eigene Größe, und die Namen standen auf drei Höhen. */}
+      <div className="flex items-end justify-between gap-x-4 gap-y-3 flex-wrap">
+        <div className="flex">
+          {[
+            { name: `Ø ${range} DAYS`, wert: schnittJetzt != null ? Math.round(schnittJetzt) : '–', einheit: 'ms', farbe: '#e8eaf0' },
+            richtung != null && {
+              name: 'VS. PREVIOUS',
+              wert: `${richtung > 0 ? '+' : richtung < 0 ? '−' : '±'}${Math.abs(richtung).toFixed(1).replace('.', ',')}`,
+              einheit: 'ms',
+              // Grün nur nach oben, Gelb ab drei ms nach unten — kleiner ist
+              // Messrauschen und bleibt neutral.
+              farbe: richtung > 0.5 ? STATUS_COLOR.green : richtung < -3 ? STATUS_COLOR.yellow : '#a7aebd',
+            },
+          ].filter(Boolean).map((f, i) => (
+            <div key={f.name} className={i === 0 ? 'pr-5' : 'px-5 border-l border-[#1e2228]'}>
+              <div className="text-[9px] font-mono tracking-[0.2em] text-[var(--text-muted)] whitespace-nowrap">{f.name}</div>
+              <div className="flex items-baseline gap-1 mt-1.5">
+                <span className="text-3xl font-black leading-none tabular-nums"
+                      style={{ color: f.farbe, fontFamily: 'Barlow Condensed, sans-serif' }}>
+                  {f.wert}
+                </span>
+                <span className="text-[10px] font-mono text-[var(--text-muted)] whitespace-nowrap">{f.einheit}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Zeitraum als ein Schalter statt drei loser Knöpfe */}
+        <div className="flex rounded-lg p-0.5" style={{ background: '#0d0f14', border: '1px solid #1e2228' }}>
+          {RANGE_OPTIONS.map(opt => (
+            <button
+              key={opt.days}
+              onClick={() => setRange(opt.days)}
+              className="px-3 py-1 rounded-md text-[10px] font-mono tracking-widest transition-colors"
+              style={{
+                color: range === opt.days ? ACCENT : '#8a909e',
+                background: range === opt.days ? `${ACCENT}1f` : 'transparent',
+                boxShadow: range === opt.days ? `inset 0 0 0 1px ${ACCENT}44` : 'none',
+              }}
+            >
+              {opt.label.toUpperCase()}
+            </button>
+          ))}
+        </div>
       </div>
 
       <ResponsiveContainer width="100%" height={200}>
         <ComposedChart key={range} data={chartData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#1e2228" vertical={false} />
+          {/* Senkrecht die Wochen (an den Montagen der Achse), waagrecht nur
+              ein Hauch — das Gitter soll gliedern, nicht mitreden. */}
+          <CartesianGrid stroke="#1e2228" strokeOpacity={0.7} horizontal={false} />
           <XAxis
-            dataKey="date"
-            tick={{ fill: '#a7aebd', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' }}
+            dataKey="t"
+            type="number"
+            scale="time"
+            domain={[start, ende]}
+            ticks={ticks}
+            tickFormatter={tagKurz}
+            tick={MONO}
             axisLine={false} tickLine={false}
-            interval="preserveStartEnd"
+            padding={{ left: 6, right: 6 }}
           />
           <YAxis
-            tick={{ fill: '#a7aebd', fontSize: 11, fontFamily: 'JetBrains Mono, monospace' }}
+            tick={MONO}
             axisLine={false} tickLine={false}
             domain={['auto', 'auto']}
+            tickCount={4}
           />
           <Tooltip content={<CustomTooltip />} />
 
@@ -235,31 +312,31 @@ export default function HRVHistoryChart({ data }) {
         </ComposedChart>
       </ResponsiveContainer>
 
-      <div className="flex gap-4 px-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
+      <div className="flex gap-x-4 gap-y-1 flex-wrap px-1 text-[10px] font-mono" style={{ color: 'var(--text-secondary)' }}>
         <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block" style={{ background: '#00d4ff' }} /> rMSSD</span>
         <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block opacity-50" style={{ background: '#22c55e' }} /> Trend</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm inline-block opacity-25" style={{ background: '#22c55e' }} /> Normalspanne (berechnet)</span>
-        <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block opacity-60" style={{ background: '#ef4444' }} /> Rote Grenze</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm inline-block opacity-25" style={{ background: '#22c55e' }} /> Normal range (calculated)</span>
+        <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block opacity-60" style={{ background: '#ef4444' }} /> Red limit</span>
       </div>
 
       {/* Was die Fläche ist und wonach geurteilt wird. Mit Garmin kann ein
           Punkt in der grünen Fläche liegen und trotzdem rot sein (bewusst so,
           siehe CLAUDE.md) — ohne den Satz wirkte das wie ein Fehler. */}
       <p className="px-1 text-[11px] font-mono leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-        Die <span style={{ color: '#22c55e' }}>Fläche</span> ist deine berechnete
-        Normalspanne — Mittelwert ± 0,5 σ aus den jeweils letzten{' '}
-        {regeln?.maxMessungen ?? 30} Messungen, Tag für Tag neu. Sie öffnet sich,
-        wenn deine Streuung wächst, und wandert mit, wenn sich dein Mittel
-        verschiebt. Innerhalb davon ist ein Unterschied Messrauschen.
+        The <span style={{ color: '#22c55e' }}>area</span> is your calculated
+        normal range: mean ± 0.5 σ of your last{' '}
+        {regeln?.maxMessungen ?? 30} measurements, recalculated every day. It
+        widens when your variation grows and moves with your mean. Differences
+        inside it are measurement noise.
         {grenzen?.quelle === 'garmin' || grenzen?.quelle === 'manual' ? (
-          <> Die Farbe der Punkte richtet sich nach deiner Garmin-Spanne (siehe Profil).</>
+          <> The colour of the dots follows your Garmin range (see Profile).</>
         ) : grenzen ? (
-          <> Nach ihr wird auch geurteilt: aktuell{' '}
+          <> It is also what you are judged by: currently{' '}
             <span style={{ color: '#22c55e' }}>{grenzen.gruen_ab}–{grenzen.gruen_bis} ms</span>,
-            rot unter {grenzen.rot_unter} ms.</>
+            red below {grenzen.rot_unter} ms.</>
         ) : (
-          <> Für ein Urteil fehlen noch Messungen — ab{' '}
-            {regeln?.minMessungen ?? 14} wird die Spanne gezeichnet.</>
+          <> Not enough measurements for a verdict yet. The range is drawn from{' '}
+            {regeln?.minMessungen ?? 14} on.</>
         )}
       </p>
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { clearPlannedReplacement, setPlannedReplacement, swapPlannedSessions } from '../services/api'
 import Modal from './Modal'
 import { DISCIPLINE_COLOR, DONE_COLOR, INTENSITY_META, ZONE_COLOR as ZONE_FARBEN } from '../utils/colors'
+import SollIstLeiste from './leisten/SollIstLeiste'
 import { fehlerText } from '../utils/fehler'
 
 // Die Farbe für "ersetzt". Bernstein, also aus der Ampelfamilie: Es ist eine
@@ -435,7 +436,10 @@ function ErsatzDialog({ einheit, onClose, onSpeichern }) {
   )
 }
 
-export default function WeekCalendar({ days: initialDays, onPersisted }) {
+/** `istJeEinheit`: was zu jeder geplanten Einheit tatsächlich absolviert wurde
+ *  (`GET /planned/am/{montag}/bilanz`, Schlüssel = id als Text). Damit zeigt
+ *  ein erledigter Tag „75 / 60 min" als Leiste statt nur ein Häkchen. */
+export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinheit }) {
   const [days, setDays] = useState(() => sortDays(initialDays))
   const heute = heutigesDatum()
   const [dragIndex, setDragIndex] = useState(null)
@@ -457,6 +461,9 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
 
   // Persistenz ist nur möglich, wenn die Einheiten aus planned_sessions kommen.
   const persistent = days.some(d => d.id != null)
+
+  // Das Ist zu einer geplanten Einheit, sofern das Backend eine zugeordnet hat.
+  const istVon = (day) => (day.id != null ? istJeEinheit?.[String(day.id)] : null)
 
   const flash = (ids) => {
     setFlashIds(ids)
@@ -589,7 +596,10 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
           ↳ ursprünglich {day.moved_from_date.slice(5)}
         </div>
       )}
-      {day.status === 'replaced' && day.replacement ? (
+      {/* Auch ohne Freitext: Der Dialog erlaubt, nur die Sportart oder die
+          Dauer anzugeben. Vorher verschwand der Block dann nach dem Neuladen,
+          und der Tag sah aus wie geplant. */}
+      {day.status === 'replaced' && (day.replacement || day.replacement_discipline || day.replacement_min > 0) ? (
         /* Der Ersatz tritt an die Stelle der Vorgabe, statt darunter
            zu stehen: Was an dem Tag passiert ist, ist der Ersatz —
            die geplante Einheit ist nur noch Herkunft. */
@@ -599,7 +609,9 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
                style={{ color: '#f59e0b' }}>
             STATTDESSEN
           </div>
-          <p className="text-xs text-[#e8eaf0] leading-snug">{day.replacement}</p>
+          <p className="text-xs text-[#e8eaf0] leading-snug">
+            {day.replacement || (day.replacement_discipline || '').toUpperCase()}
+          </p>
           {day.replacement_min > 0 && (
             <div className="text-[10px] font-mono text-[var(--text-secondary)] mt-0.5">
               {day.replacement_min} min
@@ -693,10 +705,13 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
             fallbackLabel={day.training_type}
             sessionType={day.session_type}
           />
-          {day.duration_min > 0 && (
+          {day.duration_min > 0 && !(erledigt && istVon(day)) && (
             <span className="text-xs font-mono text-[var(--text-secondary)]">{day.duration_min} min</span>
           )}
         </div>
+        {erledigt && istVon(day) && (
+          <SollIstLeiste kompakt soll={day.duration_min || 0} ist={istVon(day).ist_min} farbe={c.text} />
+        )}
         <TargetsReadout targets={day.targets} showZone={!INTENSITY_META[day.intensity]} />
         {detailsBlock(day)}
       </div>
@@ -833,8 +848,13 @@ export default function WeekCalendar({ days: initialDays, onPersisted }) {
                 />
               </div>
 
+              {/* Erledigt: geplant gegen absolviert als Leiste. Gleiche Zeile wie
+                  sonst die Dauer, damit die Karten über das Untergitter
+                  ausgerichtet bleiben. */}
               <div className="text-xs font-mono text-[var(--text-secondary)]">
-                {day.duration_min > 0 ? `${day.duration_min} min` : ' '}
+                {istErledigt && istVon(day)
+                  ? <SollIstLeiste kompakt soll={day.duration_min || 0} ist={istVon(day).ist_min} farbe={colors.text} />
+                  : (day.duration_min > 0 ? `${day.duration_min} min` : ' ')}
               </div>
 
               <div>
