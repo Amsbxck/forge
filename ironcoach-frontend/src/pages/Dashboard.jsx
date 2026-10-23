@@ -527,7 +527,13 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-              {metrics?.hr_zones_avg && <IntensitaetsLeiste zonen={metrics.hr_zones_avg} />}
+              {/* Mit Trennlinie: Die Zonenleiste ist eine eigene Aussage
+                  (Zeitanteile), nicht die Skala zum AVG HR darüber. */}
+              {metrics?.hr_zones_avg && (
+                <div className="pt-5 border-t border-[#1e2228]">
+                  <IntensitaetsLeiste zonen={metrics.hr_zones_avg} />
+                </div>
+              )}
               <KeySessions geplant={geplantWoche} sessions={weekSessions} />
             </div>
           </div>
