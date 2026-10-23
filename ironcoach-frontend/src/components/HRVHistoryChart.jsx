@@ -134,6 +134,8 @@ export default function HRVHistoryChart({ data }) {
     }).catch(() => {})
   }, [])
   const [range, setRange] = useState(30)
+  // Erklärsatz zur Fläche nur auf Klick: Ständig sichtbar war er Amir zu viel.
+  const [hilfe, setHilfe] = useState(false)
 
   const allChartData = useMemo(() => {
     if (!data?.length) return []
@@ -317,12 +319,19 @@ export default function HRVHistoryChart({ data }) {
         <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block opacity-50" style={{ background: '#22c55e' }} /> Trend</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm inline-block opacity-25" style={{ background: '#22c55e' }} /> Normal range (calculated)</span>
         <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block opacity-60" style={{ background: '#ef4444' }} /> Red limit</span>
+        <button type="button" onClick={() => setHilfe(h => !h)} aria-expanded={hilfe}
+                aria-label="Was die grüne Fläche bedeutet" title="Was die grüne Fläche bedeutet"
+                className="ml-auto w-4 h-4 rounded-full border flex items-center justify-center text-[9px] leading-none transition-colors hover:text-[#e8eaf0]"
+                style={{ borderColor: hilfe ? '#e8eaf0' : 'var(--text-muted)', color: hilfe ? '#e8eaf0' : 'var(--text-muted)' }}>
+          ?
+        </button>
       </div>
 
       {/* Was die Fläche ist und wonach geurteilt wird. Mit Garmin kann ein
           Punkt in der grünen Fläche liegen und trotzdem rot sein (bewusst so,
-          siehe CLAUDE.md) — ohne den Satz wirkte das wie ein Fehler. */}
-      <p className="px-1 text-[11px] font-mono leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+          siehe CLAUDE.md) — ohne den Satz wirkte das wie ein Fehler. Seit
+          Amirs Wunsch aufklappbar über das „?" in der Legende. */}
+      {hilfe && <p className="px-1 text-[11px] font-mono leading-relaxed" style={{ color: 'var(--text-muted)' }}>
         The <span style={{ color: '#22c55e' }}>area</span> is your calculated
         normal range: mean ± 0.5 σ of your last{' '}
         {regeln?.maxMessungen ?? 30} measurements, recalculated every day. It
@@ -338,7 +347,7 @@ export default function HRVHistoryChart({ data }) {
           <> Not enough measurements for a verdict yet. The range is drawn from{' '}
             {regeln?.minMessungen ?? 14} on.</>
         )}
-      </p>
+      </p>}
 
       {/* Heatmap */}
       <div className="pt-2">
