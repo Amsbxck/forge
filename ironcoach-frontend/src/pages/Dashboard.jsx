@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getWeekMetrics, getLatestHrv, getHrv, getHrvRange, getHrvLage, getSaison, getSessions, getSessionsSeit, getProfile, getIntakeStatus, getMe, getFtpCheck, getPmc, getBenchmarkTiming, getPlannedByMonday, getWochenBilanz } from '../services/api'
 import HRVInput from '../components/HRVInput'
 import HealthStatus from '../components/HealthStatus'
@@ -57,11 +57,8 @@ export default function Dashboard() {
   // Bestätigung am Konto hängt und nicht am Athletenprofil.
   const [konto, setKonto] = useState(null)
   const [ftpBefund, setFtpBefund] = useState(null)
-  const [pmcServer, setPmcServer] = useState(null)
-  // Ersatz, falls die Formkurve vom Server ausfällt — aus allen Einheiten des
-  // letzten Jahres, nicht aus den 50 neuesten: Mit 50 begann die Fitness bei
-  // null am Tag der 50. Einheit, und die Form stand viel zu hoch.
-  const [pmcErsatz, setPmcErsatz] = useState(null)
+  // `undefined` = noch nicht geantwortet, `null` = gescheitert.
+  const [pmcServer, setPmcServer] = useState(undefined)
   const [hrvGrenzen, setHrvGrenzen] = useState(null)
   // Mit Garmin kommt die HRV automatisch, und das Backend lehnt die
   // Handeingabe ab (409). Der Zustand kommt aus `GET /hrv/range`, das hier
@@ -75,20 +72,46 @@ export default function Dashboard() {
   const [saison, setSaison] = useState(null)
   const [hrvLage, setHrvLage] = useState(null)
 
-  // Für die THIS-WEEK-Kachel: Plan, Bilanz und acht Wochen Verlauf. Eigener
-  // Effekt statt im `load`: Fehlt einer davon, fällt nur sein Teil der
-  // Kachel weg, die übrige Seite lädt unberührt.
+  // Für THIS WEEK und PERFORMANCE: Plan dieser und der nächsten Woche,
+  // Bilanz und ein Jahr Einheiten. Ein Jahr, weil die Performance-Kachel die
+  // TSS-Balken bis 1Y nach Sportart färbt; THIS WEEK nimmt daraus seine acht
+  // Wochen. Eigener Effekt statt im `load`: Fehlt einer davon, fällt nur sein
+  // Teil weg, die übrige Seite lädt unberührt.
   const [geplantWoche, setGeplantWoche] = useState(null)
+  const [geplantNaechste, setGeplantNaechste] = useState(null)
   const [bilanzWoche, setBilanzWoche] = useState(null)
-  const [verlaufAcht, setVerlaufAcht] = useState(null)
+  const [verlaufJahr, setVerlaufJahr] = useState(null)
   const wochenMontag = kalenderwoche().von
   useEffect(() => {
-    const m = new Date(`${wochenMontag}T00:00:00`)
-    m.setDate(m.getDate() - 49)
+    const vor = new Date(`${wochenMontag}T00:00:00`)
+    vor.setDate(vor.getDate() - 365)
+    const naechster = new Date(`${wochenMontag}T00:00:00`)
+    naechster.setDate(naechster.getDate() + 7)
     getPlannedByMonday(wochenMontag).then(r => setGeplantWoche(r.data || [])).catch(() => {})
+    getPlannedByMonday(isoTag(naechster)).then(r => setGeplantNaechste(r.data || [])).catch(() => {})
     getWochenBilanz(wochenMontag).then(r => setBilanzWoche(r.data)).catch(() => {})
-    getSessionsSeit(isoTag(m)).then(r => setVerlaufAcht(r.data || [])).catch(() => {})
+    getSessionsSeit(isoTag(vor)).then(r => setVerlaufJahr(r.data || [])).catch(() => {})
   }, [wochenMontag])
+  // Ersatz, falls die Formkurve vom Server ausfällt — aus allen Einheiten des
+  // letzten Jahres, nicht aus den 50 neuesten: Mit 50 begann die Fitness bei
+  // null am Tag der 50. Einheit, und die Form stand viel zu hoch. Vor dem
+  // `if (loading) return` weiter unten, sonst änderte sich die Zahl der Hooks.
+  const pmcErsatz = useMemo(
+    () => (pmcServer?.length ? null : calculatePMC(verlaufJahr || [])),
+    [pmcServer, verlaufJahr],
+  )
+  // Für die PERFORMANCE-Kachel: `null`, solange weder der Server geantwortet
+  // hat noch (bei seinem Ausfall) die Jahresliste da ist — sonst stünde kurz
+  // „keine Daten" da. Der Plan als ein Array, stabil für die Vorschau.
+  // Eine leere Antwort ist eine Antwort (keine Daten), nur bei einem
+  // Ausfall (`null`) wird auf die Jahresliste gewartet.
+  const pmcKachel = pmcServer === undefined ? null
+    : pmcServer ? pmcServer
+    : verlaufJahr == null ? null : pmcErsatz
+  const geplantZwei = useMemo(
+    () => [...(geplantWoche || []), ...(geplantNaechste || [])],
+    [geplantWoche, geplantNaechste],
+  )
 
   const load = async () => {
     setLoading(true)
@@ -123,11 +146,9 @@ export default function Dashboard() {
       // Leistungsdaten mehrerer Fahrten; ein Ausfall darf das Dashboard nicht
       // aufhalten.
       getFtpCheck().then(({ data }) => setFtpBefund(data?.befund || null)).catch(() => setFtpBefund(null))
-      getPmc().then(({ data }) => setPmcServer(Array.isArray(data) ? data : null)).catch(() => {
-        setPmcServer(null)
-        const vor = new Date(); vor.setDate(vor.getDate() - 365)
-        getSessionsSeit(isoTag(vor)).then(({ data }) => setPmcErsatz(calculatePMC(data))).catch(() => {})
-      })
+      // Scheitert der Abruf, rechnet `pmc` unten aus der Jahresliste — die
+      // ist ohnehin geladen, ein eigener Ersatzabruf wäre derselbe zweimal.
+      getPmc().then(({ data }) => setPmcServer(Array.isArray(data) ? data : null)).catch(() => setPmcServer(null))
       getBenchmarkTiming().then(({ data }) => setTestTermin(data)).catch(() => setTestTermin(null))
       // Eigene Fehlerfänge: Fehlen Strahl oder Lage, bleibt das übrige
       // Dashboard stehen — die Kachel fällt dann auf die Tageswerte zurück.
@@ -305,7 +326,7 @@ export default function Dashboard() {
           Ganz oben, weil es die Fakten sind — was tatsächlich passiert ist,
           bevor es um Bewertung und Bereitschaft geht. */}
       <WocheHero sessions={weekSessions} geplant={geplantWoche} bilanz={bilanzWoche}
-                 verlauf={verlaufAcht} montag={wochenMontag} />
+                 verlauf={verlaufJahr} montag={wochenMontag} />
 
       {/* ── Wie es dir geht: HRV und Gesundheitszustand ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -618,9 +639,8 @@ export default function Dashboard() {
       )}
 
       {/* ── Form über die Zeit ── */}
-      <div className={`${CARD} p-5`}>
-        <div className={SECTION_TITLE}>PERFORMANCE MANAGEMENT</div>
-        <PerformanceChart sessions={sessions} />
+      <div className={`${CARD} p-5 sm:p-6`}>
+        <PerformanceChart pmc={pmcKachel} sessions={verlaufJahr} saison={saison} geplant={geplantZwei} />
       </div>
 
       {/* ── HRV-Verlauf ── */}

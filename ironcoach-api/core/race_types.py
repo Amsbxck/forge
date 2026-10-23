@@ -134,16 +134,28 @@ def disciplines_for(sport: str | None) -> list[str]:
     return SPORT_DISCIPLINES.get((sport or "").lower(), SPORT_DISCIPLINES["triathlon"])
 
 
-def phase_boundaries(total_weeks: int) -> list[tuple[str, int, int]]:
-    """Phasen als (Name, erste Woche, letzte Woche).
+def _taper_wochen(total_weeks: int) -> int:
+    """Länge des Tapers samt Wettkampfwoche: 9 %, begrenzt auf 2–3 Wochen."""
+    return min(MAX_TAPER_WEEKS, max(MIN_TAPER_WEEKS, round(total_weeks * 0.09)))
 
-    Der Taper wird zuerst reserviert und auf 2–3 Wochen begrenzt — die
-    Wettkampfwoche eingeschlossen, also mindestens eine eigene Taperwoche
-    davor. Bei einem 10-Wochen-Plan wären 9 % rechnerisch unter einer Woche,
-    bei einem sehr langen Aufbau würden sonst vier Wochen Formerhalt entstehen.
+
+def _deload_raster(total_weeks: int) -> list[int]:
+    """Die Deload-Wochen — eine Quelle für `deload_wochen` und die Grenzen.
+
+    Jede vierte Woche, gezählt ab Woche 1, bis vor die Woche vor dem Taper.
+    Hängt nur an der Taperlänge, nicht an den Grenzen zwischen Base, Build und
+    Peak — sonst wären die Grenzen, die hier einrasten, von sich selbst
+    abhängig.
     """
-    total_weeks = max(4, int(total_weeks))
-    taper = min(MAX_TAPER_WEEKS, max(MIN_TAPER_WEEKS, round(total_weeks * 0.09)))
+    taper_start = total_weeks - _taper_wochen(total_weeks) + 1
+    return list(range(DELOAD_RHYTHMUS, taper_start - 1, DELOAD_RHYTHMUS))
+
+
+def _anteilsgrenzen(total_weeks: int) -> list[tuple[str, int, int]]:
+    """Base, Build, Peak und Taper nach `PHASE_SHARES`, ohne Rücksicht auf
+    den Deload-Takt. Ausgangspunkt für `phase_boundaries`, und für Pläne,
+    die für den Takt zu kurz sind, das Ergebnis."""
+    taper = _taper_wochen(total_weeks)
     remaining = total_weeks - taper
 
     shares = [(name, share) for name, share in PHASE_SHARES if name != "Taper"]
@@ -170,6 +182,85 @@ def phase_boundaries(total_weeks: int) -> list[tuple[str, int, int]]:
     return boundaries
 
 
+# Ein Peak unter vier Wochen ist dünn: Er ist der rennspezifische Teil. Liegt
+# die Grenze Build→Peak genau zwischen zwei Deload-Wochen, gewinnt deshalb die
+# Seite, die dem Peak mindestens so viel lässt (Amir, 23.10.2026).
+MIN_PEAK_IM_TAKT = 4
+
+
+def phase_boundaries(total_weeks: int) -> list[tuple[str, int, int]]:
+    """Phasen als (Name, erste Woche, letzte Woche).
+
+    Der Taper wird zuerst reserviert und auf 2–3 Wochen begrenzt — die
+    Wettkampfwoche eingeschlossen, also mindestens eine eigene Taperwoche
+    davor. Bei einem 10-Wochen-Plan wären 9 % rechnerisch unter einer Woche,
+    bei einem sehr langen Aufbau würden sonst vier Wochen Formerhalt entstehen.
+
+    **Die Grenzen Base→Build und Build→Peak liegen auf einer Deload-Woche.**
+    Vorher folgten sie nur den Anteilen, und der durchgehend gezählte Deload
+    fiel, wohin er fiel: Bei 20 Wochen begann Build in W8 mit einem Deload,
+    Build 3 in W12 ebenso, und die Blöcke waren 2, 2, 3, 2, 2, 3 Wochen lang.
+    Jetzt endet jede Phase mit ihrem Deload, die nächste beginnt mit
+    Belastung — drei Wochen Belastung, eine Entlastung, durch den ganzen Plan.
+
+    Jede Grenze rastet auf die nächstgelegene Deload-Woche ein. Bei
+    Gleichstand: Base→Build die spätere (Base zuerst), Build→Peak die, die
+    dem Peak mindestens `MIN_PEAK_IM_TAKT` Wochen lässt, sonst die spätere.
+    Taper und Deload-Wochen ändert das nicht — sie hängen nur an der
+    Taperlänge (`_deload_raster`).
+
+    Pläne mit weniger als zwei Deload-Wochen vor dem Taper (unter 11 Wochen)
+    behalten die Anteile: Für drei Phasen auf dem Raster reicht es dort nicht.
+    """
+    total_weeks = max(4, int(total_weeks))
+    alt = _anteilsgrenzen(total_weeks)
+    raster = _deload_raster(total_weeks)
+    if len(raster) < 2:
+        return alt
+
+    ende = {name: bis for name, _von, bis in alt}
+    taper_start = next(von for name, von, _bis in alt if name == "Taper")
+    letzte_vor_taper = taper_start - 1
+
+    def einrasten(ziel: int, kandidaten: list[int], vorrang) -> int:
+        return min(kandidaten, key=lambda d: (abs(d - ziel), vorrang(d)))
+
+    # Base braucht danach noch Platz für Build: nicht die letzte Deload-Woche.
+    base_ende = einrasten(ende["Base"], raster[:-1], lambda d: -d)
+    build_ende = einrasten(
+        ende["Build"], [d for d in raster if d > base_ende],
+        lambda d: (letzte_vor_taper - d < MIN_PEAK_IM_TAKT, -d),
+    )
+    return [
+        ("Base", 1, base_ende),
+        ("Build", base_ende + 1, build_ende),
+        ("Peak", build_ende + 1, letzte_vor_taper),
+        ("Taper", taper_start, total_weeks),
+    ]
+
+
+def _bloecke(von: int, bis: int, deloads: set[int]) -> list[tuple[int, int]]:
+    """Eine Phase in Blöcke, jeder endet mit seinem Deload.
+
+    Was nach dem letzten Deload der Phase übrig bleibt (nur im Peak: vor dem
+    Taper liegt nie ein Deload), ist ein eigener kurzer Block — bei 33
+    Wochen Peak 1 = W25–28, Peak 2 = W29–30. Eine einzelne Restwoche hängt
+    am Block davor; ein Block aus einer Woche wäre kein Block.
+    """
+    bloecke: list[tuple[int, int]] = []
+    anfang = von
+    for w in range(von, bis + 1):
+        if w in deloads:
+            bloecke.append((anfang, w))
+            anfang = w + 1
+    if anfang <= bis:
+        if bis - anfang + 1 == 1 and bloecke:
+            bloecke[-1] = (bloecke[-1][0], bis)
+        else:
+            bloecke.append((anfang, bis))
+    return bloecke
+
+
 def phase_for_week(week: int, total_weeks: int = 33) -> str:
     """Phase einer Woche. Nach dem Renntag beginnt die Nachbereitung.
 
@@ -187,15 +278,21 @@ def phase_for_week(week: int, total_weeks: int = 33) -> str:
         return "Off Season"
     if week == total_weeks:
         return "Race Week"
+    raster = _deload_raster(total_weeks)
     for name, start, end in phase_boundaries(total_weeks):
         if start <= week <= end:
-            # Innerhalb langer Phasen weiter unterteilen (Base 1, Base 2, …),
-            # damit die Progression im Prompt sichtbar bleibt.
-            length = end - start + 1
-            if length >= 6:
-                block = (week - start) // max(1, round(length / 3)) + 1
-                return f"{name} {min(block, 3)}"
-            return name
+            # Blöcke (Base 1, Base 2, …) im 3+1-Takt, damit die Progression im
+            # Prompt sichtbar bleibt. Vorher wurde jede Phase ab sechs Wochen
+            # gedrittelt, unabhängig vom Deload — Blöcke von 2 bis 5 Wochen,
+            # die mitten in der Belastung oder mit einem Deload begannen.
+            # Pläne unter dem Takt (siehe `phase_boundaries`) nummerieren nicht.
+            if name == "Taper" or len(raster) < 2:
+                return name
+            bloecke = _bloecke(start, end, set(raster))
+            if len(bloecke) < 2:
+                return name
+            nummer = next(i for i, (a, b) in enumerate(bloecke, 1) if a <= week <= b)
+            return f"{name} {nummer}"
     return "Base"
 
 
@@ -248,8 +345,9 @@ def phase_family(phase: str | None) -> str:
 
 # Belastungsmuster: drei Belastungswochen, eine Entlastungswoche. Das
 # Raddokument nennt „2–3 load weeks + 1 recovery week" (Stöggl 2014: 2 + 1);
-# drei Wochen sind die obere Grenze davon und passen auf die Viererblöcke, in
-# die `phase_for_week` lange Phasen teilt (Base 1, Base 2, Base 3 …).
+# drei Wochen sind die obere Grenze davon. Die Phasengrenzen rasten auf diese
+# Deload-Wochen ein (`phase_boundaries`), die Blöcke (Base 1, Base 2 …) enden
+# mit ihnen (`phase_for_week`) — vorher passte das nur bei 33 Wochen zufällig.
 DELOAD_RHYTHMUS = 4
 
 
@@ -258,7 +356,8 @@ def deload_wochen(total_weeks: int = 33) -> set[int]:
 
     Durchgehend gezählt über Base, Build und Peak, nicht je Phase neu. Je
     Phase neu begonnen lagen bei 18 Wochen fünf Belastungswochen am Stück
-    (W5–W9), weil die Phasen sechs Wochen lang sind. Vorher gab es überhaupt
+    (W5–W9), weil die Phasen damals sechs Wochen lang waren. Heute rasten
+    die Phasengrenzen auf diese Wochen ein (`phase_boundaries`). Vorher gab es überhaupt
     nur das Phasenende — bei 33 Wochen W12 und W24, mit elf Belastungswochen
     dazwischen.
 
@@ -266,11 +365,7 @@ def deload_wochen(total_weeks: int = 33) -> set[int]:
     Wettkampfwoche und in der Woche direkt vor dem Taper: zwei Entlastungen
     hintereinander nähmen dem Peak die Schärfe.
     """
-    taper_start = next(
-        (start for name, start, _end in phase_boundaries(total_weeks) if name == "Taper"),
-        total_weeks,
-    )
-    return set(range(DELOAD_RHYTHMUS, taper_start - 1, DELOAD_RHYTHMUS))
+    return set(_deload_raster(max(4, int(total_weeks))))
 
 
 def is_deload(week: int, total_weeks: int = 33) -> bool:
