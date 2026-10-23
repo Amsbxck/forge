@@ -8,8 +8,9 @@ import SegmentLeiste from '../components/leisten/SegmentLeiste'
 import WochenVolumen from '../components/leisten/WochenVolumen'
 import TrainingsJahr from '../components/leisten/TrainingsJahr'
 import { blockName } from '../components/leisten/SaisonStrahl'
+import { Kachel, Knopf, SeitenKopf, Schalter, TITEL, NEBEN, toenung } from '../components/leisten/Kachel'
 
-import { ACCENT, DISCIPLINE_COLOR, DISCIPLINE_LABEL, INTENSITY_META, STATUS_COLOR, phaseColor } from '../utils/colors'
+import { DISCIPLINE_COLOR, DISCIPLINE_LABEL, INTENSITY_META, STATUS_COLOR, phaseColor } from '../utils/colors'
 import SportIcon from '../components/SportIcon'
 import { isoTag, paceText, parseTag } from '../utils/dates'
 import { SPORTEN, montagVon, sportVon, stunden, veraenderung, wochenSummen, zeitraum } from '../utils/einheiten'
@@ -18,6 +19,9 @@ import { fehlerText } from '../utils/fehler'
 import { disciplineLabel } from '../utils/colors'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+
+// Englisch wie die übrige Seite; `INTENSITY_META` bleibt deutsch für den Rest der App.
+const STUFE_EN = { base: 'BASE', sweet_spot: 'SWEET SPOT', threshold: 'THRESHOLD', vo2max: 'VO₂MAX' }
 
 const DISC_CONFIG = Object.fromEntries(
   ['bike', 'run', 'swim', 'gym', 'brick', 'hike', 'other'].map(k => [
@@ -29,7 +33,8 @@ const DISC_CONFIG = Object.fromEntries(
   ])
 )
 
-const MONTH_NAMES = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
+// Englisch wie die übrigen Anzeigen der Seite (WEEKLY VOLUME, TRAINING YEAR).
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 function formatMonth(ym) {
   const [y, m] = ym.split('-')
@@ -68,26 +73,8 @@ const ZEITRAEUME = [
 const kurzTag = tag =>
   parseTag(tag).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }).toUpperCase()
 
-function Schalter({ optionen, wert, onWahl }) {
-  return (
-    <div className="flex rounded-lg p-0.5" style={{ background: '#0d0f14', border: '1px solid #1e2228' }}>
-      {optionen.map(o => (
-        <button
-          key={o.wert}
-          onClick={() => onWahl(o.wert)}
-          className="px-2.5 py-1 rounded-md text-[10px] font-mono tracking-widest transition-colors"
-          style={{
-            color: wert === o.wert ? ACCENT : '#8a909e',
-            background: wert === o.wert ? `${ACCENT}1f` : 'transparent',
-            boxShadow: wert === o.wert ? `inset 0 0 0 1px ${ACCENT}44` : 'none',
-          }}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  )
-}
+// Der Umschalter kommt aus `leisten/Kachel` — vorher eine eigene Kopie in
+// Cyan, neben der neutral weißen der Performance-Kachel.
 
 /** Summen eines Zeitraums, mit der Veränderung zum Zeitraum davor.
  *
@@ -250,7 +237,7 @@ function SessionRow({ session: s, onDelete, onHardDelete, onRestore, onCommute, 
 
   return (
     <div
-      className={`flex items-center gap-3 px-4 py-3 border-l-2 hover:bg-[#111318] transition-colors cursor-pointer group ${s.deleted_at ? 'opacity-40' : ''}`}
+      className={`relative flex items-center gap-3 px-4 py-3 border-l-2 hover:bg-[#111318] transition-colors cursor-pointer group ${s.deleted_at ? 'opacity-40' : ''}`}
       style={{ borderLeftColor: cfg.color }}
       onClick={onClick}
     >
@@ -268,7 +255,7 @@ function SessionRow({ session: s, onDelete, onHardDelete, onRestore, onCommute, 
             style={{ color: intensity.color, background: `${intensity.color}1e`, border: `1px solid ${intensity.color}44` }}
             title={`Intensität ${intensity.short} (${intensity.zone})`}
           >
-            {intensity.short}
+            {STUFE_EN[s.intensity] || intensity.short}
           </span>
         )}
         {s.is_commute && (
@@ -277,7 +264,7 @@ function SessionRow({ session: s, onDelete, onHardDelete, onRestore, onCommute, 
             style={{ color: '#7b8496', background: '#7b849618', border: '1px solid #7b849644' }}
             title="Arbeitsweg — zählt in die Formkurve, gilt aber nicht als geplante Einheit"
           >
-            WEG
+            COMMUTE
           </span>
         )}
         {s.actual_type && (
@@ -287,13 +274,16 @@ function SessionRow({ session: s, onDelete, onHardDelete, onRestore, onCommute, 
         )}
       </div>
 
-      <div className="flex gap-3 flex-1 min-w-0 flex-wrap">
-        {s.duration_min && <span className="text-xs font-mono text-[var(--text-secondary)]">{formatDuration(s.duration_min)}</span>}
-        {s.distance_km && <span className="text-xs font-mono text-[var(--text-secondary)]">{s.distance_km} km</span>}
-        {s.avg_watts && <span className="text-xs font-mono text-[var(--text-secondary)]">{s.avg_watts}W</span>}
-        {s.avg_pace_min_km && <span className="text-xs font-mono text-[var(--text-secondary)]">{formatPace(s.avg_pace_min_km, disc)}</span>}
-        {s.tss && <span className="text-xs font-mono font-semibold" style={{ color: cfg.color }}>{s.tss.toFixed(0)} TSS</span>}
-        {s.avg_hr && <span className="text-xs font-mono text-[var(--text-secondary)]">{s.avg_hr} bpm</span>}
+      {/* `> 0` statt bloßer Wahrheitsprüfung: Bei einer Krafteinheit sind die
+          Watt 0, und `0 && …` schreibt React als „0" in die Zeile — dort stand
+          eine einzelne Null zwischen Dauer und TSS. */}
+      <div className="flex gap-x-3 gap-y-0.5 flex-1 min-w-0 flex-wrap">
+        {s.duration_min > 0 && <span className="text-xs font-mono text-[var(--text-secondary)] whitespace-nowrap">{formatDuration(s.duration_min)}</span>}
+        {s.distance_km > 0 && <span className="text-xs font-mono text-[var(--text-secondary)] whitespace-nowrap">{s.distance_km} km</span>}
+        {s.avg_watts > 0 && <span className="text-xs font-mono text-[var(--text-secondary)] whitespace-nowrap">{s.avg_watts}W</span>}
+        {s.avg_pace_min_km > 0 && <span className="text-xs font-mono text-[var(--text-secondary)] whitespace-nowrap">{formatPace(s.avg_pace_min_km, disc)}</span>}
+        {s.tss > 0 && <span className="text-xs font-mono font-semibold whitespace-nowrap" style={{ color: cfg.color }}>{s.tss.toFixed(0)} TSS</span>}
+        {s.avg_hr > 0 && <span className="text-xs font-mono text-[var(--text-secondary)] whitespace-nowrap">{s.avg_hr} bpm</span>}
       </div>
 
       {/* Soll/Ist — nur wenn es wirklich abwich. Volltext im Tooltip. */}
@@ -317,8 +307,12 @@ function SessionRow({ session: s, onDelete, onHardDelete, onRestore, onCommute, 
         </div>
       )}
 
+      {/* Über der Zeile statt in ihr: Unsichtbar belegten die Knöpfe sonst
+          Platz, und auf dem Telefon wurden die Messwerte daneben Wort für
+          Wort umbrochen. */}
       <div
-        className="flex gap-2 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute right-3 inset-y-0 flex items-center gap-2 pl-6 opacity-0 group-hover:opacity-100 transition-opacity"
+        style={{ background: 'linear-gradient(90deg, transparent, #111318 30%)' }}
         onClick={e => e.stopPropagation()}
       >
         {/* Nur bei Fahrten mit Strecke. Eine Hallenfahrt auf dem Ergometer
@@ -340,7 +334,7 @@ function SessionRow({ session: s, onDelete, onHardDelete, onRestore, onCommute, 
               ? 'Markierung aufheben — die Einheit wird wieder dem Plan zugeordnet'
               : 'Als Arbeitsweg markieren — bleibt in der Formkurve, erfüllt aber keine Vorgabe'}
           >
-            {s.is_commute ? '✕ ARBEITSWEG' : '+ ARBEITSWEG'}
+            {s.is_commute ? '✕ COMMUTE' : '+ COMMUTE'}
           </button>
         )}
         {s.deleted_at ? (
@@ -436,37 +430,29 @@ function SessionsTab({ sessions, showDeleted, onToggleDeleted, onRefresh }) {
         </div>
       )}
 
-      {/* Filter bar */}
-      <div className="flex gap-2 flex-wrap items-center justify-between">
-        <div className="flex gap-2 flex-wrap">
-          {['all', 'bike', 'run', 'swim', 'gym', 'hike'].map(d => {
-            const cfg = DISC_CONFIG[d]
-            const isActive = filter === d
-            return (
-              <button
-                key={d}
-                onClick={() => setFilter(d)}
-                className="px-3 py-1.5 rounded-lg text-xs font-mono transition-all border"
-                style={{
-                  borderColor: isActive ? (cfg?.color || '#00d4ff') : '#1e2228',
-                  color: isActive ? (cfg?.color || '#00d4ff') : '#8a909e',
-                  background: isActive ? `${cfg?.color || '#00d4ff'}15` : '#111318',
-                }}
-              >
-                {d === 'all' ? 'All' : cfg?.label || d}
-              </button>
-            )
-          })}
+      {/* Filter in einer Kachel, die Sportarten in ihren Farben — wie die
+          Sportzeilen im BREAKDOWN. Vorher graue Einzelknöpfe ohne Rahmen, nur
+          der gewählte bekam Farbe. */}
+      <Kachel innen="px-4 py-3" className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap min-w-0">
+          <span className={TITEL}>FILTER</span>
+          <Schalter
+            wert={filter}
+            onWahl={setFilter}
+            optionen={['all', 'swim', 'bike', 'run', 'gym', 'hike'].map(d => ({
+              wert: d,
+              label: d === 'all' ? 'ALL' : (DISC_CONFIG[d]?.label || d).toUpperCase(),
+              farbe: d === 'all' ? undefined : DISC_CONFIG[d]?.color,
+              icon: d === 'all' ? null : <SportIcon discipline={d} size={12} />,
+            }))}
+          />
         </div>
-        <button
-          onClick={onToggleDeleted}
-          className={`text-xs px-3 py-1.5 rounded-lg border font-mono transition-colors ${showDeleted ? 'border-red-500/40 text-red-400 bg-red-500/10' : 'border-[#1e2228] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'}`}
-        >
-          {showDeleted ? 'Gelöschte ausblenden' : 'Gelöschte zeigen'}
-        </button>
-      </div>
+        <Knopf art={showDeleted ? 'gefahr' : 'leise'} onClick={onToggleDeleted}>
+          {showDeleted ? 'HIDE DELETED' : 'SHOW DELETED'}
+        </Knopf>
+      </Kachel>
 
-      {grouped.length === 0 && <div className="text-center py-8 text-[var(--text-secondary)] text-sm">No sessions found.</div>}
+      {grouped.length === 0 && <div className="text-center py-8 text-[10px] font-mono tracking-widest text-[var(--text-muted)]">NO SESSIONS FOUND</div>}
 
       {grouped.map(([ym, monthSessions]) => {
         const isOpen = effectiveOpenMonths.has(ym)
@@ -504,9 +490,7 @@ function SessionsTab({ sessions, showDeleted, onToggleDeleted, onRefresh }) {
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline gap-3 flex-wrap">
-                  <span className="text-base font-bold text-[#e8eaf0] tracking-wide" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
-                    {formatMonth(ym).toUpperCase()}
-                  </span>
+                  <span className={`${TITEL} whitespace-nowrap`}>{formatMonth(ym).toUpperCase()}</span>
                   <span className="text-2xl font-black leading-none tabular-nums text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
                     {stunden(summeMin)}
                   </span>
@@ -545,7 +529,7 @@ function SessionsTab({ sessions, showDeleted, onToggleDeleted, onRefresh }) {
                 </div>
                 </div>
               )}
-              <span className="text-[var(--text-secondary)] text-sm font-mono flex-shrink-0">{isOpen ? '▼' : '▶'}</span>
+              <span className="text-[var(--text-muted)] text-[10px] font-mono flex-shrink-0">{isOpen ? '▴' : '▾'}</span>
             </button>
 
             {isOpen && (
@@ -598,16 +582,16 @@ function PlanWoche({ plan: p }) {
   const kommentar = p.plan_content?.coaching_comment
 
   return (
-    <div className="bg-[#111318] border border-[#1e2228] rounded-xl p-4 pl-5 relative overflow-hidden">
-      <span className="absolute left-0 inset-y-0 w-[3px]" style={{ background: farbe }} />
+    <div className="border rounded-xl p-5 relative overflow-hidden" style={toenung(farbe, 0.7)}>
+      {/* Getönt in der Phasenfarbe statt eines Streifens am linken Rand. */}
       <div className="flex items-baseline justify-between gap-3 flex-wrap mb-3">
-        <span className="text-[10px] font-mono tracking-widest text-[var(--text-secondary)]">
+        <span className={TITEL}>
           {/* Negative Wochen liegen vor dem Aufbau — „Week -3" wäre dort
               eine Zahl ohne Bedeutung. */}
           <span className="text-[#e8eaf0]">{p.week_number < 1 ? 'PREP' : `WEEK ${p.week_number}`}</span>
           {p.plan_phase && <> · <span style={{ color: farbe }}>{phasenName(p.plan_phase)}</span></>}
         </span>
-        <span className="text-[10px] font-mono tracking-widest text-[var(--text-muted)]">{zeitraumText}</span>
+        <span className={NEBEN}>{zeitraumText}</span>
       </div>
 
       <div className="grid grid-cols-7 gap-1">
@@ -617,7 +601,7 @@ function PlanWoche({ plan: p }) {
             <div className="h-11 flex flex-col gap-[2px]">
               {t.einheiten.length === 0 ? (
                 <div className="flex-1 rounded-[3px] flex items-center justify-center text-[8px] font-mono text-[var(--text-muted)]"
-                     style={{ background: '#0d0f14', border: '1px solid #1a1d24' }}>
+                     style={{ background: 'transparent', border: '1px dashed #1e2228' }}>
                   —
                 </div>
               ) : t.einheiten.map((e, i) => {
@@ -626,7 +610,7 @@ function PlanWoche({ plan: p }) {
                 return (
                   <div key={i}
                        className="flex-1 rounded-[3px] flex flex-col items-center justify-center min-h-0 overflow-hidden"
-                       style={{ background: `${sf}22`, boxShadow: `inset 0 0 0 1px ${sf}55` }}
+                       style={{ background: `${sf}14`, boxShadow: `inset 0 0 0 1px ${sf}40` }}
                        title={`${DISCIPLINE_LABEL[sport] || sport}${e.duration_min ? ` · ${e.duration_min} min` : ''}`}>
                     <span className="text-[8px] sm:text-[9px] font-mono font-bold leading-none truncate max-w-full px-0.5" style={{ color: sf }}>
                       {SPORT_KURZ[sport] || sport.toUpperCase()}
@@ -647,7 +631,7 @@ function PlanWoche({ plan: p }) {
           <p className={`text-[var(--text-secondary)] text-xs leading-relaxed ${lang ? '' : 'line-clamp-2'}`}>{kommentar}</p>
           {kommentar.length > 160 && (
             <button onClick={() => setLang(v => !v)}
-                    className="mt-1 text-[9px] font-mono tracking-widest text-[var(--text-muted)] hover:text-[#00d4ff]">
+                    className="mt-1 text-[9px] font-mono tracking-widest text-[var(--text-muted)] hover:text-[#e8eaf0]">
               {lang ? 'LESS' : 'MORE'}
             </button>
           )}
@@ -658,7 +642,7 @@ function PlanWoche({ plan: p }) {
 }
 
 function PlansTab({ plans }) {
-  if (!plans.length) return <p className="text-[var(--text-secondary)] text-sm py-4">Noch keine Wochenpläne erstellt.</p>
+  if (!plans.length) return <p className="text-[10px] font-mono tracking-widest text-[var(--text-muted)] py-4">NO WEEK PLANS YET</p>
   return (
     <div className="space-y-3">
       {plans.map(p => <PlanWoche key={p.id} plan={p} />)}
@@ -669,9 +653,9 @@ function PlansTab({ plans }) {
 // ─── Main ──────────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { key: 'sessions',  label: 'Einheiten' },
-  { key: 'progress',  label: 'Fortschritt' },
-  { key: 'plans',     label: 'Wochenpläne' },
+  { wert: 'sessions', label: 'SESSIONS' },
+  { wert: 'progress', label: 'PROGRESS' },
+  { wert: 'plans',    label: 'WEEK PLANS' },
 ]
 
 export default function History() {
@@ -726,9 +710,9 @@ export default function History() {
 
   return (
     <div className="space-y-5 page-enter">
-      <h1 className="text-3xl font-bold tracking-tight text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
-        VERLAUF
-      </h1>
+      {/* Die Reiter als Umschalter neben dem Titel, wie 6W/3M/6M/1Y der
+          Performance-Kachel — vorher eine Reiterleiste mit Cyan-Unterstrich. */}
+      <SeitenKopf titel="HISTORY" rechts={<Schalter optionen={TABS} wert={tab} onWahl={setTab} />} />
       {fehler && (
         <div className="rounded-lg px-3 py-2 font-mono text-xs"
              style={{ background: '#ef444415', border: '1px solid #ef444430', color: '#ef4444' }}>
@@ -736,20 +720,8 @@ export default function History() {
         </div>
       )}
 
-      <div className="flex gap-1.5 border-b border-[#1e2228]">
-        {TABS.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-mono transition-all border-b-2 -mb-px ${tab === t.key ? 'border-[#00d4ff] text-[#00d4ff]' : 'border-transparent text-[var(--text-secondary)] hover:text-[#e8eaf0]'}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
       {loading ? (
-        <div className="text-[var(--text-secondary)] font-mono text-sm py-6 text-center tracking-widest">LOADING...</div>
+        <div className="text-[var(--text-muted)] font-mono text-[10px] py-6 text-center tracking-[0.25em]">LOADING…</div>
       ) : (
         <>
           {tab === 'sessions' && (
@@ -757,11 +729,7 @@ export default function History() {
               <SessionsTab sessions={sessions} showDeleted={showDeleted} onToggleDeleted={() => setShowDeleted(v => !v)} onRefresh={load} />
               {mehrDa && (
                 <div className="flex justify-center pt-2">
-                  <button onClick={mehrLaden}
-                          className="px-4 py-2 rounded-lg text-[11px] font-mono tracking-wide"
-                          style={{ background: '#00d4ff15', border: '1px solid #00d4ff33', color: '#00d4ff' }}>
-                    ÄLTERE EINHEITEN LADEN
-                  </button>
+                  <Knopf onClick={mehrLaden}>LOAD OLDER SESSIONS</Knopf>
                 </div>
               )}
             </>

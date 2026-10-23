@@ -106,6 +106,12 @@ strava_trennen() {
   PGPASSWORD="$LOKAL_PW" psql -q -X "$LOKAL" -c \
     "DO \$\$ BEGIN IF to_regclass('public.strava_credentials') IS NOT NULL THEN DELETE FROM strava_credentials; END IF; END \$\$;" \
     >/dev/null 2>&1 || true
+  # Ebenso die Zugänge zu intervals.icu: Sonst schriebe jede lokale
+  # Neuplanung die Läufe in die echten Kalender der Athleten und damit auf
+  # ihre Uhren. Ältere Dumps haben die Spalten noch nicht.
+  PGPASSWORD="$LOKAL_PW" psql -q -X "$LOKAL" -c \
+    "DO \$\$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'athlete_profile' AND column_name = 'intervals_token') THEN UPDATE athlete_profile SET intervals_api_key = NULL, intervals_token = NULL, intervals_athlete_id = NULL; END IF; END \$\$;" \
+    >/dev/null 2>&1 || true
 }
 beim_abbruch() {
   strava_trennen

@@ -209,6 +209,23 @@ class AthleteProfile(Base):
     # Darin könnte ein Schlüssel- oder Tokenstück stehen. Bei Erfolg geleert.
     garmin_letzter_fehler: Mapped[str | None] = mapped_column(String)
 
+    # --- intervals.icu je Athlet (Läufe als Workout auf die Garmin-Uhr) ---
+    # Der Umweg, weil Garmin selbst nichts annimmt: Die Personal API ist nur
+    # lesend, und Garmin Connect importiert keine Workout-Dateien. intervals.icu
+    # schiebt geplante Workouts selbst in den Garmin-Kalender.
+    #
+    # Zwei Zugänge, je nachdem, was der Athlet hat: der persönliche
+    # API-Schlüssel samt Athleten-ID (sofort nutzbar) oder ein OAuth-Token
+    # (sobald intervals.icu die App freigeschaltet hat). Beide verschlüsselt
+    # wie der Garmin-Schlüssel: Sie erlauben Schreiben in den Kalender.
+    intervals_athlete_id: Mapped[str | None] = mapped_column(String)
+    intervals_api_key: Mapped[str | None] = mapped_column(VerschluesselterText)
+    intervals_token: Mapped[str | None] = mapped_column(VerschluesselterText)
+    intervals_verbunden_am: Mapped[datetime | None] = mapped_column(DateTime)
+    intervals_letzter_abgleich: Mapped[datetime | None] = mapped_column(DateTime)
+    # Fester Klartext wie bei Garmin, nie die Antwort von intervals.icu.
+    intervals_letzter_fehler: Mapped[str | None] = mapped_column(String)
+
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
 
 

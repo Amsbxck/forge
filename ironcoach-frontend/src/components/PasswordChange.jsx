@@ -3,7 +3,6 @@ import Modal from './Modal'
 import { changePassword, setToken } from '../services/api'
 
 const LABEL = 'text-[10px] font-mono tracking-widest text-[var(--text-secondary)]'
-const DISPLAY = { fontFamily: 'Barlow Condensed, sans-serif' }
 const FIELD = 'rounded-lg px-3 py-2 text-sm font-mono text-[#e8eaf0] placeholder-[var(--text-muted)] outline-none w-full'
 const FIELD_STYLE = { background: '#0d0f17', border: '1px solid #1e2228' }
 
@@ -48,14 +47,14 @@ export default function PasswordChange() {
         className="w-full flex items-center justify-between gap-3"
       >
         <span>
-          <span className="text-lg font-black tracking-tight text-[#e8eaf0] block text-left" style={DISPLAY}>
-            PASSWORT
+          <span className="text-xs font-mono tracking-[0.25em] text-[var(--text-secondary)] block text-left">
+            PASSWORD
           </span>
-          <span className="text-xs text-[var(--text-secondary)]">
+          <span className="text-xs text-[var(--text-secondary)] block text-left mt-2">
             {state === 'done' ? 'Geändert.' : 'Zugangsdaten ändern'}
           </span>
         </span>
-        <span className="text-[10px] font-mono text-[var(--text-muted)]">ÄNDERN ▸</span>
+        <span className="text-[10px] font-mono tracking-widest text-[var(--text-muted)]">CHANGE ▸</span>
       </button>
 
       <Modal

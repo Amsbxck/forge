@@ -332,6 +332,8 @@ async def chat(body: ChatMessageIn, db: Session = Depends(get_db)):
                 "Woche neu laden; bleibt sie leer, den Plan neu erstellen."
             )
         else:
+            from services.intervals_sync import anstossen
+            anstossen(db, db_plan.user_id, [db_plan.week_start])
             # Dieselbe Nachzählung wie nach `/plan/anpassen` — der Chat
             # prüfte bisher nicht, ob eine Änderung die Grundbasis aushebelt.
             try:

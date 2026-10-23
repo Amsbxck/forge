@@ -3,6 +3,8 @@ import { clearPlannedReplacement, setPlannedReplacement, swapPlannedSessions } f
 import Modal from './Modal'
 import { DISCIPLINE_COLOR, DONE_COLOR, INTENSITY_META, ZONE_COLOR as ZONE_FARBEN } from '../utils/colors'
 import SollIstLeiste from './leisten/SollIstLeiste'
+import SportIcon from './SportIcon'
+import { DISPLAY, KOPF, NEBEN, TITEL, toenung } from './leisten/Kachel'
 import { fehlerText } from '../utils/fehler'
 
 // Die Farbe für "ersetzt". Bernstein, also aus der Ampelfamilie: Es ist eine
@@ -41,16 +43,52 @@ const ERSATZ_STUFEN = [
 
 // Aus der gemeinsamen Farbtabelle abgeleitet — Rahmen, Fläche und Schrift
 // derselben Farbe, nur in unterschiedlicher Deckkraft.
+//
+// Im Kleid der Dashboard-Kacheln: Die Sportfarbe tönt die Karte von oben
+// (`toenung`) und färbt Rand und Schrift leise. Vorher war jede Karte voll
+// in ihrer Farbe gefüllt und kräftig umrandet — sieben bunte Säulen, in denen
+// Dauer und Zielwerte untergingen.
 const TYPE_COLOR = Object.fromEntries(
   // `other` fehlte: Ersatztraining (StairMaster, Rudern) fiel auf das Grau
   // des Ruhetags zurück und sah aus wie ein freier Tag.
   ['rest', 'bike', 'run', 'swim', 'gym', 'brick', 'hike', 'other'].map(d => [
     d,
     d === 'rest'
-      ? { border: '#1e2228', bg: '#111318', text: '#8a909e' }
-      : { border: DISCIPLINE_COLOR[d], bg: `${DISCIPLINE_COLOR[d]}20`, text: DISCIPLINE_COLOR[d] },
+      ? { border: '#1e2228', bg: '#111318', text: '#8a909e', farbe: null }
+      : { border: `${DISCIPLINE_COLOR[d]}33`, bg: toenung(DISCIPLINE_COLOR[d], 0.9).background, text: DISCIPLINE_COLOR[d], farbe: DISCIPLINE_COLOR[d] },
   ])
 )
+
+// Englisch wie die Kacheln im Dashboard. Die Tage kommen als deutsche Namen
+// aus dem Plan (`day`), die Sportarten als Schlüssel.
+const TAG_EN = { Montag: 'MON', Dienstag: 'TUE', Mittwoch: 'WED', Donnerstag: 'THU', Freitag: 'FRI', Samstag: 'SAT', Sonntag: 'SUN' }
+const SPORT_EN = { swim: 'SWIMMING', bike: 'CYCLING', run: 'RUNNING', gym: 'GYM', brick: 'BRICK', hike: 'HIKING', rest: 'REST', other: 'OTHER' }
+const STUFE_EN = { base: 'BASE', sweet_spot: 'SWEET SPOT', threshold: 'THRESHOLD', vo2max: 'VO₂MAX' }
+const kurzDatum = iso => iso
+  ? new Date(`${iso}T00:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }).toUpperCase()
+  : ''
+
+/** Sportart mit Zeichen in ihrer Farbe — wie die Sportzeilen im BREAKDOWN. */
+function SportMarke({ typ, farbe }) {
+  const t = (typ || '').toLowerCase()
+  return (
+    <div className="flex items-center gap-1.5 min-w-0" style={{ color: farbe }}>
+      {t !== 'rest' && <SportIcon discipline={t} size={13} />}
+      <span className="text-[11px] font-mono font-semibold tracking-wider truncate">{SPORT_EN[t] || t.toUpperCase()}</span>
+    </div>
+  )
+}
+
+/** Dauer groß wie die Zahlen der Dashboard-Kacheln, „min" klein daneben. */
+function Dauer({ min }) {
+  if (!(min > 0)) return ' '
+  return (
+    <span className="flex items-baseline gap-1">
+      <span className="text-2xl font-black leading-none tabular-nums text-[#f2f4f8]" style={DISPLAY}>{min}</span>
+      <span className="text-[10px] font-mono text-[var(--text-muted)]">min</span>
+    </span>
+  )
+}
 
 // Zonen- und Stufenfarben aus der gemeinsamen Tabelle (`utils/colors.js`).
 // Hier stand eine eigene Kopie: andere Palette als der Verlauf, und Z6/Z7 in
@@ -68,32 +106,23 @@ function getColors(type) {
  *  (Schwimmen, Kraft, Ruhetag) eine neutrale Zeile statt einer Lücke. */
 function IntensityBadge({ intensity, fallbackLabel, sessionType }) {
   const meta = INTENSITY_META[intensity]
-  const isRest = sessionType === 'rest'
-  if (!meta && (isRest || !fallbackLabel)) return null
+  // Ohne Stufe nichts: Der Trainingstyp steht in der Zeile darüber schon,
+  // als Ersatzplakette stand er zweimal in derselben Karte („ENDURANCE").
+  if (!meta) return null
 
-  const color = meta ? meta.color : '#3a3f4a'
-  const label = meta ? meta.label : fallbackLabel.replace(/_/g, ' ')
+  const color = meta.color
+  const label = STUFE_EN[intensity] || meta.label
 
+  // Eine Plakette wie die Intensität in der TODAY-Kachel, statt eines
+  // gefüllten Streifens mit Randstrich.
   return (
-    <div
-      className="mt-1.5 flex items-baseline gap-1.5 rounded px-1.5 py-1"
-      style={{
-        background: meta ? `${color}18` : '#ffffff06',
-        borderLeft: `2px solid ${meta ? color : '#1e2228'}`,
-      }}
+    <span
+      className="inline-flex items-baseline gap-1.5 rounded px-1.5 py-0.5 text-[9px] font-mono tracking-widest uppercase leading-none"
+      style={{ background: `${color}14`, border: `1px solid ${color}33`, color }}
     >
-      <span
-        className="text-[10px] font-bold uppercase tracking-wider leading-none"
-        style={{ color: meta ? color : 'var(--text-secondary)', fontFamily: 'Barlow Condensed, sans-serif' }}
-      >
-        {label}
-      </span>
-      {meta && (
-        <span className="text-[9px] font-mono leading-none" style={{ color, opacity: 0.7 }}>
-          {meta.zone}
-        </span>
-      )}
-    </div>
+      {label}
+      <span style={{ opacity: 0.7 }}>{meta.zone}</span>
+    </span>
   )
 }
 
@@ -131,23 +160,22 @@ function TargetsReadout({ targets, showZone = true }) {
   if (!chips.length && !hr_zone) return null
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+    <div className="mt-1 flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+      {/* Werte schlicht wie in der TODAY-Kachel. Cyan steht in der App für
+          Schwimmen und Bedienung — als Farbe jeder Zahl las es sich wie
+          beides. */}
       {chips.map(c => (
-        <span
-          key={c.key}
-          className="text-[11px] font-mono tabular-nums leading-none px-1.5 py-1 rounded"
-          style={{ background: '#00d4ff10', border: '1px solid #00d4ff20', color: '#00d4ff' }}
-        >
+        <span key={c.key} className="text-[11px] font-mono tabular-nums leading-none text-[#e8eaf0]">
           {c.value}
-          <span className="text-[9px] ml-0.5 opacity-60">{c.unit}</span>
+          <span className="text-[9px] ml-0.5 text-[var(--text-muted)]">{c.unit}</span>
         </span>
       ))}
       {hr_zone && (
         <span
-          className="text-[10px] font-mono font-bold leading-none px-1.5 py-1 rounded"
+          className="text-[9px] font-mono tracking-widest leading-none px-1.5 py-0.5 rounded"
           style={{
-            background: `${ZONE_COLOR[hr_zone] || '#3a3f4a'}25`,
-            border: `1px solid ${ZONE_COLOR[hr_zone] || '#3a3f4a'}`,
+            background: `${ZONE_COLOR[hr_zone] || '#3a3f4a'}14`,
+            border: `1px solid ${ZONE_COLOR[hr_zone] || '#3a3f4a'}33`,
             color: ZONE_COLOR[hr_zone] || '#8a909e',
           }}
         >
@@ -168,8 +196,8 @@ function BlocksTable({ blocks }) {
         const { block: _, ...rest } = b
         const values = Object.values(rest).filter(Boolean)
         return (
-          <div key={i} className="rounded-lg px-2 py-1 bg-white/5">
-            <div className="text-[10px] font-semibold uppercase tracking-wide mb-0.5" style={{ color: isRest ? 'var(--text-muted)' : '#00d4ff' }}>
+          <div key={i} className="rounded-md px-2 py-1" style={{ background: '#0d0f14', border: '1px solid #1a1d24' }}>
+            <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={{ color: isRest ? 'var(--text-muted)' : '#e8eaf0' }}>
               {label}
             </div>
             <div className="flex flex-wrap gap-x-2 gap-y-0.5">
@@ -237,17 +265,17 @@ function DetailsSection({ details, sessionType, depth = 0 }) {
         if (Array.isArray(v)) {
           return (
             <div key={k}>
-              <div className="text-[10px] uppercase text-[var(--text-muted)] font-medium mb-0.5">{k}</div>
+              <div className={`${KOPF} uppercase mb-0.5`}>{k}</div>
               <BlocksTable blocks={v} sessionType={sessionType} />
             </div>
           )
         }
 
         if (typeof v === 'object') {
-          const color = SUBSECTION_COLOR[k.toLowerCase()] || '#00d4ff'
+          const color = SUBSECTION_COLOR[k.toLowerCase()] || '#a7aebd'
           return (
-            <div key={k} className="border-l-2 pl-2 mt-1.5" style={{ borderColor: color }}>
-              <div className="text-[10px] font-bold uppercase tracking-widest mb-0.5" style={{ color }}>
+            <div key={k} className="pl-2 mt-1.5" style={{ boxShadow: `inset 1px 0 0 ${color}66` }}>
+              <div className="text-[9px] font-mono uppercase tracking-widest mb-0.5" style={{ color }}>
                 {k}
               </div>
               <DetailsSection details={v} sessionType={k} depth={depth + 1} />
@@ -439,7 +467,17 @@ function ErsatzDialog({ einheit, onClose, onSpeichern }) {
 /** `istJeEinheit`: was zu jeder geplanten Einheit tatsächlich absolviert wurde
  *  (`GET /planned/am/{montag}/bilanz`, Schlüssel = id als Text). Damit zeigt
  *  ein erledigter Tag „75 / 60 min" als Leiste statt nur ein Häkchen. */
-export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinheit }) {
+function aufDieUhr(day, heute) {
+  if (day.id == null || !day.date || day.date < heute) return false
+  if (!['planned', 'moved', 'completed'].includes(day.status || 'planned')) return false
+  const teile = day.session_type === 'brick'
+    ? [day.details?.bike, day.details?.run].filter(t => t && typeof t === 'object' && Object.keys(t).length)
+    : ['run', 'bike'].includes(day.session_type) ? [day.details || {}] : []
+  const rennen = t => ['typ', 'workout'].some(f => String(t?.[f] || '').toLowerCase().includes('wettkampf'))
+  return teile.some(t => !rennen(t))
+}
+
+export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinheit, anUhr = false }) {
   const [days, setDays] = useState(() => sortDays(initialDays))
   const heute = heutigesDatum()
   const [dragIndex, setDragIndex] = useState(null)
@@ -593,7 +631,7 @@ export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinh
       {/* Verschoben — zeigt den ursprünglichen Termin wie eine Anzeigetafel */}
       {day.moved_from_date && day.moved_from_date !== day.date && (
         <div className="text-[9px] font-mono text-[var(--text-muted)] tracking-wide mb-1">
-          ↳ ursprünglich {day.moved_from_date.slice(5)}
+          ↳ MOVED FROM {kurzDatum(day.moved_from_date)}
         </div>
       )}
       {/* Auch ohne Freitext: Der Dialog erlaubt, nur die Sportart oder die
@@ -603,11 +641,11 @@ export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinh
         /* Der Ersatz tritt an die Stelle der Vorgabe, statt darunter
            zu stehen: Was an dem Tag passiert ist, ist der Ersatz —
            die geplante Einheit ist nur noch Herkunft. */
-        <div className="rounded-lg border px-2 py-1.5 mb-1"
-             style={{ borderColor: '#f59e0b55', background: '#f59e0b14' }}>
+        <div className="rounded-md px-2 py-1.5 mb-1"
+             style={{ border: `1px solid ${ERSETZT_COLOR}33`, background: `${ERSETZT_COLOR}0d` }}>
           <div className="text-[9px] font-mono tracking-widest mb-0.5"
-               style={{ color: '#f59e0b' }}>
-            STATTDESSEN
+               style={{ color: ERSETZT_COLOR }}>
+            INSTEAD
           </div>
           <p className="text-xs text-[#e8eaf0] leading-snug">
             {day.replacement || (day.replacement_discipline || '').toUpperCase()}
@@ -619,9 +657,9 @@ export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinh
           )}
           <button
             onClick={() => nimmErsatzZurueck(day.id)}
-            className="text-[10px] font-mono text-[var(--text-secondary)] hover:text-[#e8eaf0] mt-1 underline"
+            className="text-[9px] font-mono tracking-widest text-[var(--text-muted)] hover:text-[#e8eaf0] mt-1"
           >
-            zurücknehmen
+            UNDO
           </button>
         </div>
       ) : (
@@ -635,8 +673,20 @@ export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinh
           onClick={() => setErsetze(day)}
           className="block text-left text-[9px] font-mono tracking-widest uppercase text-[var(--text-muted)] hover:text-[#f59e0b] transition-colors mt-1 whitespace-nowrap"
         >
-          + ERSETZT
+          + REPLACED
         </button>
+      )}
+      {/* Läuft über intervals.icu von selbst auf die Geräte. Nur ein Stand,
+          kein Knopf: Gesendet wird nach jeder Änderung ohnehin. Dieselbe
+          Auswahl wie im Backend (`geplantes_workout.workouts`): Läufe,
+          Radeinheiten und beide Teile eines Bricks ab heute, keine Rennen.
+          „Device" statt „Watch": Ob es auf Uhr oder Radcomputer landet,
+          entscheidet jeder in intervals.icu selbst. */}
+      {anUhr && aufDieUhr(day, heute) && (
+        <div className="text-[9px] font-mono tracking-widest text-[var(--text-muted)] mt-1"
+             title="Über intervals.icu auf die dort verbundenen Geräte (Garmin, Wahoo)">
+          ↑ ON YOUR DEVICE
+        </div>
       )}
       <DetailsSection details={day.details} sessionType={day.session_type} />
     </>
@@ -666,21 +716,18 @@ export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinh
         className="mt-3 rounded-lg border p-2.5 space-y-1.5 transition-all"
         style={{
           borderColor: darueber || blinkend ? '#00d4ff'
-            : (ersetzt ? `${ERSETZT_COLOR}77`
-              : (erledigt ? `${DONE_COLOR}66` : c.border)),
+            : (ersetzt ? `${ERSETZT_COLOR}44`
+              : (erledigt ? `${DONE_COLOR}44` : c.border)),
           background: darueber ? '#00d4ff0d'
-            : (ersetzt ? `${ERSETZT_COLOR}1f`
-              : (erledigt ? `${DONE_COLOR}1c` : c.bg)),
+            : (ersetzt ? toenung(ERSETZT_COLOR).background
+              : (erledigt ? toenung(DONE_COLOR).background : '#0d0f14')),
           opacity: ziehend ? 0.4 : (speichernd ? 0.6 : 1),
           cursor: speichernd ? 'progress' : 'grab',
           animation: blinkend ? 'savedPulse 0.9s ease-out' : 'none',
         }}
       >
         <div className="flex justify-between items-center gap-2">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-widest"
-                style={{ color: c.text }}>
-            {day.session_type}
-          </span>
+          <SportMarke typ={day.session_type} farbe={c.text} />
           <span className="flex items-center gap-1.5">
             {erledigt && (
               <span className="text-[9px] font-mono font-bold tracking-widest px-1.5 py-0.5 rounded"
@@ -690,12 +737,12 @@ export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinh
               </span>
             )}
             <span className="text-[9px] font-mono tracking-widest text-[var(--text-muted)]">
-              {nr}. EINHEIT
+              #{nr}
             </span>
           </span>
         </div>
         {day.training_type && !['rest', 'brick'].includes(day.training_type) && (
-          <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-secondary)]">
+          <div className={`${KOPF} uppercase`}>
             {day.training_type.replace(/_/g, ' ')}
           </div>
         )}
@@ -705,9 +752,7 @@ export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinh
             fallbackLabel={day.training_type}
             sessionType={day.session_type}
           />
-          {day.duration_min > 0 && !(erledigt && istVon(day)) && (
-            <span className="text-xs font-mono text-[var(--text-secondary)]">{day.duration_min} min</span>
-          )}
+          {day.duration_min > 0 && !(erledigt && istVon(day)) && <Dauer min={day.duration_min} />}
         </div>
         {erledigt && istVon(day) && (
           <SollIstLeiste kompakt soll={day.duration_min || 0} ist={istVon(day).ist_min} farbe={c.text} />
@@ -721,14 +766,12 @@ export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinh
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="text-[10px] font-mono tracking-widest text-[var(--text-muted)]">
-          {persistent
-            ? '⠿ ZIEHEN ZUM VERSCHIEBEN — WIRD GESPEICHERT'
-            : '⠿ ZIEHEN ZUM VERSCHIEBEN — NUR ANSICHT, NICHT GESPEICHERT'}
-        </div>
-        {savingIds.length > 0 && (
-          <span className="text-[10px] font-mono tracking-widest text-[#00d4ff]">SPEICHERT…</span>
-        )}
+        <span className={TITEL}>THE WEEK</span>
+        <span className={NEBEN}>
+          {savingIds.length > 0
+            ? <span className="text-[#e8eaf0]">SAVING…</span>
+            : persistent ? '⠿ DRAG TO SWAP · SAVED' : '⠿ DRAG TO SWAP · VIEW ONLY, NOT SAVED'}
+        </span>
       </div>
 
       {error && (
@@ -775,24 +818,24 @@ export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinh
               onDragOver={(e) => onDragOver(e, i)}
               onDrop={() => onDrop(i)}
               onDragEnd={onDragEnd}
-              className="day-card rounded-xl border p-3 transition-all select-none relative"
+              className="day-card rounded-xl border p-3.5 transition-all select-none relative"
               style={{
                 borderColor: isOver ? '#00d4ff'
                   : (isFlashing ? '#00d4ff'
-                    : (istErsetzt ? `${ERSETZT_COLOR}77`
-                      : (istErledigt ? `${DONE_COLOR}66`
-                        : (istHeute ? `${colors.text}99` : colors.border)))),
+                    : (istHeute ? `${colors.farbe || '#e8eaf0'}77`
+                      : (istErsetzt ? `${ERSETZT_COLOR}44`
+                        : (istErledigt ? `${DONE_COLOR}44` : colors.border)))),
                 // Erledigt schlägt die Disziplinfarbe im Grund, nicht in der
-                // Kante: Die Sportart bleibt an Kante und Typmarke ablesbar,
+                // Kante: Die Sportart bleibt an Zeichen und Schrift ablesbar,
                 // der Grund sagt "gemacht".
                 background: isOver ? '#00d4ff0d'
-                  : (istErsetzt ? `${ERSETZT_COLOR}1f`
-                    : (istErledigt ? `${DONE_COLOR}1c` : colors.bg)),
+                  : (istErsetzt ? toenung(ERSETZT_COLOR).background
+                    : (istErledigt ? toenung(DONE_COLOR).background : colors.bg)),
                 opacity: isDragging ? 0.4 : (isSaving ? 0.6 : 1),
                 cursor: isSaving ? 'progress' : 'grab',
                 boxShadow: isOver
                   ? '0 0 0 1px #00d4ff44'
-                  : (istHeute ? `0 0 0 1px ${colors.text}44, 0 0 22px -6px ${colors.text}` : 'none'),
+                  : (istHeute ? `0 0 24px -12px ${colors.farbe || '#e8eaf0'}` : 'none'),
                 animation: isFlashing ? 'savedPulse 0.9s ease-out' : 'none',
               }}
             >
@@ -800,9 +843,9 @@ export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinh
                   sieben Karten dieselben Zeilenspuren — dadurch stehen Dauer,
                   Zielwerte und Intensität überall auf gleicher Höhe, auch wenn
                   eine Karte einzelne Angaben nicht hat. */}
-              <div className="flex justify-between items-start">
-                <span className="font-bold text-sm text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
-                  {day.day?.slice(0, 2).toUpperCase()}
+              <div className="flex justify-between items-baseline gap-1">
+                <span className={`${TITEL} text-[#e8eaf0]`}>
+                  {TAG_EN[day.day] || day.day?.slice(0, 3).toUpperCase()}
                 </span>
                 <span className="flex items-center gap-1.5">
                   {istErledigt && (
@@ -814,27 +857,27 @@ export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinh
                   )}
                   {weitere.length > 0 && (
                     <span className="text-[9px] font-mono font-bold tracking-widest px-1.5 py-0.5 rounded"
-                          style={{ background: '#00d4ff14', border: '1px solid #00d4ff44', color: '#00d4ff' }}
+                          style={{ border: '1px solid #ffffff26', color: '#e8eaf0' }}
                           title={`${weitere.length + 1} Einheiten an diesem Tag`}>
                       ×{weitere.length + 1}
                     </span>
                   )}
                   {istHeute ? (
                     <span className="text-[9px] font-mono tracking-widest px-1.5 py-0.5 rounded"
-                          style={{ background: `${colors.text}1e`, border: `1px solid ${colors.text}55`, color: colors.text }}>
-                      HEUTE
+                          style={{ background: '#ffffff14', border: '1px solid #ffffff26', color: '#e8eaf0' }}>
+                      TODAY
                     </span>
                   ) : (
-                    <span className="text-[10px] font-mono text-[var(--text-muted)]">{datum?.slice(5)}</span>
+                    <span className={`${NEBEN} text-[9px]`}>{kurzDatum(datum)}</span>
                   )}
                 </span>
               </div>
 
-              <div className="text-[10px] font-mono font-bold uppercase tracking-widest" style={{ color: colors.text }}>
-                {day.session_type}
+              <div className="mt-2">
+                <SportMarke typ={day.session_type} farbe={colors.text} />
               </div>
 
-              <div className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-secondary)]">
+              <div className={`${KOPF} uppercase`}>
                 {day.training_type && !['rest', 'brick'].includes(day.training_type)
                   ? day.training_type.replace(/_/g, ' ')
                   : ' '}
@@ -851,10 +894,10 @@ export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinh
               {/* Erledigt: geplant gegen absolviert als Leiste. Gleiche Zeile wie
                   sonst die Dauer, damit die Karten über das Untergitter
                   ausgerichtet bleiben. */}
-              <div className="text-xs font-mono text-[var(--text-secondary)]">
+              <div className="text-xs font-mono text-[var(--text-secondary)] mt-1">
                 {istErledigt && istVon(day)
                   ? <SollIstLeiste kompakt soll={day.duration_min || 0} ist={istVon(day).ist_min} farbe={colors.text} />
-                  : (day.duration_min > 0 ? `${day.duration_min} min` : ' ')}
+                  : <Dauer min={day.duration_min} />}
               </div>
 
               <div>

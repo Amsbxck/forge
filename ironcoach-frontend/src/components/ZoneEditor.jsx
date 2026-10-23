@@ -233,24 +233,24 @@ export default function ZoneEditor({ profile, onSaved }) {
   return (
     <div className="rounded-xl border border-[#1e2228] bg-[#111318]">
       <div className="px-5 py-4 border-b border-[#1e2228] flex items-center justify-between gap-3">
-        <span className="text-sm font-bold tracking-widest text-[var(--text-secondary)]"
-              style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
-          TRAININGSBEREICHE
+        {/* Kopf wie die Dashboard-Kacheln statt eines Barlow-Titels. */}
+        <span className="text-xs font-mono tracking-[0.25em] text-[var(--text-secondary)]">
+          TRAINING ZONES
         </span>
         {!bearbeiten ? (
           <button onClick={() => setBearbeiten(true)}
-                  className="text-[10px] font-mono tracking-widest text-[var(--text-secondary)] hover:text-[#00d4ff] transition-colors">
-            PULSZONEN ANPASSEN
+                  className="text-[10px] font-mono tracking-widest text-[var(--text-secondary)] hover:text-[#e8eaf0] transition-colors">
+            EDIT HR ZONES
           </button>
         ) : (
           <div className="flex gap-3">
             <button onClick={abbrechen}
                     className="text-[10px] font-mono tracking-widest text-[var(--text-secondary)] hover:text-[#e8eaf0]">
-              ABBRECHEN
+              CANCEL
             </button>
             <button onClick={speichern} disabled={speichert}
                     className="text-[10px] font-mono tracking-widest text-[#00d4ff] hover:text-[#7ee7ff] disabled:opacity-40">
-              {speichert ? 'SPEICHERT…' : 'SPEICHERN'}
+              {speichert ? 'SAVING…' : 'SAVE'}
             </button>
           </div>
         )}
@@ -262,9 +262,9 @@ export default function ZoneEditor({ profile, onSaved }) {
             der Höhe der letzten Laufzeile (Steigerungen) — vorher hingen die
             Pulszeilen in der Mitte der Spalte und alles wirkte versetzt. */}
         <div className="flex flex-col">
-          <Kopf titel="PULS" einheit="bpm">
+          <Kopf titel="HEART RATE" einheit="bpm">
             max {profile.max_hr}
-            {profile.threshold_hr ? ` · Schwelle ${profile.threshold_hr}` : ''}
+            {profile.threshold_hr ? ` · threshold ${profile.threshold_hr}` : ''}
           </Kopf>
 
           {bearbeiten ? (
@@ -318,8 +318,8 @@ export default function ZoneEditor({ profile, onSaved }) {
 
         {/* ── Laufpace ── */}
         <div>
-          <Kopf titel="LAUFPACE" einheit="/km">
-            {pace ? `Schwelle ${mmss(pace)}` : 'keine Schwellenpace'}
+          <Kopf titel="RUN PACE" einheit="/km">
+            {pace ? `threshold ${mmss(pace)}` : 'no threshold pace'}
           </Kopf>
           {laufZeilen ? <Zeilen daten={laufZeilen} /> : pace ? (
             <p className="text-xs text-[var(--text-muted)]">Bereiche werden geladen…</p>
@@ -333,7 +333,7 @@ export default function ZoneEditor({ profile, onSaved }) {
 
         {/* ── Radleistung ── */}
         <div>
-          <Kopf titel="RADLEISTUNG" einheit="Watt">
+          <Kopf titel="BIKE POWER" einheit="Watt">
             {ftp ? `FTP ${ftp}` : 'keine FTP'}
           </Kopf>
 
@@ -345,7 +345,7 @@ export default function ZoneEditor({ profile, onSaved }) {
                   Zeile müsste man ihn aus der Z3-Spanne selbst herausrechnen. */}
               {zonen?.sweet_spot && (
                 <p className="text-[11px] text-[var(--text-secondary)] mt-2.5 font-mono tabular-nums">
-                  Sweet Spot {zonen.sweet_spot} · oberes Z3
+                  Sweet Spot {zonen.sweet_spot} · upper Z3
                 </p>
               )}
             </>

@@ -1,4 +1,4 @@
-"""Externe Anbindungen einrichten: Strava, Garmin Connect und Obsidian.
+"""Externe Anbindungen einrichten: Strava, Garmin Connect, intervals.icu und Obsidian.
 
 Alle gehören zum Athleten, nicht zur Installation. Obsidian läuft auf dem
 Rechner des Athleten — es gibt keinen zentralen Vault, den die App bedienen
@@ -79,6 +79,25 @@ def _garmin_zustand(profile) -> dict:
     }
 
 
+def _intervals_zustand(profile) -> dict:
+    from services.intervals_icu import oauth_bereit
+
+    hat_token = bool(profile and profile.intervals_token)
+    hat_schluessel = bool(profile and profile.intervals_api_key)
+    return {
+        "configured": bool(profile and profile.intervals_athlete_id and (hat_token or hat_schluessel)),
+        "athlete_id": profile.intervals_athlete_id if profile else None,
+        # "oauth" | "schluessel" | None
+        "weg": "oauth" if hat_token else ("schluessel" if hat_schluessel else None),
+        "api_key_hint": _mask(profile.intervals_api_key if profile else None),
+        "verbunden_am": _zeitpunkt(profile.intervals_verbunden_am if profile else None),
+        "letzter_abgleich": _zeitpunkt(profile.intervals_letzter_abgleich if profile else None),
+        "letzter_fehler": profile.intervals_letzter_fehler if profile else None,
+        # Ohne freigeschaltete App gibt es nur den Schlüsselweg.
+        "oauth_bereit": oauth_bereit(),
+    }
+
+
 @router.get("/integrations")
 def integrations(db: Session = Depends(get_db), user: User = Depends(require_user)):
     """Zustand aller Anbindungen — ohne Netzwerkzugriff."""
@@ -99,6 +118,7 @@ def integrations(db: Session = Depends(get_db), user: User = Depends(require_use
             "connected_at": creds.connected_at.isoformat() if creds and creds.connected_at else None,
         },
         "garmin": _garmin_zustand(profile),
+        "intervals": _intervals_zustand(profile),
         "obsidian": {
             "configured": bool(base_url and api_key),
             "base_url": base_url,
@@ -224,6 +244,129 @@ def disconnect_garmin(db: Session = Depends(get_db), user: User = Depends(requir
     profile.garmin_letzter_fehler = None
     db.commit()
     return integrations(db, user)
+
+
+class IntervalsSettings(BaseModel):
+    athlete_id: str
+    api_key: str
+
+
+def _intervals_ausloesen(db: Session, user_id: int) -> dict:
+    """Laufende und kommende Woche abgleichen, im Hintergrund."""
+    from datetime import date, timedelta
+
+    from services.intervals_sync import anstossen
+
+    heute = date.today()
+    faden = anstossen(db, user_id, [heute, heute + timedelta(days=7)])
+    return {"abgleich": faden is not None}
+
+
+@router.put("/integrations/intervals")
+async def connect_intervals(
+    body: IntervalsSettings,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """intervals.icu mit dem persönlichen Schlüssel verbinden.
+
+    Wie bei Garmin **zuerst** prüfen, dann speichern: Ein falscher Schlüssel
+    oder eine fremde Athleten-ID landet so gar nicht erst in der Datenbank.
+    Danach gehen die Läufe der laufenden und der kommenden Woche raus.
+    """
+    from services import intervals_icu
+    from services.garmin_personal import schluessel_bereinigen, zeichen_gueltig
+    from services.intervals_icu import IntervalsFehler, IntervalsZugangUngueltig, Zugang
+
+    profile = get_profile(db, user)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Kein Athletenprofil")
+    athlete_id = schluessel_bereinigen(body.athlete_id)
+    if not intervals_icu.athleten_id_gueltig(athlete_id):
+        raise HTTPException(
+            status_code=422,
+            detail="Die Athleten-ID sieht aus wie i12345. Sie steht in intervals.icu unter Settings.",
+        )
+    schluessel = schluessel_bereinigen(body.api_key)
+    if not schluessel or not zeichen_gueltig(schluessel):
+        raise HTTPException(
+            status_code=422,
+            detail="Bitte den API-Schlüssel aus intervals.icu (Settings → Developer Settings) einfügen.",
+        )
+
+    try:
+        await intervals_icu.athlet_pruefen(Zugang(athlete_id, api_key=schluessel))
+    except IntervalsZugangUngueltig:
+        raise HTTPException(
+            status_code=422,
+            detail="intervals.icu hat den Schlüssel abgelehnt. Passen Schlüssel und Athleten-ID zusammen?",
+        )
+    except IntervalsFehler:
+        raise HTTPException(
+            status_code=502,
+            detail="intervals.icu ist gerade nicht erreichbar. Bitte später erneut versuchen.",
+        )
+
+    profile.intervals_athlete_id = athlete_id
+    profile.intervals_api_key = schluessel
+    # Ein Schlüssel ersetzt eine frühere OAuth-Verbindung: Zwei Zugänge
+    # nebeneinander ließen offen, welcher gerade schreibt.
+    profile.intervals_token = None
+    profile.intervals_verbunden_am = datetime.utcnow()
+    profile.intervals_letzter_fehler = None
+    db.commit()
+    return {**integrations(db, user), **_intervals_ausloesen(db, user.id)}
+
+
+@router.post("/integrations/intervals/abgleichen")
+def intervals_abgleichen(db: Session = Depends(get_db), user: User = Depends(require_user)):
+    """Knopf „Sync now": laufende und kommende Woche sofort abgleichen.
+
+    Hier im Vordergrund statt im Faden: Der Athlet wartet auf das Ergebnis.
+    Bewusst synchron (`def`): Der Abgleich nimmt die Sperre des Athleten, und
+    die darf keinen Event-Loop anhalten. FastAPI führt die Route im
+    Threadpool aus.
+    """
+    from datetime import date, timedelta
+
+    from core.wochen import montag_von
+    from services.intervals_sync import abgleichen
+
+    profile = get_profile(db, user)
+    if profile is None or not _intervals_zustand(profile)["configured"]:
+        raise HTTPException(status_code=409, detail="intervals.icu ist nicht verbunden")
+    heute = date.today()
+    ergebnisse = abgleichen(db, user.id, [montag_von(heute), montag_von(heute + timedelta(days=7))])
+    summe = {k: sum(e.get(k, 0) for e in ergebnisse) for k in ("angelegt", "ersetzt", "geloescht", "unveraendert")}
+    fehler = next((e["fehler"] for e in ergebnisse if e.get("fehler")), None)
+    return {**integrations(db, user), "ergebnis": {**summe, "fehler": fehler}}
+
+
+@router.delete("/integrations/intervals")
+def disconnect_intervals(db: Session = Depends(get_db), user: User = Depends(require_user)):
+    """intervals.icu trennen.
+
+    Vorher die FORGE-Workouts ab heute dort löschen: Sonst stünden sie weiter
+    in Garmins Kalender und auf der Uhr, und keiner räumte sie mehr ab, wenn
+    sich der Plan ändert. Schlägt das fehl, wird trotzdem getrennt. Der
+    Athlet will die Verbindung los sein, die Workouts löscht er dann selbst.
+    """
+    from services.intervals_sync import alles_entfernen
+
+    profile = get_profile(db, user)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Kein Athletenprofil")
+
+    aufgeraeumt = alles_entfernen(db, user.id)
+
+    profile.intervals_athlete_id = None
+    profile.intervals_api_key = None
+    profile.intervals_token = None
+    profile.intervals_verbunden_am = None
+    profile.intervals_letzter_abgleich = None
+    profile.intervals_letzter_fehler = None
+    db.commit()
+    return {**integrations(db, user), "aufgeraeumt": aufgeraeumt}
 
 
 @router.patch("/integrations/obsidian")

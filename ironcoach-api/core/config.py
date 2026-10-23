@@ -153,6 +153,14 @@ class Settings(BaseSettings):
     # Datenbanksitzungen aufmachen.
     GARMIN_MINUTE: int = 23
 
+    # --- intervals.icu (geplante Läufe auf die Garmin-Uhr) ---
+    INTERVALS_BASE_URL: str = "https://intervals.icu"
+    # OAuth-App von FORGE. Bleibt leer, bis intervals.icu die App
+    # freigeschaltet hat (Anmeldung per Mail). Solange zeigt die Kachel nur
+    # den Weg über den persönlichen Schlüssel.
+    INTERVALS_CLIENT_ID: str = ""
+    INTERVALS_CLIENT_SECRET: str = ""
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in (self.CORS_ORIGINS or "").split(",") if o.strip()]

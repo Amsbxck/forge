@@ -14,14 +14,14 @@ const FIELD_STYLE = { background: '#0d0f17', border: '1px solid #1e2228' }
 // Erkältungsbeschreibungen unter „Verletzung" wäre die Auswahl geraten.
 const SEVERITIES = {
   illness: [
-    { key: 'mild', label: 'LEICHT', hint: 'Schnupfen, Halskratzen — über dem Hals, kein Fieber' },
-    { key: 'moderate', label: 'MÄSSIG', hint: 'Husten, Gliederschmerzen' },
-    { key: 'severe', label: 'SCHWER', hint: 'Fieber oder ärztlich verordnete Pause' },
+    { key: 'mild', label: 'MILD', hint: 'Schnupfen, Halskratzen — über dem Hals, kein Fieber' },
+    { key: 'moderate', label: 'MODERATE', hint: 'Husten, Gliederschmerzen' },
+    { key: 'severe', label: 'SEVERE', hint: 'Fieber oder ärztlich verordnete Pause' },
   ],
   injury: [
-    { key: 'mild', label: 'LEICHT', hint: 'Schmerzfrei belastbar — nur kein harter Reiz' },
-    { key: 'moderate', label: 'MÄSSIG', hint: 'Schmerz bei Belastung — betroffene Disziplin pausiert' },
-    { key: 'severe', label: 'SCHWER', hint: 'Nicht belastbar oder ärztlich verordnete Pause' },
+    { key: 'mild', label: 'MILD', hint: 'Schmerzfrei belastbar — nur kein harter Reiz' },
+    { key: 'moderate', label: 'MODERATE', hint: 'Schmerz bei Belastung — betroffene Disziplin pausiert' },
+    { key: 'severe', label: 'SEVERE', hint: 'Nicht belastbar oder ärztlich verordnete Pause' },
   ],
 }
 
@@ -31,10 +31,14 @@ const NOTIZ_BEISPIEL = {
 }
 
 const STATUS = {
-  healthy: { color: '#22c55e', text: 'GESUND', sub: 'Training nach Plan' },
-  sick: { color: '#ef4444', text: 'KRANK', sub: 'Plan ausgesetzt' },
-  returning: { color: '#f59e0b', text: 'WIEDEREINSTIEG', sub: 'Nur locker' },
+  healthy: { color: '#22c55e', text: 'HEALTHY', sub: 'Training nach Plan' },
+  sick: { color: '#ef4444', text: 'SICK', sub: 'Plan ausgesetzt' },
+  returning: { color: '#f59e0b', text: 'COMEBACK', sub: 'Nur locker' },
 }
+
+// Die Art kommt vom Backend nur deutsch (`KIND_LABEL`), die Leiste ist
+// englisch beschriftet. Unbekannte Arten fallen auf den deutschen Text zurück.
+const ART_EN = { illness: 'ILLNESS', injury: 'INJURY', other: 'TIME OFF' }
 
 const LEER_FORM = { kind: 'illness', severity: 'mild', fever: false, body_part: null, start_date: '', note: '' }
 
@@ -74,7 +78,7 @@ function ReportDialog({ onClose, onDone }) {
   return (
     <Modal
       open onClose={onClose}
-      title={form.kind === 'injury' ? 'VERLETZUNG MELDEN' : 'KRANKHEIT MELDEN'}
+      title={form.kind === 'injury' ? 'REPORT INJURY' : 'REPORT ILLNESS'}
       subtitle="Der Wochenplan wird danach neu erstellt"
       icon={<HealthIcon status="sick" kind={form.kind} size={26}
                         color={form.kind === 'injury' ? '#f59e0b' : '#ef4444'} />}
@@ -82,8 +86,8 @@ function ReportDialog({ onClose, onDone }) {
       <div className="space-y-4">
         <div className="flex gap-1 p-0.5 rounded-lg" style={{ background: '#0d0f17' }}>
           {[
-            { key: 'illness', label: 'KRANKHEIT' },
-            { key: 'injury', label: 'VERLETZUNG' },
+            { key: 'illness', label: 'ILLNESS' },
+            { key: 'injury', label: 'INJURY' },
           ].map(t => (
             <button
               key={t.key} type="button"
@@ -100,7 +104,7 @@ function ReportDialog({ onClose, onDone }) {
         </div>
 
         <div>
-          <span className={`${LABEL} block mb-1`}>SCHWEREGRAD</span>
+          <span className={`${LABEL} block mb-1`}>SEVERITY</span>
           <div className="space-y-1">
             {SEVERITIES[form.kind].map(s => (
               <button
@@ -127,7 +131,7 @@ function ReportDialog({ onClose, onDone }) {
             dann allgemeiner aus, das ist besser als eine geratene Stelle. */}
         {form.kind === 'injury' && (
           <div>
-            <span className={`${LABEL} block mb-2`}>WO? (OPTIONAL)</span>
+            <span className={`${LABEL} block mb-2`}>WHERE? (OPTIONAL)</span>
             <BodyMap value={form.body_part}
                      onChange={stelle => setForm(f => ({ ...f, body_part: stelle }))} />
           </div>
@@ -147,7 +151,7 @@ function ReportDialog({ onClose, onDone }) {
         )}
 
         <label className="block">
-          <span className={`${LABEL} block mb-1`}>SEIT WANN (LEER = HEUTE)</span>
+          <span className={`${LABEL} block mb-1`}>SINCE (EMPTY = TODAY)</span>
           <input
             type="date" max={isoTag(new Date())}
             className="rounded-lg px-3 py-2 text-sm font-mono text-[#e8eaf0] outline-none w-full"
@@ -158,7 +162,7 @@ function ReportDialog({ onClose, onDone }) {
 
         <label className="block">
           <span className={`${LABEL} block mb-1`}>
-            {form.kind === 'injury' ? 'WAS IST BETROFFEN?' : 'NOTIZ (OPTIONAL)'}
+            {form.kind === 'injury' ? 'WHAT IS AFFECTED?' : 'NOTE (OPTIONAL)'}
           </span>
           <input
             className="rounded-lg px-3 py-2 text-sm font-mono text-[#e8eaf0] placeholder-[var(--text-muted)] outline-none w-full"
@@ -177,11 +181,11 @@ function ReportDialog({ onClose, onDone }) {
             className="flex-1 py-2 rounded-lg text-[11px] font-mono font-bold tracking-wide disabled:opacity-40"
             style={{ background: '#ef444420', border: '1px solid #ef444444', color: '#ef4444' }}
           >
-            {busy ? '…' : 'MELDEN & PLAN ANPASSEN'}
+            {busy ? '…' : 'REPORT & ADJUST PLAN'}
           </button>
           <button onClick={onClose}
                   className="px-4 py-2 rounded-lg text-[11px] font-mono text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
-            ABBRECHEN
+            CANCEL
           </button>
         </div>
       </div>
@@ -238,7 +242,7 @@ export default function HealthStatus({ variant = 'bar', onChanged }) {
   // Kachel nicht das Falsche behauptet.
   const verletzt = kind === 'injury' && status.status === 'sick'
   const farbe = verletzt ? '#f59e0b' : stil.color
-  const zustandText = verletzt ? 'VERLETZT' : stil.text
+  const zustandText = verletzt ? 'INJURED' : stil.text
 
   const dialogNode = dialog && (
     <ReportDialog
@@ -273,7 +277,7 @@ export default function HealthStatus({ variant = 'bar', onChanged }) {
           }} />
           <div className="relative z-10 flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className={LABEL}>ZUSTAND</div>
+              <div className={LABEL}>CONDITION</div>
               <div className="text-2xl font-black mt-1 leading-none"
                    style={{ color: farbe, fontFamily: 'Barlow Condensed, sans-serif' }}>
                 {zustandText}
@@ -297,22 +301,25 @@ export default function HealthStatus({ variant = 'bar', onChanged }) {
   // --- Balken über dem Wochenplan --------------------------------------------
   return (
     <>
+      {/* Getönt wie die Dashboard-Kacheln, statt Randstrich links und
+          Lichtfleck. Gesund bleibt die Kachel neutral. */}
       <div
-        className="rounded-xl px-5 py-4 relative overflow-hidden"
-        style={{
-          background: '#111318',
-          border: `1px solid ${status.status === 'healthy' ? '#1e2228' : farbe + '44'}`,
-          borderLeft: `3px solid ${farbe}`,
-        }}
+        className="rounded-xl px-5 py-4 relative overflow-hidden border"
+        style={status.status === 'healthy'
+          ? { background: '#111318', borderColor: '#1e2228' }
+          : {
+              background: `linear-gradient(115deg, ${farbe}17 0%, ${farbe}08 45%, transparent 75%), #111318`,
+              borderColor: `${farbe}2a`,
+            }}
       >
-        <div className="absolute inset-0 pointer-events-none" style={{
-          background: `radial-gradient(ellipse 40% 120% at 0% 50%, ${farbe}14 0%, transparent 70%)`,
-        }} />
 
         <div className="relative z-10 flex items-center gap-4 flex-wrap">
           <HealthIcon status={status.status} kind={kind} size={32} color={farbe} />
 
-          <div className="min-w-0 flex-1">
+          {/* Mindestbreite, damit der Text auf dem Handy unter das Zeichen
+              rutscht. Sonst stand er als schmale Säule zwischen Herz und
+              Knopf, ein Wort je Zeile. */}
+          <div className="min-w-0 flex-1 basis-64">
             <div className="flex items-baseline gap-3 flex-wrap">
               <span className="text-xl font-black tracking-tight"
                     style={{ color: farbe, fontFamily: 'Barlow Condensed, sans-serif' }}>
@@ -320,7 +327,7 @@ export default function HealthStatus({ variant = 'bar', onChanged }) {
               </span>
               <span className="text-[10px] font-mono tracking-widest text-[var(--text-muted)]">
                 {event
-                  ? `${event.kind_label.toUpperCase()} SEIT ${event.start_date} · ${event.days} ${event.days === 1 ? 'TAG' : 'TAGE'}`
+                  ? `${ART_EN[kind] || event.kind_label.toUpperCase()} SINCE ${event.start_date} · ${event.days} ${event.days === 1 ? 'DAY' : 'DAYS'}`
                   : stil.sub.toUpperCase()}
               </span>
             </div>
@@ -337,7 +344,7 @@ export default function HealthStatus({ variant = 'bar', onChanged }) {
 
             {status.status === 'returning' && status.easy_until && (
               <div className="text-[10px] font-mono mt-2" style={{ color: farbe }}>
-                LOCKER BIS {status.easy_until} · UMFANG {Math.round(status.volume_factor * 100)} %
+                EASY UNTIL {status.easy_until} · VOLUME {Math.round(status.volume_factor * 100)} %
               </div>
             )}
 
@@ -353,7 +360,7 @@ export default function HealthStatus({ variant = 'bar', onChanged }) {
                 className="px-4 py-2 rounded-lg text-[11px] font-mono font-bold tracking-wide disabled:opacity-40"
                 style={{ background: '#22c55e20', border: '1px solid #22c55e44', color: '#22c55e' }}
               >
-                {busy ? '…' : (verletzt ? 'WIEDER BELASTBAR' : 'WIEDER GESUND')}
+                {busy ? '…' : (verletzt ? 'FIT AGAIN' : 'HEALTHY AGAIN')}
               </button>
             ) : (
               <button
@@ -361,7 +368,7 @@ export default function HealthStatus({ variant = 'bar', onChanged }) {
                 className="px-4 py-2 rounded-lg text-[11px] font-mono font-bold tracking-wide transition-all"
                 style={{ background: '#ef444418', border: '1px solid #ef444438', color: '#ef4444' }}
               >
-                KRANK ODER VERLETZT
+                SICK OR INJURED
               </button>
             )}
           </div>

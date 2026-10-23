@@ -251,7 +251,14 @@ def cancel_plan(montag: date, db: Session = Depends(get_db),
     from services.plan_storno import PlanNichtStornierbar, plan_stornieren
 
     try:
-        return plan_stornieren(db, user, montag)
+        ergebnis = plan_stornieren(db, user, montag)
+        # Die Läufe der Woche auch bei intervals.icu (und damit von der Uhr)
+        # nehmen. Der Abgleich findet keine geplanten Einheiten mehr und
+        # löscht die FORGE-Workouts der Woche.
+        from core.tenancy import get_current_user_id
+        from services.intervals_sync import anstossen
+        anstossen(db, user.id if user else get_current_user_id(), [montag])
+        return ergebnis
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except PlanNichtStornierbar as e:

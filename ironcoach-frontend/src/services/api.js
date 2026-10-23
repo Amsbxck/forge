@@ -232,6 +232,13 @@ export const deleteWebhook = () => api.delete('/api/integrations/strava/webhook'
 export const connectGarmin = (apiKey) => api.put('/api/integrations/garmin', { api_key: apiKey })
 export const garminAbrufen = () => api.post('/api/integrations/garmin/abrufen')
 export const disconnectGarmin = () => api.delete('/api/integrations/garmin')
+// intervals.icu: geplante Läufe als Workout über intervals.icu auf die Garmin-Uhr.
+export const connectIntervals = (athleteId, apiKey) =>
+  api.put('/api/integrations/intervals', { athlete_id: athleteId, api_key: apiKey })
+export const intervalsAbgleichen = () => api.post('/api/integrations/intervals/abgleichen', null, { timeout: 30000 })
+export const disconnectIntervals = () => api.delete('/api/integrations/intervals', { timeout: 30000 })
+export const getIntervalsAuthUrl = () => api.get('/api/intervals/auth')
+export const confirmIntervals = (vorgang) => api.post('/api/intervals/bestaetigen', { vorgang })
 
 // --- Gesundheit ---
 export const getHealthStatus = () => api.get('/api/health/status')

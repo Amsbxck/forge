@@ -421,6 +421,11 @@ async def generate_and_save_plan(
             "Kalender nicht aktualisiert — bitte die Woche neu laden oder neu erstellen"
         ]
         db.commit()
+    else:
+        # Die Läufe der Woche zu intervals.icu und von dort auf die Uhr. Nach
+        # der Projektion, weil der Abgleich die geplanten Einheiten liest.
+        from services.intervals_sync import anstossen
+        anstossen(db, db_plan.user_id, [db_plan.week_start])
 
     # Zwift-Namen nachtragen, wo die geplante Struktur eindeutig zu einem
     # Katalog-Workout passt. Bewusst hier und nicht in `project_plan`: die

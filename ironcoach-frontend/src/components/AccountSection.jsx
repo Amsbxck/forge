@@ -10,7 +10,6 @@ const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
 const LABEL = 'text-[10px] font-mono tracking-widest text-[var(--text-secondary)] block mb-1'
 const FIELD = 'rounded-lg px-3 py-2 text-sm font-mono text-[#e8eaf0] placeholder-[var(--text-muted)] outline-none w-full'
 const FIELD_STYLE = { background: '#0d0f17', border: '1px solid #1e2228' }
-const DISPLAY = { fontFamily: 'Barlow Condensed, sans-serif' }
 
 function fehlerText(err, fallback) {
   const detail = err?.response?.data?.detail
@@ -124,8 +123,10 @@ export default function AccountSection({ onLoggedOut }) {
 
   return (
     <div className={`${CARD} p-5`}>
-      <div className="text-lg font-black tracking-tight text-[#e8eaf0]" style={DISPLAY}>KONTO</div>
-      <div className="text-xs font-mono text-[var(--text-secondary)] mt-1">{konto.email}</div>
+      <div className="flex items-baseline justify-between gap-3 flex-wrap">
+        <span className="text-xs font-mono tracking-[0.25em] text-[var(--text-secondary)]">ACCOUNT</span>
+        <span className="text-[10px] font-mono tracking-widest text-[var(--text-muted)]">{konto.email}</span>
+      </div>
 
       {/* Unbestätigte Adresse: sichtbar, aber nicht blockierend. */}
       {!konto.email_verified && (
@@ -137,7 +138,7 @@ export default function AccountSection({ onLoggedOut }) {
           <button onClick={bestaetigungSenden} disabled={busy}
                   className="text-[10px] font-mono tracking-wide px-3 py-1.5 rounded-lg disabled:opacity-40"
                   style={{ background: '#f59e0b18', border: '1px solid #f59e0b40', color: '#f59e0b' }}>
-            {busy ? '…' : 'ERNEUT SENDEN'}
+            {busy ? '…' : 'RESEND'}
           </button>
         </div>
       )}
@@ -145,7 +146,7 @@ export default function AccountSection({ onLoggedOut }) {
       {konto.is_admin && (
         <div className="mt-4 rounded-lg px-3 py-3" style={{ background: '#0d0f17', border: '1px solid #1e2228' }}>
           <label htmlFor="admin-bestaetigen" className={LABEL}>
-            ADMIN · KONTO VON HAND BESTÄTIGEN
+            ADMIN · CONFIRM ACCOUNT BY HAND
           </label>
           <p className="text-[11px] text-[var(--text-muted)] leading-relaxed mb-2">
             Für den Fall, dass die Bestätigungsmail nicht ankommt und jemand
@@ -165,7 +166,7 @@ export default function AccountSection({ onLoggedOut }) {
             <button onClick={kontoBestaetigen} disabled={busy || !fremdeAdresse.trim()}
                     className="text-[10px] font-mono tracking-wide px-3 py-2 rounded-lg disabled:opacity-40"
                     style={{ background: '#00d4ff15', border: '1px solid #00d4ff33', color: '#00d4ff' }}>
-              BESTÄTIGEN
+              CONFIRM
             </button>
           </div>
           {adminMeldung && (
@@ -181,21 +182,21 @@ export default function AccountSection({ onLoggedOut }) {
         <button onClick={datenLaden} disabled={busy}
                 className="px-3 py-2 rounded-lg text-[11px] font-mono tracking-wide text-left disabled:opacity-40"
                 style={{ background: '#0d0f17', border: '1px solid #1e2228', color: 'var(--text-secondary)' }}>
-          <span className="block text-[#e8eaf0]">DATEN EXPORTIEREN</span>
+          <span className="block text-[#e8eaf0]">EXPORT DATA</span>
           <span className="text-[10px] text-[var(--text-muted)]">Alles als JSON-Datei</span>
         </button>
 
         <button onClick={ueberallAbmelden} disabled={busy}
                 className="px-3 py-2 rounded-lg text-[11px] font-mono tracking-wide text-left disabled:opacity-40"
                 style={{ background: '#0d0f17', border: '1px solid #1e2228', color: 'var(--text-secondary)' }}>
-          <span className="block text-[#e8eaf0]">ÜBERALL ABMELDEN</span>
+          <span className="block text-[#e8eaf0]">SIGN OUT EVERYWHERE</span>
           <span className="text-[10px] text-[var(--text-muted)]">Beendet alle Geräte</span>
         </button>
 
         <button onClick={() => { setLoeschDialog(true); setFehler(null) }} disabled={busy}
                 className="px-3 py-2 rounded-lg text-[11px] font-mono tracking-wide text-left disabled:opacity-40"
                 style={{ background: '#ef444410', border: '1px solid #ef444428', color: '#ef4444' }}>
-          <span className="block">KONTO LÖSCHEN</span>
+          <span className="block">DELETE ACCOUNT</span>
           <span className="text-[10px] opacity-70">Endgültig, mit allen Daten</span>
         </button>
       </div>
