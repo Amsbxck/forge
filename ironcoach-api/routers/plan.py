@@ -145,6 +145,9 @@ def doppeltag_der_woche(montag: date, db: Session = Depends(get_db)):
         "form": z["form"],
         "titel": z["titel"],
         "grund": z["grund"],
+        # Dasselbe ohne die HRV — die Kachel zeigt sie als Ampel daneben.
+        "hinweise": z["hinweise"],
+        "hrv": z["hrv"],
         # Die Urne selbst, damit die Kachel zeigen kann, woraus gezogen wurde —
         # eine Form mit Gewicht 0 steht gar nicht erst darin.
         "gewichte": {f: g for f, g in z["gewichte"].items() if g > 0},

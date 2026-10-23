@@ -337,9 +337,52 @@ def test_endpunkt_liefert_die_ziehung(client):
     resp = client.get(f"/api/plan/doppeltag/am/{MONTAG}")
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert set(data) >= {"form", "titel", "grund", "phase", "week_start"}
+    assert set(data) >= {"form", "titel", "grund", "hinweise", "hrv", "phase", "week_start"}
     # Der Testathlet hat kein Saisonziel: Off Season, also kein Doppeltag.
     assert data["form"] is None
+
+
+# --- HRV-Ampel in der Kachel ---------------------------------------------------
+
+def test_hinweise_sind_der_grund_ohne_die_hrv(db, athlet):
+    """Die Kachel zeigt die HRV als Ampel; der Satz daneben soll sie nicht
+    noch einmal als Text wiederholen. Der Prompt behält den ganzen Satz."""
+    uid = athlet.neu()
+    athlet.hrv(uid, "green")
+    z = ziehung(db, MONTAG, "Build 2", uid, heute=date.today())
+    assert z["grund"].startswith("HRV normal")
+    assert all("HRV" not in h for h in z["hinweise"])
+
+
+def test_hrv_lage_schnitt_und_dieselbe_farbe_wie_die_urne(db, athlet):
+    from models import AthleteProfile, HrvMeasurement
+    from services.doppel_urne import _hrv_status, hrv_lage
+
+    uid = athlet.neu()
+    heute = date.today()
+    for tage, wert, status in ((0, 60, "yellow"), (1, 80, "green"), (3, 70, "green"),
+                               # Außerhalb der sieben Tage: zählt nicht mit.
+                               (8, 20, "red")):
+        db.add(HrvMeasurement(user_id=uid, measured_at=heute - timedelta(days=tage),
+                              rmssd=wert, hrv_status=status))
+    db.commit()
+    profil = db.query(AthleteProfile).filter(AthleteProfile.user_id == uid).one()
+
+    lage = hrv_lage(db, profil, heute)
+    assert lage["schnitt_7"] == 70.0
+    assert lage["messungen"] == 3
+    assert lage["letzter_wert"] == 60
+    # Die Ampel urteilt wie die Urne — nicht nach dem Schnitt.
+    assert lage["status"] == _hrv_status(db, uid, heute) == "yellow"
+
+
+def test_hrv_lage_ohne_messungen_schweigt(db, athlet):
+    from models import AthleteProfile
+    from services.doppel_urne import hrv_lage
+
+    uid = athlet.neu()
+    profil = db.query(AthleteProfile).filter(AthleteProfile.user_id == uid).one()
+    assert hrv_lage(db, profil) is None
 
 
 def _generieren(client, **params):
