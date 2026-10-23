@@ -102,13 +102,13 @@ const CustomTooltip = ({ active, payload }) => {
 
 export default function HRVHistoryChart({ data }) {
   const [grenzen, setGrenzen] = useState(null)
-  // Die berechnete Grundlinie getrennt von den geltenden Grenzen. Sie urteilt
-  // nicht — die eingetragene Spanne aus der Uhr hat Vorrang. Sie steht da, um
-  // die Rechnung sichtbar zu machen: Wer seine Garmin-Spanne pflegt, soll sehen,
-  // was die eigenen Messungen daneben ergeben würden.
+  // Die berechnete Grundlinie getrennt von den geltenden Grenzen. Mit Garmin
+  // urteilt sie nicht — Garmins Spanne hat Vorrang. Sie steht trotzdem da, um
+  // die Rechnung sichtbar zu machen: was die eigenen Messungen ergeben.
   const [grundlinie, setGrundlinie] = useState(null)
   // Die Regeln der Rechnung, nicht nur ihr Ergebnis — damit die gezeichnete
-  // Spanne dieselbe ist, die auch urteilt.
+  // Spanne genau die ist, die das Backend rechnet. Ohne Garmin urteilt sie
+  // auch; mit Garmin zeigt sie, was die eigenen Messungen ergeben.
   const [regeln, setRegeln] = useState(null)
   useEffect(() => {
     getHrvRange().then(({ data: d }) => {
@@ -180,21 +180,15 @@ export default function HRVHistoryChart({ data }) {
           />
           <Tooltip content={<CustomTooltip />} />
 
-          {/* Die **berechnete** Normalspanne, mitlaufend als Fläche.
-              Vorher stand hier die eingetragene Garmin-Spanne als waagerechtes
-              Band. Die urteilt weiter — aber sie bewegt sich nicht, und damit
-              war von der Rechnung nichts zu sehen. Die Fläche hier zeigt je Tag
-              die Spanne, die das Backend an diesem Tag ergeben hätte: Wird die
+          {/* Die **berechnete** Normalspanne, mitlaufend als Fläche: je Tag die
+              Spanne, die das Backend an diesem Tag ergeben hätte. Wird die
               Streuung grösser, öffnet sie sich; verschiebt sich das Mittel,
-              wandert sie mit. */}
-          {/* Auch mit eingetragener Garmin-Spanne bleibt die berechnete Fläche
-              stehen. Die Prüfung vom 18.10. hatte sie dann ausgeblendet und die
-              Garmin-Spanne als Fläche gezeichnet (Begründung: ein Punkt konnte
-              in der grünen Fläche liegen und trotzdem rot sein). Damit war die
-              Rechnung genau für den Athleten unsichtbar, für den sie gedacht
-              ist: wer seine Garmin-Spanne pflegt und sehen will, was die eigenen
-              Messungen daneben ergeben. Geurteilt wird weiter nach Garmin — das
-              zeigen die gestrichelten Linien mit der Marke GARMIN und der Satz
+              wandert sie mit. Sie bleibt auch mit Garmin stehen, und eine
+              Garmin-Linie gibt es hier nicht mehr — Vorgeschichte in einem
+              Satz: Die Garmin-Spanne war erst eine Fläche, die die Rechnung
+              verdeckte, dann gestrichelte Linien neben ihr, und keiner sah,
+              welches Grün urteilt. Garmins Spanne steht jetzt im Profil und
+              urteilt hier nur über die Farbe der Punkte; das sagt der Satz
               unter dem Diagramm. */}
           <Area dataKey="band" fill="#22c55e" fillOpacity={0.10} stroke="none"
                 isAnimationActive={false} connectNulls legendType="none"
@@ -209,18 +203,9 @@ export default function HRVHistoryChart({ data }) {
                 strokeOpacity={0.45} strokeDasharray="2 3" dot={false} legendType="none"
                 isAnimationActive={false} connectNulls activeDot={false} name="Spanne unten" />
 
-          {/* Die geltenden Grenzen als Bezug. Gestrichelt und ohne Fläche: Sie
-              entscheiden über die Ampel, sollen aber die Bewegung der Rechnung
-              nicht überdecken. */}
-          {grenzen && (
-            <ReferenceLine y={grenzen.gruen_ab} stroke="#22c55e" strokeOpacity={0.55} strokeDasharray="6 4"
-                           label={{ value: grenzen.quelle === 'manual' ? 'GARMIN' : '', position: 'insideTopRight',
-                                    fill: '#22c55e', fillOpacity: 0.6, fontSize: 9,
-                                    fontFamily: 'monospace', letterSpacing: '0.1em' }} />
-          )}
-          {grenzen?.gruen_bis && (
-            <ReferenceLine y={grenzen.gruen_bis} stroke="#22c55e" strokeOpacity={0.35} strokeDasharray="6 4" />
-          )}
+          {/* Die rote Grenze als Bezug. Gestrichelt und ohne Fläche: Sie
+              entscheidet über Rot, soll aber die Bewegung der Rechnung nicht
+              überdecken. */}
           {grenzen && (
             <ReferenceLine y={grenzen.rot_unter} stroke="#ef4444" strokeOpacity={0.5} strokeDasharray="4 4" />
           )}
@@ -254,28 +239,20 @@ export default function HRVHistoryChart({ data }) {
         <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block" style={{ background: '#00d4ff' }} /> rMSSD</span>
         <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block opacity-50" style={{ background: '#22c55e' }} /> Trend</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm inline-block opacity-25" style={{ background: '#22c55e' }} /> Normalspanne (berechnet)</span>
-        {grenzen?.quelle === 'manual' && (
-          <span className="flex items-center gap-1.5">
-            <span className="w-4 h-0.5 inline-block opacity-55" style={{ background: '#22c55e' }} /> Garmin
-          </span>
-        )}
         <span className="flex items-center gap-1.5"><span className="w-4 h-0.5 inline-block opacity-60" style={{ background: '#ef4444' }} /> Rote Grenze</span>
       </div>
 
-      {/* Was die Fläche ist und was die Linie. Ohne diesen Satz sind es zwei
-          grüne Dinge im Diagramm und keine Auskunft darüber, welches urteilt. */}
+      {/* Was die Fläche ist und wonach geurteilt wird. Mit Garmin kann ein
+          Punkt in der grünen Fläche liegen und trotzdem rot sein (bewusst so,
+          siehe CLAUDE.md) — ohne den Satz wirkte das wie ein Fehler. */}
       <p className="px-1 text-[11px] font-mono leading-relaxed" style={{ color: 'var(--text-muted)' }}>
         Die <span style={{ color: '#22c55e' }}>Fläche</span> ist deine berechnete
         Normalspanne — Mittelwert ± 0,5 σ aus den jeweils letzten{' '}
         {regeln?.maxMessungen ?? 30} Messungen, Tag für Tag neu. Sie öffnet sich,
         wenn deine Streuung wächst, und wandert mit, wenn sich dein Mittel
         verschiebt. Innerhalb davon ist ein Unterschied Messrauschen.
-        {grenzen?.quelle === 'manual' ? (
-          <> Geurteilt wird aber nach deiner eingetragenen Garmin-Spanne{' '}
-            <span style={{ color: '#22c55e' }}>
-              {grenzen.gruen_ab}{grenzen.gruen_bis ? `–${grenzen.gruen_bis}` : '+'} ms
-            </span>{' '}
-            (gestrichelt), rot unter {grenzen.rot_unter} ms.</>
+        {grenzen?.quelle === 'garmin' || grenzen?.quelle === 'manual' ? (
+          <> Die Farbe der Punkte richtet sich nach deiner Garmin-Spanne (siehe Profil).</>
         ) : grenzen ? (
           <> Nach ihr wird auch geurteilt: aktuell{' '}
             <span style={{ color: '#22c55e' }}>{grenzen.gruen_ab}–{grenzen.gruen_bis} ms</span>,

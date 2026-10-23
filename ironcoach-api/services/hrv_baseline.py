@@ -26,9 +26,9 @@ und damit war nicht zu erkennen, ob ein guter Wert wirklich gut war oder nur
 innerhalb der Streuung lag.
 
 Solange zu wenige Messungen vorliegen, gibt es keine Ampel — geraten wäre
-schlechter als offen zu sagen, dass die Grundlinie noch entsteht. Wer seine
-Spanne kennt, etwa aus Garmin Connect, kann sie eintragen und überspringt
-die Wartezeit.
+schlechter als offen zu sagen, dass die Grundlinie noch entsteht. Wer Garmin
+Connect verbindet, bekommt Garmins Baseline als Spanne (`services/garmin_hrv.py`)
+und überspringt die Wartezeit.
 """
 
 import logging
@@ -57,13 +57,19 @@ BAND_SIGMA = 0.5
 GRUEN_SIGMA = BAND_SIGMA   # die untere Bandgrenze ist die Ampelschwelle
 ROT_SIGMA = 1.0
 
-# Aus einem eingetragenen grünen Bereich (wie Garmin ihn anzeigt) muss die
+# Aus Garmins grünem Bereich (früher abgetippt, jetzt automatisch) muss die
 # rote Grenze abgeleitet werden — die Uhr nennt nur „ausgeglichen" und
 # „darunter". Ein Viertel der Bandbreite unterhalb entspricht etwa einer
 # halben Standardabweichung, wenn das Band rund zwei Standardabweichungen
 # breit ist. So skaliert der gelbe Bereich mit der eigenen Streuung statt
 # mit einer festen Zahl.
 GELB_ANTEIL_BANDBREITE = 0.25
+
+
+# Spannen aus der Uhr. Beide gelten unbedingt vor der Rechnung, siehe
+# `thresholds_for`. Eine Stelle statt zweier Vergleiche, damit eine dritte
+# Quelle nicht an einer Stelle vergessen wird.
+VORRANG_QUELLEN = ("manual", "garmin")
 
 
 def red_from_band(unten: float, oben: float) -> float:
@@ -112,10 +118,16 @@ def compute_baseline(db: Session, user: User | None = None, today: date | None =
 def thresholds_for(profile: AthleteProfile | None, baseline: dict | None) -> dict | None:
     """Die geltenden Grenzen.
 
-    **Eine eingetragene Spanne hat unbedingten Vorrang.** Sie kommt aus der Uhr,
-    die über Monate und mit dem eigenen Messverfahren gelernt hat; die Rechnung
-    hier sieht nur die Werte, die in dieser App gelandet sind. Wer eine Spanne
-    einträgt, hat entschieden.
+    **Garmins Baseline hat unbedingten Vorrang** (`hrv_range_source ==
+    "garmin"`, sonntags aus Garmin Connect aktualisiert, `services/garmin_hrv.py`).
+    Sie kommt aus der Uhr, die über Monate und mit dem eigenen Messverfahren
+    gelernt hat; die Rechnung hier sieht nur die Werte, die in dieser App
+    gelandet sind.
+
+    **Eine früher von Hand eingetragene Spanne (`"manual"`) gilt mit demselben
+    Vorrang weiter.** Wer ein Band eingetragen hat und Garmin nicht verbindet,
+    behält es. Neu setzen lässt sie sich über die Oberfläche nicht mehr: Die
+    Spanne ist nicht von Hand änderbar, sie kommt aus Garmin.
 
     Hier wurden zuvor **beide** Werte verlangt, `hrv_green_min` und
     `hrv_red_below`. Fehlte die rote Grenze, fiel die Funktion stillschweigend
@@ -123,7 +135,8 @@ def thresholds_for(profile: AthleteProfile | None, baseline: dict | None) -> dic
     dass irgendwo etwas davon stand. Jetzt genügt die untere Bandgrenze; die
     rote wird daraus abgeleitet, so wie beim Eintragen auch.
     """
-    if profile is not None and profile.hrv_range_source == "manual" and profile.hrv_green_min:
+    quelle = getattr(profile, "hrv_range_source", None) if profile is not None else None
+    if quelle in VORRANG_QUELLEN and profile.hrv_green_min:
         rot = profile.hrv_red_below
         if not rot:
             rot = (
@@ -135,7 +148,7 @@ def thresholds_for(profile: AthleteProfile | None, baseline: dict | None) -> dic
             "gruen_ab": profile.hrv_green_min,
             "gruen_bis": profile.hrv_band_high,
             "rot_unter": rot,
-            "quelle": "manual",
+            "quelle": quelle,
         }
     if baseline and baseline.get("status") == "ok":
         return {
@@ -188,11 +201,11 @@ def evaluate(db: Session, rmssd: float, user: User | None = None) -> tuple[str |
 def recompute_all(db: Session, user: User | None = None) -> int:
     """Alle gespeicherten Messungen neu bewerten.
 
-    Nötig, wenn sich die Grundlinie verschiebt oder eine Spanne eingetragen
-    wird — sonst tragen alte Messungen weiter die Farbe von gestern.
+    Nötig, wenn sich die Grundlinie verschiebt oder Garmin eine neue Spanne
+    liefert — sonst tragen alte Messungen weiter die Farbe von gestern.
 
-    **Eine eingetragene Spanne gilt für alle Messungen** — sie hat unbedingten
-    Vorrang (siehe `thresholds_for`).
+    **Eine Spanne aus der Uhr (Garmin oder früher eingetragen) gilt für alle
+    Messungen** — sie hat unbedingten Vorrang (siehe `thresholds_for`).
 
     Ohne sie bekommt jede Messung die Farbe nach der Spanne **ihres** Tages:
     dieselbe Rechnung wie `compute_baseline` (bis zu 30 Messungen aus den
@@ -207,7 +220,7 @@ def recompute_all(db: Session, user: User | None = None) -> int:
     from core.deps import get_profile
 
     profile = get_profile(db, user)
-    manuell = thresholds_for(profile, None)
+    vorrang = thresholds_for(profile, None)
 
     query = db.query(HrvMeasurement)
     if user is not None:
@@ -216,8 +229,8 @@ def recompute_all(db: Session, user: User | None = None) -> int:
 
     geaendert = 0
     for i, messung in enumerate(messungen):
-        if manuell is not None:
-            grenzen = manuell
+        if vorrang is not None:
+            grenzen = vorrang
         else:
             grenze = messung.measured_at - timedelta(days=FENSTER_TAGE)
             fenster = [

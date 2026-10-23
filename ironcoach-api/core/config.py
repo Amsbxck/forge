@@ -139,6 +139,20 @@ class Settings(BaseSettings):
     STRAVA_BACKFILL_DAYS: int = 90
     RECONCILE_MINUTE: int = 7  # stündlich zu dieser Minute
 
+    # --- Garmin Connect (Personal API) ---
+    # Standardmäßig aus, aus demselben Grund wie RECONCILE_ENABLED: Auch
+    # dieser Job schreibt in die Datenbank und redet nach außen, und ein
+    # Container-Neustart soll ihn nicht versehentlich auslösen. Bewusst ein
+    # eigener Schalter statt RECONCILE_ENABLED mitzunutzen: Wer Strava nicht
+    # verbindet (neue Strava-Apps dürfen nur einen Athleten anbinden), soll
+    # trotzdem seine HRV bekommen.
+    GARMIN_SYNC_ENABLED: bool = False
+    GARMIN_PERSONAL_BASE_URL: str = "https://personal.connectapi.garmin.com"
+    # Morgens zwischen 7 und 12 Uhr zu dieser Minute. Nicht 7 wie der
+    # Strava-Abgleich, damit beide Jobs nicht gleichzeitig Verbindungen und
+    # Datenbanksitzungen aufmachen.
+    GARMIN_MINUTE: int = 23
+
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in (self.CORS_ORIGINS or "").split(",") if o.strip()]

@@ -14,7 +14,7 @@ def test_create_hrv(client):
     # Ohne hinterlegte Normalspanne bewertet die Ampel bewusst nicht: Eine
     # geratene Schwelle wäre schlechter als keine, weil der Zustand in die
     # Planung eingeht. Der Status bleibt deshalb leer, bis genug Messungen
-    # vorliegen oder die Spanne eingetragen wurde.
+    # vorliegen oder Garmin eine Spanne geliefert hat.
     assert data["hrv_status"] is None
 
 

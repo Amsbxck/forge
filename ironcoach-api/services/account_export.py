@@ -51,6 +51,10 @@ NUTZERDATEN = [
 # ein Risiko in einer Datei, die per Mail weitergereicht wird.
 GEHEIM = {
     "password_hash", "access_token", "refresh_token", "obsidian_api_key",
+    # Der persönliche Garmin-Schlüssel gibt bis zu ein Jahr lang Zugriff auf
+    # alle Gesundheitsdaten bei Garmin — in einer Exportdatei, die per Mail
+    # weitergereicht wird, wäre er ein offenes Tor.
+    "garmin_api_key",
     "token_hash", "reflection_sync_hash", "claude_prompt",
 }
 

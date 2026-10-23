@@ -3,6 +3,7 @@ import {
   getIntegrations, updateObsidian, testObsidian,
   getStravaAuthUrl, disconnectStrava, confirmStrava,
   getWebhookStatus, registerWebhook, deleteWebhook,
+  connectGarmin, garminAbrufen, disconnectGarmin,
 } from '../services/api'
 import { fehlerText } from '../utils/fehler'
 
@@ -19,6 +20,192 @@ function Status({ ok, children }) {
       <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
       {children}
     </span>
+  )
+}
+
+// Garmin-Blau, wie im Garmin-Connect-Logo. Gleiche Tönung wie beim
+// Strava-Knopf: Hintergrund <farbe>20, Rand <farbe>55, Schrift <farbe>.
+const GARMIN = '#007CC3'
+
+function zeitpunkt(iso) {
+  if (!iso) return null
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+function Rueckmeldung({ ok, children }) {
+  return (
+    <div className="rounded-lg px-3 py-2 font-mono text-[11px] leading-relaxed mt-3 max-w-md"
+         style={{
+           background: ok ? '#22c55e12' : '#ef444412',
+           border: `1px solid ${ok ? '#22c55e33' : '#ef444433'}`,
+           color: ok ? '#22c55e' : '#ef4444',
+         }}>
+      {ok ? '✓ ' : '✕ '}{children}
+    </div>
+  )
+}
+
+/** Garmin Connect über die Personal API.
+ *
+ *  Jeder Athlet trägt seinen eigenen Schlüssel ein; FORGE holt danach jeden
+ *  Morgen die nächtliche HRV und jeden Sonntag Garmins Normalspanne. Der
+ *  Schlüssel kommt nie zurück, nur die letzten vier Zeichen.
+ */
+function GarminKachel({ zustand, onChange }) {
+  const [schluessel, setSchluessel] = useState('')
+  const [busy, setBusy] = useState(null)
+  const [rueckmeldung, setRueckmeldung] = useState(null)
+  const verbunden = zustand?.configured
+  // Bei einem Schlüsselfehler (abgelaufen, gelöscht, nicht mehr lesbar)
+  // kommt das Feld zurück: Der Athlet soll den Schlüssel an Ort und Stelle
+  // ersetzen können. Bei einem vorübergehenden Fehler (429, Garmin nicht
+  // erreichbar) nicht — ein neuer Schlüssel hilft dann nicht, und das Feld
+  // legte nahe, der alte sei kaputt.
+  const feldZeigen = !verbunden || zustand?.fehler_art === 'schluessel'
+
+  const zusammenfassung = (e) => {
+    if (!e) return ''
+    const teile = [`${e.neu} neue Werte`, `${e.aktualisiert} aktualisiert`]
+    if (e.spanne_uebernommen === true) teile.push('Normalspanne übernommen')
+    if (e.spanne_uebernommen === false) {
+      teile.push('Normalspanne folgt, sobald Garmin sie gelernt hat (die ersten etwa drei Wochen)')
+    }
+    return teile.join(' · ')
+  }
+
+  const verbinden = async (ev) => {
+    ev.preventDefault()
+    if (!schluessel.trim()) return
+    setBusy('verbinden'); setRueckmeldung(null)
+    try {
+      const { data } = await connectGarmin(schluessel.trim())
+      setSchluessel('')
+      onChange(data)
+      // Ein Fehler beim ersten Abruf steht als `letzter_fehler` schon in der
+      // roten Box der Kachel. Eine eigene Rückmeldung zeigte ihn doppelt.
+      if (data.ergebnis?.ok !== false) {
+        setRueckmeldung({ ok: true, text: `Garmin ist verbunden. ${zusammenfassung(data.ergebnis)}` })
+      }
+    } catch (err) {
+      setRueckmeldung({ ok: false, text: fehlerText(err, 'Verbinden fehlgeschlagen') })
+    } finally { setBusy(null) }
+  }
+
+  const abrufen = async () => {
+    setBusy('abrufen'); setRueckmeldung(null)
+    try {
+      const { data } = await garminAbrufen()
+      onChange(data)
+      // Ein Fehler steht danach ohnehin als rote Box in der Kachel.
+      if (data.ergebnis?.ok !== false) {
+        setRueckmeldung({ ok: true, text: zusammenfassung(data.ergebnis) })
+      }
+    } catch (err) {
+      setRueckmeldung({ ok: false, text: fehlerText(err, 'Abruf fehlgeschlagen') })
+    } finally { setBusy(null) }
+  }
+
+  const trennen = async () => {
+    if (!confirm('Garmin trennen? Bereits geholte HRV-Werte bleiben erhalten.')) return
+    setBusy('trennen'); setRueckmeldung(null)
+    try {
+      const { data } = await disconnectGarmin()
+      onChange(data)
+    } catch (err) {
+      setRueckmeldung({ ok: false, text: fehlerText(err, 'Trennen fehlgeschlagen') })
+    } finally { setBusy(null) }
+  }
+
+  return (
+    <div className={`${CARD} p-5`} style={{ borderLeft: `3px solid ${GARMIN}` }}>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-lg font-black tracking-tight text-[#e8eaf0]" style={DISPLAY}>GARMIN CONNECT</h2>
+          <p className="text-xs text-[var(--text-secondary)] mt-1 max-w-md leading-relaxed">
+            Holt jeden Morgen deine nächtliche HRV und jeden Sonntag deine Normalspanne
+            direkt aus Garmin Connect. Dafür brauchst du einen persönlichen API-Schlüssel.
+          </p>
+          <div className="mt-2">
+            <Status ok={verbunden && !zustand?.letzter_fehler}>
+              {verbunden ? `Verbunden · Schlüssel ${zustand.api_key_hint}` : 'Nicht verbunden'}
+            </Status>
+          </div>
+          {verbunden && (
+            <div className="text-[11px] font-mono text-[var(--text-muted)] mt-1">
+              Letzter Abruf: {zeitpunkt(zustand.letzter_abruf) || 'noch keiner'}
+            </div>
+          )}
+          {zustand?.letzter_fehler && <Rueckmeldung ok={false}>{zustand.letzter_fehler}</Rueckmeldung>}
+          {rueckmeldung && <Rueckmeldung ok={rueckmeldung.ok}>{rueckmeldung.text}</Rueckmeldung>}
+          {/* Unabhängig davon, ob schon verbunden: Der Text oben verspricht
+              den Abruf jeden Morgen, auch vor dem Verbinden. Ohne Verbindung
+              gibt es den Knopf „Jetzt abrufen" noch nicht, also auch keinen
+              Verweis darauf. */}
+          {zustand?.sync_aktiv === false && (
+            <p className="text-[11px] font-mono text-[var(--text-muted)] mt-2 max-w-md leading-relaxed">
+              Der automatische Abruf ist auf dem Server nicht eingeschaltet.
+              {verbunden
+                ? ' ‚Jetzt abrufen‘ funktioniert trotzdem.'
+                : ' Nach dem Verbinden kannst du von Hand abrufen.'}
+            </p>
+          )}
+        </div>
+
+        {verbunden && (
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={abrufen} disabled={!!busy}
+                    className="px-3 py-2 rounded-lg text-xs font-mono font-bold tracking-wide disabled:opacity-40"
+                    style={{ background: `${GARMIN}20`, border: `1px solid ${GARMIN}55`, color: GARMIN }}>
+              {busy === 'abrufen' ? 'RUFT AB…' : 'JETZT ABRUFEN'}
+            </button>
+            <button onClick={trennen} disabled={!!busy}
+                    className="px-3 py-2 rounded-lg text-xs font-mono tracking-wide text-[var(--text-secondary)] disabled:opacity-40"
+                    style={{ border: '1px solid #1e2228' }}>
+              TRENNEN
+            </button>
+          </div>
+        )}
+      </div>
+
+      {feldZeigen && (
+        <form onSubmit={verbinden} className="mt-4 space-y-3">
+          <label className="block max-w-md">
+            <span className={`${LABEL} block mb-1`}>
+              API-SCHLÜSSEL {verbunden && '(NEUEN SCHLÜSSEL EINTRAGEN)'}
+            </span>
+            <input type="password" className={FIELD} style={FIELD_STYLE} value={schluessel}
+                   onChange={e => setSchluessel(e.target.value)}
+                   placeholder="aus Garmin Connect kopieren" autoComplete="off" />
+          </label>
+          <button type="submit" disabled={!!busy || !schluessel.trim()}
+                  className="px-3 py-2 rounded-lg text-xs font-mono font-bold tracking-wide disabled:opacity-40"
+                  style={{ background: `${GARMIN}20`, border: `1px solid ${GARMIN}55`, color: GARMIN }}>
+            {busy === 'verbinden' ? 'VERBINDET…' : 'VERBINDEN'}
+          </button>
+
+          <details className="text-[11px] font-mono text-[var(--text-muted)]">
+            <summary className="cursor-pointer hover:text-[var(--text-secondary)]">So bekommst du den Schlüssel</summary>
+            <ol className="mt-2 space-y-1 list-decimal list-inside leading-relaxed">
+              <li>
+                In Garmin Connect im Browser anmelden und{' '}
+                <span className="text-[var(--text-secondary)]">connect.garmin.com/app/settings/personalApiToken</span>{' '}
+                öffnen.
+              </li>
+              <li>„Create Key" wählen, die Bedingungen akzeptieren und als Ablauf <strong>1 Jahr</strong> wählen.</li>
+              <li>Den Schlüssel sofort kopieren, denn Garmin zeigt ihn nur einmal.</li>
+              <li>Hier einfügen und „Verbinden" drücken.</li>
+              <li>
+                Läuft der Schlüssel ab, schickt Garmin eine Woche vorher eine Mail. Dann einen
+                neuen anlegen und hier eintragen.
+              </li>
+            </ol>
+          </details>
+        </form>
+      )}
+    </div>
   )
 }
 
@@ -354,6 +541,10 @@ export default function Integrations() {
           </details>
         )}
       </div>
+
+      {/* Garmin Connect — direkt unter Strava, gleicher Aufbau. */}
+      <GarminKachel zustand={state.garmin}
+                    onChange={(daten) => setState(s => ({ ...s, ...daten }))} />
 
       {/* Obsidian */}
       <form onSubmit={save} className={`${CARD} p-5 space-y-4`} style={{ borderLeft: '3px solid #7c3aed' }}>

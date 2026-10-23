@@ -214,6 +214,11 @@ export const getWebhookStatus = () => api.get('/api/integrations/strava/webhook'
 export const registerWebhook = (publicBaseUrl) =>
   api.post('/api/integrations/strava/webhook', { public_base_url: publicBaseUrl || null }, { timeout: 30000 })
 export const deleteWebhook = () => api.delete('/api/integrations/strava/webhook')
+// Garmin: Verbinden prüft den Schlüssel und holt sofort 30 Tage samt Spanne.
+// Die allgemeine Wartezeit (60 s) reicht dafür, deshalb keine eigene.
+export const connectGarmin = (apiKey) => api.put('/api/integrations/garmin', { api_key: apiKey })
+export const garminAbrufen = () => api.post('/api/integrations/garmin/abrufen')
+export const disconnectGarmin = () => api.delete('/api/integrations/garmin')
 
 // --- Gesundheit ---
 export const getHealthStatus = () => api.get('/api/health/status')
@@ -239,8 +244,7 @@ export const setSwimTest = (data) => api.post('/api/profile/swim-test', data)
 export const clearSwimTest = () => api.delete('/api/profile/swim-test')
 export const setThresholds = (data) => api.post('/api/profile/thresholds', data)
 export const clearThresholds = () => api.delete('/api/profile/thresholds')
+// Nur lesen: Die Spanne kommt aus Garmin Connect und ist nicht von Hand änderbar.
 export const getHrvRange = () => api.get('/api/hrv/range')
-export const setHrvRange = (data) => api.post('/api/hrv/range', data)
-export const clearHrvRange = () => api.delete('/api/hrv/range')
 export const getBudget = () => api.get('/api/budget')
 export const getBudgetUsage = () => api.get('/api/budget/usage')

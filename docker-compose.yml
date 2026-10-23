@@ -68,6 +68,9 @@ services:
       RECONCILE_ENABLED: ${RECONCILE_ENABLED:-false}
       RECONCILE_WINDOW_DAYS: ${RECONCILE_WINDOW_DAYS:-14}
       RECONCILE_MINUTE: ${RECONCILE_MINUTE:-7}
+      # HRV morgens und die Spanne sonntags aus Garmin Connect. Aus, solange
+      # nicht ausdrücklich eingeschaltet (schreibt in die DB, fragt Garmin).
+      GARMIN_SYNC_ENABLED: ${GARMIN_SYNC_ENABLED:-false}
       UPLOAD_DIR: /app/uploads
     extra_hosts:
       # host.docker.internal existiert auf Linux-Hosts nicht automatisch —

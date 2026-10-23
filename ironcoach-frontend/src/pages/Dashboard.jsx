@@ -59,10 +59,29 @@ export default function Dashboard() {
   // null am Tag der 50. Einheit, und die Form stand viel zu hoch.
   const [pmcErsatz, setPmcErsatz] = useState(null)
   const [hrvGrenzen, setHrvGrenzen] = useState(null)
+  // Mit Garmin kommt die HRV automatisch, und das Backend lehnt die
+  // Handeingabe ab (409). Der Zustand kommt aus `GET /hrv/range`, das hier
+  // ohnehin geladen wird — kein zusätzlicher Aufruf. `null` heißt „noch
+  // unbekannt": Bis die Antwort da ist, steht an der Stelle nichts, sonst
+  // blitzte bei Garmin-Athleten kurz die Handeingabe auf.
+  const [garminVerbunden, setGarminVerbunden] = useState(null)
   const [testTermin, setTestTermin] = useState(null)
 
   const load = async () => {
     setLoading(true)
+    // Vor dem Promise.all und nicht danach: Scheitert `getWeekMetrics` (es hat
+    // als einziges keinen eigenen Fehlerfang), springt `load` in den äußeren
+    // catch. Stünde dieser Aufruf dahinter, bliebe `garminVerbunden` auf `null`
+    // und weder Handeingabe noch Garmin-Zeile erschienen.
+    getHrvRange().then(({ data }) => {
+      setHrvGrenzen(data?.grenzen || null)
+      setGarminVerbunden(!!data?.garmin_verbunden)
+    }).catch(() => {
+      setHrvGrenzen(null)
+      // Im Zweifel die Handeingabe zeigen. Ist Garmin doch verbunden,
+      // lehnt das Backend mit 409 und verständlichem Text ab.
+      setGarminVerbunden(false)
+    })
     try {
       const [m, h, hh, s, p] = await Promise.all([
         getWeekMetrics(),
@@ -86,7 +105,6 @@ export default function Dashboard() {
         const vor = new Date(); vor.setDate(vor.getDate() - 365)
         getSessionsSeit(isoTag(vor)).then(({ data }) => setPmcErsatz(calculatePMC(data))).catch(() => {})
       })
-      getHrvRange().then(({ data }) => setHrvGrenzen(data?.grenzen || null)).catch(() => setHrvGrenzen(null))
       getBenchmarkTiming().then(({ data }) => setTestTermin(data)).catch(() => setTestTermin(null))
       setMetrics(m.data)
       setHrv(h.data)
@@ -385,7 +403,12 @@ export default function Dashboard() {
           </div>
 
           <div className="flex-shrink-0">
-            <HRVInput onSaved={load} />
+            {garminVerbunden === true && (
+              <span className="text-[10px] font-mono text-[var(--text-muted)]">
+                HRV kommt automatisch aus Garmin
+              </span>
+            )}
+            {garminVerbunden === false && <HRVInput onSaved={load} />}
           </div>
         </div>
 

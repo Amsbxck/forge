@@ -230,6 +230,19 @@ def test_vorrang_gilt_auch_mit_nur_einer_grenze():
     assert grenzen["gruen_ab"] == 67.0
 
 
+def test_vorrang_gilt_genauso_fuer_garmin():
+    """Garmins Baseline ersetzt das Abtippen und gilt mit demselben Vorrang,
+    auch das Ableiten der roten Grenze, wenn sie fehlt."""
+    class AusGarmin(Eingetragen):
+        hrv_range_source = "garmin"
+        hrv_red_below = None
+
+    grenzen = thresholds_for(AusGarmin(), GRUNDLINIE_OK)
+    assert grenzen["quelle"] == "garmin"
+    assert grenzen["gruen_ab"] == 67.0
+    assert grenzen["rot_unter"] < 67.0
+
+
 def test_ohne_eintrag_rechnet_die_app():
     assert thresholds_for(None, GRUNDLINIE_OK)["quelle"] == "auto"
 

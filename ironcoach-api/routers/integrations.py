@@ -1,12 +1,14 @@
-"""Externe Anbindungen einrichten: Strava und Obsidian.
+"""Externe Anbindungen einrichten: Strava, Garmin Connect und Obsidian.
 
-Beide gehören zum Athleten, nicht zur Installation. Obsidian läuft auf dem
+Alle gehören zum Athleten, nicht zur Installation. Obsidian läuft auf dem
 Rechner des Athleten — es gibt keinen zentralen Vault, den die App bedienen
 könnte, deshalb hinterlegt jeder seine eigene Adresse und seinen eigenen
-Schlüssel.
+Schlüssel. Bei Garmin ebenso: Die Personal API kennt nur persönliche
+Schlüssel, keinen Anwendungszugang wie Strava.
 """
 
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -45,9 +47,41 @@ def _mask(secret: str | None) -> str | None:
     return f"…{secret[-4:]}" if len(secret) > 4 else "…"
 
 
+def _zeitpunkt(wert: datetime | None) -> str | None:
+    """Als UTC mit Versatz ausgeben.
+
+    Gespeichert wird wie überall im Modell mit `datetime.utcnow()`, also ohne
+    Zeitzone. Ohne Versatz liest der Browser die Zeichenkette als Ortszeit,
+    und „Letzter Abruf" stünde ein bis zwei Stunden daneben.
+    """
+    if wert is None:
+        return None
+    return wert.replace(tzinfo=timezone.utc).isoformat()
+
+
+def _garmin_zustand(profile) -> dict:
+    from services.garmin_hrv import fehler_art
+
+    api_key = (profile.garmin_api_key if profile else None) or None
+    return {
+        "configured": bool(api_key),
+        "api_key_hint": _mask(api_key),
+        "verbunden_am": _zeitpunkt(profile.garmin_verbunden_am if profile else None),
+        "letzter_abruf": _zeitpunkt(profile.garmin_letzter_abruf if profile else None),
+        "letzter_fehler": profile.garmin_letzter_fehler if profile else None,
+        # "schluessel" | "vorruebergehend" | None. Die Kachel zeigt das Feld
+        # für einen neuen Schlüssel nur, wenn der Schlüssel das Problem ist;
+        # bei einem 429 oder einem Ausfall bei Garmin hilft ein neuer nicht.
+        "fehler_art": fehler_art(profile.garmin_letzter_fehler if profile else None),
+        # Die Kachel braucht das, damit sie nicht „jeden Morgen automatisch"
+        # verspricht, wenn der Job auf dem Server gar nicht läuft.
+        "sync_aktiv": settings.GARMIN_SYNC_ENABLED,
+    }
+
+
 @router.get("/integrations")
 def integrations(db: Session = Depends(get_db), user: User = Depends(require_user)):
-    """Zustand beider Anbindungen — ohne Netzwerkzugriff."""
+    """Zustand aller Anbindungen — ohne Netzwerkzugriff."""
     profile = get_profile(db, user)
     creds = db.query(StravaCredentials).first()
 
@@ -64,6 +98,7 @@ def integrations(db: Session = Depends(get_db), user: User = Depends(require_use
             "athlete_id": creds.athlete_id if creds else None,
             "connected_at": creds.connected_at.isoformat() if creds and creds.connected_at else None,
         },
+        "garmin": _garmin_zustand(profile),
         "obsidian": {
             "configured": bool(base_url and api_key),
             "base_url": base_url,
@@ -79,6 +114,116 @@ def integrations(db: Session = Depends(get_db), user: User = Depends(require_use
             "verify_tls_effective": pruefung_noetig(base_url or "", verify_gesetzt),
         },
     }
+
+
+class GarminSettings(BaseModel):
+    api_key: str
+
+
+@router.put("/integrations/garmin")
+async def connect_garmin(
+    body: GarminSettings,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
+    """Garmin verbinden: Schlüssel prüfen, speichern, 30 Tage nachholen.
+
+    **Zuerst** der Tausch gegen ein Token, erst danach wird gespeichert. Ein
+    falscher Schlüssel landet so gar nicht erst in der Datenbank, und der
+    Athlet sieht den Fehler sofort statt am nächsten Morgen.
+
+    Danach sofort 30 Tage samt Spanne: So sieht der Athlet direkt Werte und
+    muss nicht bis morgen bzw. Sonntag warten. Der eben getauschte Token wird
+    dafür weiterverwendet, es bleibt bei einem Tausch.
+    """
+    from services import garmin_personal
+    from services.garmin_hrv import abgleich_fuer
+    from services.garmin_personal import (
+        GarminRateLimit, GarminSchluesselUngueltig, GarminFehler,
+    )
+
+    profile = get_profile(db, user)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Kein Athletenprofil")
+    # Leerraum und Nullbreiten-Zeichen am Rand sind Kopierreste und werden
+    # still entfernt (`str.strip()` allein lässt U+200B stehen).
+    schluessel = garmin_personal.schluessel_bereinigen(body.api_key)
+    if not schluessel:
+        raise HTTPException(status_code=422, detail="Bitte den API-Schlüssel aus Garmin Connect einfügen")
+    if not garmin_personal.zeichen_gueltig(schluessel):
+        # Vor dem Tausch prüfen: Ein „ü" oder ein Nullbreiten-Zeichen mitten
+        # im Schlüssel ließ httpx mit einem UnicodeEncodeError abbrechen — ein
+        # 500, dessen Ausnahmetext den vollen Schlüssel enthielt. Garmins
+        # Schlüssel bestehen nur aus druckbarem ASCII.
+        raise HTTPException(
+            status_code=422,
+            detail="Der Schlüssel enthält Zeichen, die in einem Garmin-Schlüssel nicht vorkommen. "
+                   "Bitte direkt aus Garmin Connect kopieren.",
+        )
+
+    # Fehlertexte fest formuliert: Weder der Schlüssel noch Garmins Antwort
+    # gehören in eine Meldung, die im Browser und in Protokollen landet.
+    try:
+        token = await garmin_personal.token_holen(schluessel)
+    except GarminSchluesselUngueltig:
+        raise HTTPException(
+            status_code=422,
+            detail="Garmin hat den Schlüssel abgelehnt. Ist er vollständig kopiert und noch gültig?",
+        )
+    except GarminRateLimit:
+        raise HTTPException(
+            status_code=503,
+            detail="Garmin bremst gerade die Anfragen. Bitte in ein paar Minuten erneut versuchen.",
+        )
+    except GarminFehler:
+        raise HTTPException(
+            status_code=502,
+            detail="Garmin Connect ist gerade nicht erreichbar. Bitte später erneut versuchen.",
+        )
+
+    profile.garmin_api_key = schluessel
+    profile.garmin_verbunden_am = datetime.utcnow()
+    profile.garmin_letzter_fehler = None
+    db.commit()
+
+    ergebnis = await abgleich_fuer(db, user, tage=30, mit_spanne=True, token=token)
+    return {**integrations(db, user), "ergebnis": ergebnis}
+
+
+@router.post("/integrations/garmin/abrufen")
+async def garmin_abrufen(db: Session = Depends(get_db), user: User = Depends(require_user)):
+    """Knopf „Jetzt abrufen": 7 Tage, ohne Spanne (die kommt sonntags).
+
+    Funktioniert auch, wenn der Morgen-Job auf dem Server nicht läuft.
+    """
+    from services.garmin_hrv import abgleich_fuer
+
+    profile = get_profile(db, user)
+    if profile is None or not profile.garmin_api_key:
+        raise HTTPException(status_code=409, detail="Garmin ist nicht verbunden")
+    ergebnis = await abgleich_fuer(db, user, tage=7, mit_spanne=False)
+    return {**integrations(db, user), "ergebnis": ergebnis}
+
+
+@router.delete("/integrations/garmin")
+def disconnect_garmin(db: Session = Depends(get_db), user: User = Depends(require_user)):
+    """Garmin trennen. Schlüssel und Statusfelder leeren, Messungen bleiben.
+
+    `hrv_range_source` bleibt bewusst auf "garmin" mit den letzten Werten,
+    bis wieder verbunden wird: Eine Trennung soll die Ampel nicht still auf
+    die berechnete Spanne umstellen. Ein Athlet, der nur den Schlüssel
+    tauscht, sähe sonst für einen Moment andere Farben und einen anderen
+    Plan-Kontext, ohne dass sich an seiner HRV etwas geändert hat.
+    """
+    profile = get_profile(db, user)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Kein Athletenprofil")
+    profile.garmin_api_key = None
+    profile.garmin_verbunden_am = None
+    profile.garmin_letzter_abruf = None
+    profile.garmin_letzter_fehler = None
+    db.commit()
+    return integrations(db, user)
 
 
 @router.patch("/integrations/obsidian")

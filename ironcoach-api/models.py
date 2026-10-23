@@ -126,6 +126,9 @@ class AthleteProfile(Base):
     hrv_green_min: Mapped[float | None] = mapped_column(Float)
     hrv_band_high: Mapped[float | None] = mapped_column(Float)
     hrv_red_below: Mapped[float | None] = mapped_column(Float)
+    # "auto" bzw. NULL (berechnet), "manual" (früher von Hand eingetragen,
+    # bleibt lesbar) oder "garmin" (Garmins Baseline, sonntags aktualisiert).
+    # "manual" und "garmin" haben unbedingten Vorrang vor der Rechnung.
     hrv_range_source: Mapped[str | None] = mapped_column(String)
     css_source: Mapped[str | None] = mapped_column(String)
     # Die beiden Testzeiten. Die Namen stammen aus der Zeit, als der Test
@@ -189,6 +192,22 @@ class AthleteProfile(Base):
     # Zertifikat. True/False überschreiben die Entscheidung.
     obsidian_verify_tls: Mapped[bool | None] = mapped_column(Boolean)
     obsidian_vault_subdir: Mapped[str | None] = mapped_column(String)
+
+    # --- Garmin Connect je Athlet (Personal API) ---
+    # Jeder Athlet trägt seinen eigenen persönlichen API-Schlüssel ein; eine
+    # Anwendungsanbindung wie bei Strava gibt es dafür nicht. Verschlüsselt wie
+    # der Obsidian-Schlüssel (`core/geheim.py`): Im Klartext gäbe eine
+    # Datenbanksicherung Lesezugriff auf die Gesundheitsdaten aller Athleten
+    # bei Garmin, für bis zu ein Jahr.
+    garmin_api_key: Mapped[str | None] = mapped_column(VerschluesselterText)
+    garmin_verbunden_am: Mapped[datetime | None] = mapped_column(DateTime)
+    # Letzter **erfolgreicher** Abruf. Getrennt vom Fehler gespeichert, damit
+    # die Kachel beides zeigen kann: seit wann nichts mehr kam, und warum.
+    garmin_letzter_abruf: Mapped[datetime | None] = mapped_column(DateTime)
+    # Fester Klartext für die Kachel, etwa „Schlüssel ungültig oder
+    # abgelaufen". Nie die Antwort von Garmin oder eine Ausnahme im Wortlaut:
+    # Darin könnte ein Schlüssel- oder Tokenstück stehen. Bei Erfolg geleert.
+    garmin_letzter_fehler: Mapped[str | None] = mapped_column(String)
 
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=datetime.utcnow, nullable=True)
 
@@ -398,6 +417,13 @@ class HrvMeasurement(Base):
     hrv_status: Mapped[str | None] = mapped_column(String)
     readiness_score: Mapped[int | None] = mapped_column(Integer)
     notes: Mapped[str | None] = mapped_column(Text)
+    # "garmin" (automatisch aus Garmin Connect) oder "manual" (von Hand im
+    # Dashboard). Alte Zeilen bleiben NULL und gelten als manuell — sie
+    # nachträglich zu kennzeichnen hieße zu raten, woher sie kamen. Gebraucht
+    # wird die Herkunft, damit der Morgen-Job erkennt, ob Garmins Wert für
+    # heute schon da ist, und nicht an einem von Hand eingetragenen Wert
+    # stehen bleibt.
+    quelle: Mapped[str | None] = mapped_column(String)
 
 
 class WeeklyPlan(Base):

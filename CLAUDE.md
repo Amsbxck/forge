@@ -59,6 +59,9 @@ Eine neue Coaching-Regel muss in **alle drei**, sonst kennt sie nur einer:
 ### Aktivitäten-Eingang
 Webhook (`routers/strava_webhook.py`) und stündlicher Abgleich (`services/reconcile.py`, APScheduler in `core/scheduler.py`, nur mit `RECONCILE_ENABLED=true`) laufen beide über `services/ingest.ingest_activity`. Das Matching geht zuerst über die Strava-ID, sonst über Datum, Sportart und Dauer (Verknüpfen statt Dublette). FIT/GPX-Upload über `routers/upload.py` + `services/fit_parser.py`. Klassifikation der Einheiten in `services/classification.py`. Danach optional Sync in den Obsidian-Vault des Athleten (`services/obsidian/`, über Tailscale-SOCKS-Proxy, Schlüssel mit Fernet verschlüsselt über `core/geheim.py`).
 
+### HRV-Eingang (Garmin Personal API)
+Jeder Athlet trägt auf **Anbindungen** in der Kachel „GARMIN CONNECT" seinen eigenen persönlichen API-Schlüssel ein (verschlüsselt wie der Obsidian-Schlüssel). Pull-only, nichts kommt von selbst: `services/garmin_personal.py` (Client, Token-Tausch + generische GET-Hilfe, Transport für Tests injizierbar) und `services/garmin_hrv.py` (`tage_uebernehmen`, `spanne_uebernehmen`, `abgleich_fuer`). Der Token gilt 24 h und wird nicht gespeichert, jeder Lauf tauscht neu. Der Schlüssel läuft nach höchstens einem Jahr ab, danach zeigt die Kachel den Fehler und das Schlüsselfeld. Zwei Jobs in `core/scheduler.py`, nur mit `GARMIN_SYNC_ENABLED=true` (unabhängig von `RECONCILE_ENABLED`): `garmin_hrv_morgens` (7–12 Uhr stündlich zur Minute `GARMIN_MINUTE`, 7 Tage Rückblick, Athlet mit heutigem Garmin-Wert wird ausgelassen) und `garmin_spanne_sonntag` (13:15, mit Spanne). Beim Verbinden einmal sofort 30 Tage samt Spanne. Mit Garmin lehnt `POST /hrv` die Handeingabe ab (409), Garmins Wert überschreibt einen manuellen am selben Tag.
+
 ### API-Budget
 `services/api_budget.py`: reservieren → abrechnen/freigeben um jeden Claude-Aufruf. Ist das Budget erschöpft, wirft er `BudgetExhausted`, `main.py` antwortet mit 402. Modell über `settings.CLAUDE_MODEL`. Der Preis dazu steht getrennt in `MODEL_PRICES` (`modell:eingabe:ausgabe,…`, Dollar je Million Token). Wer das Modell wechselt, trägt dort den Preis mit ein, sonst rechnet `Settings.model_prices` mit dem Ersatzpreis `MODEL_PRICE_FALLBACK` (3,0/15,0). Beide Werte setzt `docker-compose.yml` ebenfalls, die Vorgabe im Compose gilt also lokal vor der in `config.py`.
 
@@ -83,7 +86,7 @@ GitLab (`main`, Quelle) → Push-Mirror auf GitHub → Railway (Backend + Postgr
 - **Wunsch-Knöpfe** (`WunschKnoepfe.jsx`, Quelle `utils/trainingsoptionen.js`): nur Doppeltage und Blockwoche, nach Phase gefiltert. Der Text wird erst beim Absenden zusammengesetzt, nichts wird gespeichert. Eine gemerkte Blockwoche würde sich still jede Woche wiederholen.
 - **Testwoche (Benchmark) erst mit Saisonziel.** Die Testeinheiten sollen aufs Rennen abgestimmt sein. Backend: `BenchmarkGesperrt`, `ohne_ziel` in `/benchmark/timing`. Frontend: Kachel ausgegraut mit „ERST ZIEL SETZEN".
 - **Automatisch abgeleitete Zonen überschreiben keine Handwerte**: `derive_zones(..., von_hand=False)` lässt manuelle CSS-, Schwellen- und FTP-Werte stehen.
-- **HRV-Diagramm:** Die grüne Fläche ist immer die *berechnete* Spanne (gleiche Regeln wie `compute_baseline`, vom Backend mitgeliefert). Die Garmin-Spanne ist eine gestrichelte Linie mit der Marke GARMIN und urteilt allein.
+- **HRV-Diagramm:** Die grüne Fläche ist immer die *berechnete* Spanne (gleiche Regeln wie `compute_baseline`, vom Backend mitgeliefert). Eine Garmin-Linie gibt es nicht mehr (die Spanne steht im Profil). Mit Garmin urteilen die Punktfarben nach Garmins Spanne, das sagt ein Satz unter dem Diagramm.
 - **Chat-Wochenplan:** Der Systemprompt enthält einen Kalender mit Wochentag und Datum für diese und die kommende Woche. Mit dem Athleten vereinbarte Tage bleiben, wo sie sind. `walk_run` vergibt `classify_run` nur, wenn der Geschwindigkeitsverlauf ≥ 10 % Gehen (< 7 km/h) **und** ≥ 50 % Laufen zeigt. Ein Rennen ist nie Walk-Run.
 - **Strava-OAuth:** `state` ist ein 10-Minuten-Zwecktoken. Die Rückleitung legt nur einen offenen Vorgang an, verbunden wird erst nach `POST /api/strava/bestaetigen` aus dem angemeldeten Browser.
 - **Sonnet 5.5 mit Effort je Pfad** (`CLAUDE_EFFORT_PLAN` high, `_ANPASSUNG` und `_CHAT` medium in `core/config.py`, übergeben als `output_config`). Kein `tool_choice` „tool“ oder „any“: Sonnet 5.5 antwortet darauf mit 400, das Werkzeug wird über den Systemprompt verlangt. Kein `thinking`- oder `temperature`-Parameter: Thinking läuft immer und zählt in `max_tokens`, deshalb Plan und Chat 16000, Anpassung 8000. SDK bleibt auf 0.x (`anthropic==0.125.0`), 1.x bräuchte httpx2.
@@ -104,7 +107,9 @@ GitLab (`main`, Quelle) → Push-Mirror auf GitHub → Railway (Backend + Postgr
 - **Railway deployt nicht immer automatisch** (zuletzt nach 60a7fd4). Nach dem Push `/health` prüfen und den Commit notfalls in Railway von Hand anstoßen.
 - **Der GitLab-Webhook zu Vercel schaltet sich nach mehreren Fehlversuchen selbst ab.** Wieder freigeben über GitLab → Settings → Webhooks → Test.
 - **Neue Strava-Apps dürfen nur einen Athleten anbinden.** Alle anderen laden `.fit`-Dateien von Hand hoch.
-- **HRV-Diagramm:** Ist eine Garmin-Spanne eingetragen, kann ein Punkt in der berechneten grünen Fläche liegen und trotzdem rot sein. Das ist bewusst so. Angeboten, nicht umgesetzt: die Fläche in diesem Fall grau zeichnen.
+- **HRV-Diagramm:** Gilt eine Garmin-Spanne, kann ein Punkt in der berechneten grünen Fläche liegen und trotzdem rot sein. Das ist bewusst so. Angeboten, nicht umgesetzt: die Fläche in diesem Fall grau zeichnen.
+- **Garmin Personal API ist nicht offiziell dokumentiert:** Endpunkte und Feldnamen stammen aus dem inoffiziellen Client gcpapi-sync und werden von Garmin nicht garantiert. Am 23.10.2026 live geprüft: Der Token-Tausch liefert das JWT als `text/plain` (nicht als JSON, anders als im inoffiziellen Client beschrieben) und antwortet auf `Accept: application/json` mit 406. Die HRV-Antwort entsprach der erwarteten Form.
+- **Railway braucht `GARMIN_SYNC_ENABLED=true`**, sonst laufen die Garmin-Jobs nicht (die Kachel sagt das dann, „Jetzt abrufen" geht trotzdem). Prüfen über `/api/strava/scheduler` (`garmin_enabled`, Jobs `garmin_hrv_morgens` und `garmin_spanne_sonntag`).
 - **Der Anmeldeweg hat keine Tests:** `conftest.py` setzt `AUTH_REQUIRED=false`.
 - **Korrekturen am Planer wirken nur auf neue Pläne.** Bestehende Pläne in der Produktion werden nicht umgeschrieben (Datenbank nur lesend).
 
@@ -121,6 +126,6 @@ GitLab (`main`, Quelle) → Push-Mirror auf GitHub → Railway (Backend + Postgr
 - Produktionsdatenbank nur lesend.
 - `services/offseason.py` nicht anfassen.
 - `/obsidian/neu-ordnen` nicht ausführen.
-- Das von Hand gesetzte Garmin-HRV-Band hat Vorrang vor jeder berechneten Grenze.
+- Garmins Baseline (automatisch, sonntags aktualisiert) hat Vorrang vor jeder berechneten Grenze. Die Spanne ist nicht von Hand änderbar.
 - Walk-Run, Trab-Bricks und Gehpausen nie als Vorgabe für alle, nur als Reaktion auf eine gemeldete Beschwerde (`services/health.py`) oder auf Wunsch. Die Brick-Regeln hält `tests/test_brick_regeln.py` fest.
 - Unverändert lassen trotz Umbenennung auf FORGE: Marker `<!-- ironcoach:start/end -->`, `ironcoach_token`, DB- und Reponamen.

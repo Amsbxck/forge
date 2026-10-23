@@ -77,6 +77,8 @@ class HrvOut(BaseModel):
     hrv_status: str | None
     readiness_score: int | None
     notes: str | None
+    # "garmin", "manual" oder None (Altdaten, gelten als manuell).
+    quelle: str | None = None
 
     class Config:
         from_attributes = True

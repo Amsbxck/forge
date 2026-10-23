@@ -42,6 +42,8 @@ os.environ["AUTH_REQUIRED"] = "false"
 # auf true, und jeder TestClient-Start fuhr APScheduler samt stündlichem
 # Strava-Abgleich gegen die Testdatenbank hoch.
 os.environ["RECONCILE_ENABLED"] = "false"
+# Ebenso der Garmin-Job: Er schreibt in die Datenbank und fragt Garmin ab.
+os.environ["GARMIN_SYNC_ENABLED"] = "false"
 # Seit dem Deploy-Umbau bricht die Anwendung ohne Geheimnis ab.
 os.environ.setdefault("JWT_SECRET", "test-secret-nur-fuer-tests")
 
