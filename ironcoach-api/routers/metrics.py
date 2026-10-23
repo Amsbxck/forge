@@ -56,14 +56,21 @@ def week_metrics(db: Session = Depends(get_db)):
     hr_values = [s.avg_hr for s in sessions if s.avg_hr]
     avg_hr = round(sum(hr_values) / len(hr_values)) if hr_values else None
 
-    hr_zones_combined: dict[str, list] = {}
+    # Nach Dauer gewichtet. Vorher das Mittel der Prozentwerte je Einheit:
+    # 20 Minuten lockeres Auslaufen zählten so viel wie vier Stunden Rad, und
+    # die Wochenleiste zeigte eine Verteilung, die es nie gab. Ohne Dauer zählt
+    # eine Einheit mit Gewicht 1, damit sie nicht ganz verschwindet.
+    gewichtet: dict[str, float] = {}
+    gesamt = 0.0
     for s in sessions:
         if s.hr_zones:
+            g = float(s.duration_min or 1)
+            gesamt += g
             for k, v in s.hr_zones.items():
-                hr_zones_combined.setdefault(k, []).append(v)
+                gewichtet[k] = gewichtet.get(k, 0.0) + (v or 0) * g
     hr_zones_avg = (
-        {k: round(sum(v) / len(v), 1) for k, v in hr_zones_combined.items()}
-        if hr_zones_combined
+        {k: round(v / gesamt, 1) for k, v in gewichtet.items()}
+        if gesamt
         else None
     )
 
@@ -227,6 +234,110 @@ def pmc_series(db: Session = Depends(get_db)):
         }
         for p in verlauf
     ]
+
+
+@router.get("/metrics/saison")
+def saison(db: Session = Depends(get_db)):
+    """Die Saison als Zeitstrahl: Phasen, Entlastungswochen, Rennen, heute.
+
+    Vorher kannte die Oberfläche nur „Woche x/y · Phase · noch n Tage" als
+    Text. Wo die Woche in der Saison liegt — wie lange der Aufbau noch dauert,
+    wann der nächste Deload kommt, wo das B-Rennen sitzt —, stand nirgends.
+
+    **Eine Quelle für alle Phasengrenzen.** Phasen und Deload kommen aus
+    `core.race_types` (`phase_boundaries`, `deload_wochen`), genau den
+    Funktionen, nach denen auch der Planer plant. Eine Kopie im Frontend würde
+    beim nächsten Umbau der Phasenanteile still etwas anderes zeigen als der
+    Plan bekommt.
+
+    Ohne Saisonziel gilt die Off Season — dieselbe Regel wie in
+    `plan_generator.wochenlage`. Dann gibt es keine Phasen, nur die Lage.
+    """
+    from core.deps import get_active_goal, total_weeks_for
+    from core.race_types import (
+        deload_wochen, phase_boundaries, phase_for_week, plan_start_for, season_state,
+    )
+    from core.wochen import montag_von
+    from services.offseason import phase_label as offseason_phase
+    from services.plan_generator import get_week_for_date
+    from services.race_calendar import secondary_races
+
+    heute = date.today()
+    goal = get_active_goal(db)
+    if goal is None:
+        return {
+            "lage": "off_season", "heute": heute, "offseason_phase": offseason_phase(None, heute),
+            "phasen": [], "deload": [], "rennen": [],
+        }
+
+    total_weeks = total_weeks_for(goal)
+    # Ältere Ziele tragen keinen Planstart; dann rückwärts vom Renntag, wie
+    # beim Anlegen eines Ziels.
+    plan_start = goal.plan_start_date or plan_start_for(goal.race_date, total_weeks)
+    lage = season_state(goal.race_date, plan_start=plan_start)
+    if lage == "off_season":
+        return {
+            "lage": lage, "heute": heute,
+            "offseason_phase": offseason_phase(goal.race_date, heute),
+            "race_date": goal.race_date, "race_name": goal.race_name,
+            "phasen": [], "deload": [], "rennen": [],
+        }
+
+    def montag_der_woche(n: int) -> date:
+        return plan_start + timedelta(weeks=n - 1)
+
+    def abschnitt(name: str, von: int, bis: int) -> dict:
+        return {
+            "name": name, "von_woche": von, "bis_woche": bis,
+            "von": montag_der_woche(von), "bis": montag_der_woche(bis) + timedelta(days=6),
+        }
+
+    def teile(von: int, bis: int) -> list[dict]:
+        """Die Unterphasen (Base 1, Base 2, …, Race Week) einer Phase.
+
+        Aus `phase_for_week`, Woche für Woche — derselben Funktion, die dem
+        Planer die Phase nennt. Amir sah im Strahl nur „Base 12W" und
+        „Build 12W", geplant wird aber in Blöcken zu vier Wochen; die Teilung
+        hier nachzurechnen hieße, die Regel aus `phase_for_week` zu kopieren.
+        """
+        stuecke: list[dict] = []
+        for w in range(von, bis + 1):
+            name = phase_for_week(w, total_weeks)
+            if stuecke and stuecke[-1]["name"] == name:
+                stuecke[-1]["bis_woche"] = w
+            else:
+                stuecke.append({"name": name, "von_woche": w, "bis_woche": w})
+        return [abschnitt(t["name"], t["von_woche"], t["bis_woche"]) for t in stuecke]
+
+    phasen = [
+        {**abschnitt(name, von, bis), "teile": teile(von, bis)}
+        for name, von, bis in phase_boundaries(total_weeks)
+    ]
+    woche = get_week_for_date(goal, heute)
+    return {
+        "lage": lage,
+        "heute": heute,
+        "aktuelle_woche": woche if woche >= 1 else None,
+        "total_weeks": total_weeks,
+        "plan_start": plan_start,
+        "race_date": goal.race_date,
+        "race_name": goal.race_name,
+        "phasen": phasen,
+        # Vor dem Aufbau: die Grundlage als eigener Abschnitt bis zum Planstart.
+        # Sie beginnt diese Woche — wann sie „eigentlich" angefangen hat, steht
+        # nirgends, und der Strahl soll zeigen, wie lange es noch bis Woche 1 ist.
+        "grundlage": (
+            {"von": montag_von(heute), "bis": plan_start - timedelta(days=1)}
+            if lage == "base_period" else None
+        ),
+        "deload": [
+            {"woche": w, "montag": montag_der_woche(w)} for w in sorted(deload_wochen(total_weeks))
+        ],
+        "rennen": [
+            {"datum": r.race_date, "name": r.race_name, "prioritaet": r.priority}
+            for r in secondary_races(db, von=min(heute, plan_start), bis=goal.race_date)
+        ],
+    }
 
 
 @router.get("/budget")

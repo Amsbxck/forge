@@ -2,8 +2,8 @@ import { useState, useMemo, useRef, useLayoutEffect } from 'react'
 
 import { STATUS_COLOR } from '../utils/colors'
 import { parseTag } from '../utils/dates'
-const STATUS_LABEL = { green: 'Gut', yellow: 'Vorsicht', red: 'Ruhe' }
-const DAY_LABELS = ['Mo', '', 'Mi', '', 'Fr', '', 'So']
+const STATUS_LABEL = { green: 'Good', yellow: 'Caution', red: 'Rest' }
+const DAY_LABELS = ['Mon', '', 'Wed', '', 'Fri', '', 'Sun']
 
 const ABSTAND = 4          // Lücke zwischen zwei Kacheln
 const ZELLE_BASIS = 18     // Wunschgrösse; wächst, um die Breite zu füllen
@@ -238,7 +238,7 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
           className="overflow-x-auto overscroll-x-contain pb-1 min-w-0 flex-1"
           style={{ scrollbarWidth: 'thin' }}
           role="group"
-          aria-label="HRV-Verlauf, waagerecht scrollbar"
+          aria-label="HRV history, scrolls horizontally"
           tabIndex={0}
         >
           <div className="inline-block">
@@ -300,7 +300,7 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
               <span style={{ color: '#e8eaf0' }}>{hover.date}</span>
               <span className="mx-2" style={{ color: 'var(--text-muted)' }}>·</span>
               <span style={{ color: 'var(--text-muted)' }}>
-                {hover.future ? 'Kommt noch' : hover.today ? 'Heute — noch nicht eingetragen' : 'Keine Messung'}
+                {hover.future ? 'Still to come' : hover.today ? 'Today — not recorded yet' : 'No measurement'}
               </span>
             </span>
           )
@@ -314,7 +314,7 @@ export default function HRVHeatmap({ data, weeksBack = 14, weeksForward, endDate
       {/* Legend */}
       <div className="flex gap-2 items-center text-xs font-mono pt-1" style={{ color: 'var(--text-muted)' }}>
         <span style={{ fontSize: '10px' }}>STATUS</span>
-        <span className="w-3 h-3 rounded-sm ml-1" style={{ background: '#1a1d24' }} title="Keine Daten" />
+        <span className="w-3 h-3 rounded-sm ml-1" style={{ background: '#1a1d24' }} title="No data" />
         <span className="w-3 h-3 rounded-sm" style={{ background: '#ef4444' }} title="Rest" />
         <span className="w-3 h-3 rounded-sm" style={{ background: '#eab308' }} title="Caution" />
         <span className="w-3 h-3 rounded-sm" style={{ background: '#22c55e' }} title="Good" />

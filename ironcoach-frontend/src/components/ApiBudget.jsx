@@ -1,10 +1,35 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getBudget, getBudgetUsage } from '../services/api'
+import SegmentLeiste from './leisten/SegmentLeiste'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
 const DISPLAY = { fontFamily: 'Barlow Condensed, sans-serif' }
 
-const ART = { plan: 'Wochenplan', chat: 'Coach-Chat' }
+const ART = { plan: 'Weekly plan', plan_adjust: 'Adjustment', chat: 'Coach chat' }
+
+// Ruhige Abstufung statt bunter Kategorien: Es geht um „wofür ging es weg",
+// nicht um eine Ampel. Der Plan als teuerster Posten in der Akzentfarbe.
+const ART_FARBE = { plan: '#00d4ff', plan_adjust: '#0e7490', chat: '#5b6475' }
+
+/** Wie oft reicht der Rest noch — je Art aus dem eigenen Schnitt.
+ *
+ *  „or", nicht „and": Der Rest reicht für das eine **oder** das andere.
+ *
+ *  „1,84 € übrig" sagt einem Athleten wenig, „≈ 9 Pläne" sagt ihm, ob er sich
+ *  Sorgen machen muss. Gerechnet mit dem eigenen Schnitt (`je_art` aus
+ *  `/budget`, ohne offene Reservierungen), nicht mit einem festen Preis: Ein
+ *  Plan mit langem Verlauf kostet mehr als einer im ersten Monat. Ohne
+ *  bisherigen Aufruf einer Art fehlt ihr Schnitt, dann steht sie nicht da.
+ */
+function reichweite(stand) {
+  const je = stand.je_art || {}
+  return [['plan', 'plans', 'plan'], ['chat', 'chats', 'chat']]
+    .filter(([art]) => je[art]?.schnitt_eur > 0)
+    .map(([art, mehrzahl, einzahl]) => {
+      const n = Math.floor(stand.rest_eur / je[art].schnitt_eur)
+      return `${n.toLocaleString('en-GB')} ${n === 1 ? einzahl : mehrzahl}`
+    })
+}
 
 /** Guthaben für die Plangenerierung.
  *
@@ -33,28 +58,40 @@ export default function ApiBudget() {
     ? Math.min(1, stand.verbraucht_eur / stand.guthaben_eur)
     : 1
   const farbe = stand.aufgebraucht ? '#ef4444' : anteil > 0.8 ? '#f59e0b' : '#00d4ff'
+  const reicht = stand.aufgebraucht ? [] : reichweite(stand)
+  const segmente = Object.entries(stand.je_art || {}).map(([art, w]) => ({
+    key: art,
+    name: ART[art] || art,
+    wert: w.summe_eur,
+    farbe: ART_FARBE[art] || '#3a4150',
+  }))
 
   return (
     <div className={`${CARD} p-5`}>
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <div className="text-sm font-bold tracking-widest" style={{ ...DISPLAY, color: farbe }}>
-            GUTHABEN · COACH
+            CREDIT · COACH
           </div>
           <div className="font-black leading-none mt-2"
                style={{ ...DISPLAY, color: farbe, fontSize: 'clamp(2.4rem, 5vw, 3.2rem)' }}>
-            {stand.rest_eur.toFixed(2).replace('.', ',')}
-            <span className="text-lg font-normal text-[var(--text-secondary)] ml-1">€ übrig</span>
+            {stand.rest_eur.toFixed(2)}
+            <span className="text-lg font-normal text-[var(--text-secondary)] ml-1">€ left</span>
           </div>
           <div className="text-[10px] font-mono text-[var(--text-muted)] mt-1.5">
-            {stand.verbraucht_eur.toFixed(2).replace('.', ',')} € von{' '}
-            {stand.guthaben_eur.toFixed(2).replace('.', ',')} € verbraucht · {stand.aufrufe} Aufrufe
+            {stand.verbraucht_eur.toFixed(2)} € of{' '}
+            {stand.guthaben_eur.toFixed(2)} € used · {stand.aufrufe} calls
           </div>
+          {reicht.length > 0 && (
+            <div className="text-[11px] font-mono text-[var(--text-secondary)] mt-1">
+              enough for ≈ <span className="tabular-nums" style={{ color: farbe }}>{reicht.join(' or ')}</span>
+            </div>
+          )}
         </div>
         {verlauf.length > 0 && (
           <button onClick={() => setOffen(o => !o)}
                   className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[#00d4ff]">
-            {offen ? 'SCHLIESSEN' : 'VERBRAUCH ANSEHEN'}
+            {offen ? 'CLOSE' : 'VIEW USAGE'}
           </button>
         )}
       </div>
@@ -66,12 +103,20 @@ export default function ApiBudget() {
              style={{ width: `${anteil * 100}%`, background: farbe }} />
       </div>
 
+      {/* Wofür das Verbrauchte ging. Erst ab zwei Arten: Eine einzige wäre
+          eine volle Leiste mit „100 %" und sagt nichts. */}
+      {segmente.filter(x => x.wert > 0).length >= 2 && (
+        <div className="mt-4">
+          <SegmentLeiste segmente={segmente} kopf="USAGE BY KIND" />
+        </div>
+      )}
+
       {stand.aufgebraucht && (
         <div className="mt-4 rounded-lg px-3 py-2.5 text-xs leading-relaxed"
              style={{ background: '#ef444412', border: '1px solid #ef444433', color: '#ef4444' }}>
-          Guthaben aufgebraucht. Neue Wochenpläne und Chat-Antworten sind erst nach
-          dem Aufladen wieder möglich. Alles andere — Einheiten, Auswertung, Reflexionen —
-          läuft weiter.
+          Credit used up. New weekly plans and chat replies are only possible
+          again after a top-up. Everything else (sessions, analysis, reflections)
+          keeps working.
         </div>
       )}
 
@@ -84,10 +129,10 @@ export default function ApiBudget() {
               </span>
               <span className="text-[var(--text-secondary)] flex-1">{ART[z.art] || z.art}</span>
               <span className="text-[var(--text-muted)] tabular-nums hidden sm:block">
-                {z.token_ein.toLocaleString('de-DE')} ein / {z.token_aus.toLocaleString('de-DE')} aus
+                {z.token_ein.toLocaleString('en-GB')} in / {z.token_aus.toLocaleString('en-GB')} out
               </span>
               <span className="text-[#e8eaf0] tabular-nums w-16 text-right">
-                {z.kosten_eur.toFixed(3).replace('.', ',')} €
+                {z.kosten_eur.toFixed(3)} €
               </span>
             </div>
           ))}

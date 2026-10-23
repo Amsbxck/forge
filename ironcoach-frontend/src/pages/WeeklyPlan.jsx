@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   generatePlan, adjustPlanDays,
   getPlanByMonday, getPlannedByMonday, cancelPlan,
-  getWeekMetrics, getNeuplanung, getDoppeltagZiehung,
+  getWeekMetrics, getNeuplanung, getDoppeltagZiehung, getSaison, getWochenBilanz,
 } from '../services/api'
 import { fehlerText } from '../utils/fehler'
 import WeekCalendar from '../components/WeekCalendar'
@@ -11,7 +11,9 @@ import HealthStatus from '../components/HealthStatus'
 import PlanOptionen from '../components/PlanOptionen'
 import WunschKonsole from '../components/WunschKonsole'
 import { montagMitVersatz } from '../utils/dates'
-import { phaseColor } from '../utils/colors'
+import { disciplineColor, phaseColor } from '../utils/colors'
+import SaisonStrahl from '../components/leisten/SaisonStrahl'
+import SollIstLeiste from '../components/leisten/SollIstLeiste'
 import { OPTIONEN, wunschText } from '../utils/trainingsoptionen'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
@@ -32,6 +34,10 @@ function fromPlannedSessions(rows) {
     status: r.status,
     replacement: r.replacement,
     replacement_min: r.replacement_min,
+    // Fehlten hier: Nach dem Neuladen war ein Ersatz nur aus Sportart oder
+    // Intensität verschwunden, obwohl er gespeichert war.
+    replacement_discipline: r.replacement_discipline,
+    replacement_intensity: r.replacement_intensity,
     moved_from_date: r.moved_from_date,
     targets: {
       tss: r.target_tss,
@@ -105,6 +111,10 @@ export default function WeeklyPlan() {
   // `components/DoppeltagZiehung.jsx`.
   const [ziehung, setZiehung] = useState(null)
   const [ohneDoppeltag, setOhneDoppeltag] = useState(false)
+  // Saison (Strahl in der Wochenkarte) und die Bilanz der angezeigten Woche
+  // (geplant gegen absolviert, für die Leisten und die Tageskarten).
+  const [saison, setSaison] = useState(null)
+  const [bilanz, setBilanz] = useState(null)
 
   // Die Woche, die gerade angezeigt wird — als Ref, damit verspätete
   // Antworten und Zeitgeber wissen, ob sie noch gemeint sind. Vorher lud ein
@@ -119,6 +129,11 @@ export default function WeeklyPlan() {
     // geladen, und unter der Kachel der nächsten Woche standen die Einheiten
     // dieser.
     const woche = offset ?? versatzRef.current
+    // Die Bilanz neben den Einheiten, mit eigenem Fehlerfang: Fehlt sie,
+    // zeigt der Kalender die Dauer wie bisher.
+    getWochenBilanz(montagMitVersatz(woche))
+      .then(({ data }) => { if (woche === versatzRef.current) setBilanz(data) })
+      .catch(() => { if (woche === versatzRef.current) setBilanz(null) })
     try {
       const resp = await getPlannedByMonday(montagMitVersatz(woche))
       if (woche !== versatzRef.current) return
@@ -276,6 +291,9 @@ export default function WeeklyPlan() {
     getWeekMetrics()
       .then(({ data }) => { if (!abgebrochen) setMetrikPhase(data?.phase ?? null) })
       .catch(() => {})
+    getSaison()
+      .then(({ data }) => { if (!abgebrochen) setSaison(data) })
+      .catch(() => {})
     return () => { abgebrochen = true }
   }, [])
 
@@ -361,6 +379,36 @@ export default function WeeklyPlan() {
     () => (planned ? fromPlannedSessions(planned) : fromPlanContent(plan?.plan_content?.days)),
     [planned, plan]
   )
+
+  // Geplant gegen absolviert je Disziplin. Nur für die laufende und
+  // vergangene Wochen: In einer kommenden Woche hieße jede Leiste „0 / 240",
+  // und das sähe nach Versäumnis aus statt nach Plan.
+  const bilanzZeilen = (bilanz?.disziplinen || []).filter(d => d.geplant_min > 0 || d.absolviert_min > 0)
+  const bilanzSkala = Math.max(0, ...bilanzZeilen.map(d => Math.max(d.geplant_min, d.absolviert_min)))
+  const wochenBilanz = versatz <= 0 && bilanzZeilen.some(d => d.geplant_min > 0) ? (
+    <div className="mb-4 rounded-lg p-3" style={{ background: '#0d0f17', border: '1px solid #1e2228' }}>
+      <div className="flex items-baseline justify-between mb-2.5">
+        <span className={LABEL}>PLANNED / DONE</span>
+        {bilanz.tss?.soll > 0 && (
+          <span className="text-[10px] font-mono tabular-nums text-[var(--text-secondary)]">
+            TSS <span className="text-[#e8eaf0]">{Math.round(bilanz.tss.ist)}</span> / {Math.round(bilanz.tss.soll)}
+          </span>
+        )}
+      </div>
+      <div className="grid gap-x-5 gap-y-2.5 sm:grid-cols-2">
+        {bilanzZeilen.map(d => (
+          <SollIstLeiste
+            key={d.discipline}
+            name={d.discipline.toUpperCase()}
+            soll={d.geplant_min}
+            ist={d.absolviert_min}
+            farbe={disciplineColor(d.discipline)}
+            skala={bilanzSkala}
+          />
+        ))}
+      </div>
+    </div>
+  ) : null
 
   return (
     <div className="space-y-6 page-enter">
@@ -614,6 +662,22 @@ export default function WeeklyPlan() {
                 </div>
               )}
 
+              {/* Wo diese Woche in der Saison liegt — die angezeigte eingerahmt,
+                  die heutige als Strich. Ohne Kopf: Phase und Zeitraum stehen
+                  oben schon. */}
+              {saison?.phasen?.length > 0 && (
+                <div className="mb-4">
+                  <SaisonStrahl
+                    saison={saison}
+                    kompakt
+                    ohneKopf
+                    fokus={{ von: plan.week_start, bis: plan.week_end }}
+                  />
+                </div>
+              )}
+
+              {wochenBilanz}
+
               {plan.plan_content?.coaching_comment && (
                 <p className="text-sm text-[#e8eaf0] leading-relaxed">
                   {plan.plan_content.coaching_comment}
@@ -637,7 +701,11 @@ export default function WeeklyPlan() {
           </div>
 
           {/* Calendar */}
-          <WeekCalendar days={calendarDays} onPersisted={() => loadPlanned(versatzRef.current)} />
+          <WeekCalendar
+            days={calendarDays}
+            istJeEinheit={bilanz?.einheiten}
+            onPersisted={() => loadPlanned(versatzRef.current)}
+          />
 
           {/* Was sich der Athlet wünschen kann — direkt unter der Woche, weil
               die Entscheidung dort fällt. Ein Klick übernimmt den Wunsch nach

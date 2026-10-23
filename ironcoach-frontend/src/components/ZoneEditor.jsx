@@ -60,10 +60,10 @@ function Kopf({ titel, einheit, children }) {
 
 /** Die fünf Bereiche einer Spalte.
  *
- *  Aufbau je Zeile: farbiger Balken — Name — Wert. Der Balken ersetzt die
- *  frühere graue Strecke zwischen Name und Zahl: Die war nur Abstand und hat
- *  das Auge über eine leere Fläche geschickt. Jetzt zeigt sie, wo die Zone
- *  liegt, und die Zahl steht am Zeilenende statt am anderen Ende des Blocks.
+ *  Aufbau je Zeile: Farbpunkt — Name — Wert. Vorher stand dort ein kleiner
+ *  Balken, dessen Breite die Zonen**nummer** zeigte, nicht ihre Spanne — er
+ *  sah aus wie eine Größe und war keine. Wie breit eine Zone wirklich ist,
+ *  zeigt beim Puls jetzt die durchgehende Leiste darüber (`PulsLeiste`).
  *
  *  Die Einheit steht einmal in der Kopfzeile, nicht fünfmal an den Werten.
  */
@@ -81,8 +81,7 @@ function Zeilen({ daten }) {
                   style={{ color: farbe }}>
               {label}
             </span>
-            <span className="h-2.5 rounded-sm flex-shrink-0"
-                  style={{ width: `${18 + ((zone - 1) / 6) * 22}px`, background: farbe, opacity: 0.8 }} />
+            <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: farbe }} />
             <span className="text-xs text-[var(--text-secondary)] flex-shrink-0">{name}</span>
             <span className="ml-auto font-mono text-xs text-[#e8eaf0] tabular-nums whitespace-nowrap">
               {wert}
@@ -90,6 +89,66 @@ function Zeilen({ daten }) {
           </div>
         )
       })}
+    </div>
+  )
+}
+
+/** Die Pulszonen als eine Leiste — jede Zone so breit wie ihre bpm-Spanne.
+ *
+ *  Die Tabelle sagte „Z2 139–173", aber nicht, dass Z2 mit 35 Schlägen fast
+ *  so breit ist wie Z3 und Z4 zusammen. Das sieht man erst an Breiten. Die
+ *  Schwelle steht als Marke darauf; sie liegt bei sauber gesetzten Zonen an
+ *  der Z4-Grenze, und eine Abweichung fällt so sofort auf.
+ *
+ *  Unten beginnt die Leiste bei der Hälfte des Maximalpulses: Z1 hat keine
+ *  untere Grenze, und eine Leiste ab 0 bestünde zur Hälfte aus Z1.
+ */
+function PulsLeiste({ profile }) {
+  const max = profile.max_hr
+  const grenzen = [profile.z1_hr_max, profile.z2_hr_max, profile.z3_hr_max, profile.z4_hr_max]
+  if (!max || grenzen.some(g => !g) || grenzen.some((g, i) => i > 0 && g <= grenzen[i - 1]) || grenzen[3] >= max) {
+    return null
+  }
+  const start = Math.min(Math.round(max * 0.5), grenzen[0] - 10)
+  const pos = v => ((v - start) / (max - start)) * 100
+  const kanten = [start, ...grenzen, max]
+  const schwelle = profile.threshold_hr
+
+  return (
+    <div className="mb-4">
+      {/* Die Marke liegt außerhalb des abgerundeten Rahmens, sonst schneidet
+          `overflow-hidden` sie oben und unten ab. */}
+      <div className="relative">
+        <div className="h-4 rounded-full overflow-hidden flex gap-[2px]">
+          {STUFEN.map(({ label }, i) => (
+            <div
+              key={label}
+              className="h-full"
+              title={`${label}: ${i === 0 ? `≤ ${kanten[1]}` : `${kanten[i] + 1}–${kanten[i + 1]}`} bpm`}
+              style={{ width: `${pos(kanten[i + 1]) - pos(kanten[i])}%`, background: ZONE_COLOR[i + 1], opacity: 0.85 }}
+            />
+          ))}
+        </div>
+        {schwelle > start && schwelle < max && (
+          <div
+            className="absolute -translate-x-1/2 rounded-full pointer-events-none"
+            style={{ left: `${pos(schwelle)}%`, top: -5, bottom: -5, width: 3, background: '#e8eaf0', boxShadow: '0 0 8px #e8eaf0aa' }}
+            title={`Threshold ${schwelle} bpm`}
+          />
+        )}
+      </div>
+      <div className="relative h-4 mt-1.5">
+        {grenzen.map(g => (
+          <span
+            key={g}
+            className="absolute -translate-x-1/2 text-[10px] font-mono tabular-nums text-[var(--text-muted)]"
+            style={{ left: `${pos(g)}%` }}
+          >
+            {g}
+          </span>
+        ))}
+        <span className="absolute right-0 text-[10px] font-mono tabular-nums text-[var(--text-muted)]">{max}</span>
+      </div>
     </div>
   )
 }
@@ -198,8 +257,11 @@ export default function ZoneEditor({ profile, onSaved }) {
       </div>
 
       <div className="p-5 grid lg:grid-cols-3 gap-x-8 gap-y-7">
-        {/* ── Puls ── */}
-        <div>
+        {/* ── Puls ── Als Spalte, die die Höhe der Zeile ausfüllt: Die Leiste
+            nimmt den freien Platz, die Zeilen stehen unten. So endet Z5 auf
+            der Höhe der letzten Laufzeile (Steigerungen) — vorher hingen die
+            Pulszeilen in der Mitte der Spalte und alles wirkte versetzt. */}
+        <div className="flex flex-col">
           <Kopf titel="PULS" einheit="bpm">
             max {profile.max_hr}
             {profile.threshold_hr ? ` · Schwelle ${profile.threshold_hr}` : ''}
@@ -241,7 +303,12 @@ export default function ZoneEditor({ profile, onSaved }) {
               </div>
             </>
           ) : (
-            <Zeilen daten={pulsZeilen} />
+            <>
+              <div className="flex-1 flex flex-col justify-center">
+                <PulsLeiste profile={profile} />
+              </div>
+              <Zeilen daten={pulsZeilen} />
+            </>
           )}
 
           {fehler && (

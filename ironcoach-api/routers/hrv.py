@@ -73,6 +73,23 @@ def latest_hrv(db: Session = Depends(get_db)):
     return m
 
 
+@router.get("/hrv/lage")
+def hrv_lage_der_woche(db: Session = Depends(get_db)):
+    """Die HRV in einem Satz Zahlen: Status, Ø 7 Tage, letzter Wert, Spanne.
+
+    Dieselbe Rechnung wie in der Doppeltag-Kachel (`doppel_urne.hrv_lage`),
+    damit Dashboard, Chat und Plan dieselbe Farbe zum selben Wert zeigen.
+    `null` ohne Messung in den letzten sieben Tagen.
+    """
+    from core.deps import get_profile
+    from services.doppel_urne import hrv_lage
+
+    profile = get_profile(db)
+    if profile is None:
+        return None
+    return hrv_lage(db, profile)
+
+
 @router.get("/hrv/range")
 def hrv_range(db: Session = Depends(get_db)):
     """Die geltende Normalspanne und woher sie stammt."""

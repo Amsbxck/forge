@@ -110,7 +110,38 @@ def status(db: Session, user: User | None) -> dict:
         "rest_eur": round(max(0.0, guthaben - verbraucht), 4),
         "aufgebraucht": verbraucht >= guthaben,
         "aufrufe": db.query(ApiUsage).filter(ApiUsage.user_id == user.id).count() if user else 0,
+        "je_art": je_art(db, user),
     }
+
+
+def je_art(db: Session, user: User | None) -> dict:
+    """Verbrauch je Art (Plan, Anpassung, Chat): Anzahl, Summe, Schnitt.
+
+    Für die Reichweite in der Budgetkachel — „reicht noch für ≈ N Pläne".
+    Der Rest in Euro sagt einem Athleten wenig; wie viele Pläne er noch
+    erstellen kann, sagt ihm, ob er sich Sorgen machen muss.
+
+    Offene Reservierungen zählen nicht mit: Ihr Betrag ist eine Schätzung
+    nach oben und würde den Schnitt verzerren.
+    """
+    if user is None:
+        return {}
+    zeilen = (
+        db.query(ApiUsage.kind, func.count(ApiUsage.id), func.coalesce(func.sum(ApiUsage.cost_eur), 0.0))
+        .filter(ApiUsage.user_id == user.id)
+        .group_by(ApiUsage.kind)
+        .all()
+    )
+    ergebnis: dict[str, dict] = {}
+    for art, anzahl, summe in zeilen:
+        if not art or art.endswith(RESERVIERT) or not anzahl:
+            continue
+        ergebnis[art] = {
+            "aufrufe": anzahl,
+            "summe_eur": round(float(summe), 4),
+            "schnitt_eur": round(float(summe) / anzahl, 4),
+        }
+    return ergebnis
 
 
 def ensure_budget(db: Session, user: User | None) -> None:

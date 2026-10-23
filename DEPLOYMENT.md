@@ -201,27 +201,53 @@ Test it: `https://<your-url>/docs` should show the FastAPI Swagger UI.
 
 ### 1.6 Back up the database
 
-There is no automatic backup. Set one up before anyone else uses the app —
-a lost season is not recoverable from anywhere else.
+Two independent copies exist:
 
-```bash
-# From your machine, against the deployed database:
-DATABASE_URL="postgresql://..." ./scripts/backup.sh
+1. **Railway** backs up the Postgres service on its side (shows up as
+   "Backup" in the usage overview). Frequency and retention are set in
+   Railway → Postgres service → Backups.
+2. **A nightly dump on Amir's Mac** (since 11.09.2026), owned by us and
+   independent of Railway:
 
-# Restore (asks for confirmation, and backs up the current state first):
-DATABASE_URL="postgresql://..." ./scripts/restore.sh backups/ironcoach_<date>.sql.gz
-```
+   | Part | Where |
+   |---|---|
+   | Job | `~/Library/LaunchAgents/ai.ironcoach.backup.plist` (launchd, daily 03:00) |
+   | Script | `scripts/backup-taeglich.sh` → `scripts/backup.sh` (read-only `pg_dump`) |
+   | Connection | `~/.ironcoach-db-url` (mode 600; the script enforces it) |
+   | Main copy | `~/Backups/IronCoach/`, the 14 most recent dumps |
+   | Second copy | iCloud Drive `IronCoach-Backups/` (newest dump only, never pruned) |
+   | Log | `~/Library/Logs/ironcoach-backup.log` (connection string masked) |
 
-Copy the connection string from Railway → Postgres service → **Connect**.
+   A silent failure only shows in the log: `tail -20 ~/Library/Logs/ironcoach-backup.log`.
+   The job needs the Mac running. If it was asleep at 03:00, launchd runs the
+   job on wake. If it was off, that day has no dump, so "14 dumps" is not
+   always 14 consecutive days. After a password change on Railway, update
+   `~/.ironcoach-db-url` as well.
+
+   Not iCloud as the main target: a launchd job may write there but not list
+   the folder, so pruning failed. That is also why the scripts use `find` and
+   not a glob.
+
 `scripts/backup.sh` keeps the 14 most recent dumps and refuses to delete old
-ones if the new dump is empty or corrupt — a failed run must never take the
+ones if the new dump is empty or corrupt. A failed run must never take the
 last working backup with it.
 
-Run it on a schedule (cron on your machine, or a Railway cron service):
+By hand:
 
+```bash
+# Against the deployed database (connection: Railway → Postgres → Connect):
+DATABASE_URL="$(cat ~/.ironcoach-db-url)" ./scripts/backup.sh
+
+# Restore into PRODUCTION (asks for confirmation, backs up the current state first):
+DATABASE_URL="postgresql://..." ./scripts/restore.sh <dump.sql.gz>
 ```
-0 3 * * *  cd /path/to/IronCoach-AI && DATABASE_URL="postgresql://..." ./scripts/backup.sh
-```
+
+**Production data for local testing:** `scripts/prod-nach-lokal.sh [--ja] [dump]`
+copies production (read-only) into the local Compose database. It backs up the
+local state first and deletes `strava_credentials` locally before the backend
+starts. A local token refresh would invalidate production's Strava refresh
+token. A full restore of a production dump has gone through this way
+(23.10.2026: 5 accounts, 307 sessions, 15 plans, 199 HRV rows, migration 040).
 
 **Test the restore once, before you need it.** Restore into a scratch
 database and compare the row counts:

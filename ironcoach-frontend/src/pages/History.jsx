@@ -1,16 +1,19 @@
 import { useEffect, useState, useMemo } from 'react'
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
-} from 'recharts'
-import {
-  getSessions, getSessionsSeit, getHistoryPlans,
+  getSessions, getSessionsSeit, getHistoryPlans, getSaison,
   softDeleteSession, hardDeleteSession, restoreSession, setSessionCommute
 } from '../services/api'
 import SessionDetail from '../components/SessionDetail'
+import SegmentLeiste from '../components/leisten/SegmentLeiste'
+import WochenVolumen from '../components/leisten/WochenVolumen'
+import TrainingsJahr from '../components/leisten/TrainingsJahr'
+import { blockName } from '../components/leisten/SaisonStrahl'
 
-import { ACCENT, DISCIPLINE_COLOR, DISCIPLINE_LABEL, INTENSITY_META, phaseColor } from '../utils/colors'
+import { ACCENT, DISCIPLINE_COLOR, DISCIPLINE_LABEL, INTENSITY_META, STATUS_COLOR, phaseColor } from '../utils/colors'
 import SportIcon from '../components/SportIcon'
-import { isoTag, paceText } from '../utils/dates'
+import { isoTag, paceText, parseTag } from '../utils/dates'
+import { SPORTEN, montagVon, sportVon, stunden, veraenderung, wochenSummen, zeitraum } from '../utils/einheiten'
+import { phaseFamilie } from '../utils/phasen'
 import { fehlerText } from '../utils/fehler'
 import { disciplineLabel } from '../utils/colors'
 
@@ -46,229 +49,188 @@ function formatPace(val, disc) {
 }
 
 // ─── Progress Tab ─────────────────────────────────────────────────────────────
+//
+// Vorher: ein Stufendiagramm, das nur innerhalb eines Monats aufsummierte,
+// Summen über alles seit jeher und vier Sportart-Karten. Jetzt in der Optik
+// der Anzeige-Leisten (englisch beschriftet wie sie): Zeitraum mit Vergleich,
+// Wochenvolumen mit Phasenband, Trainingsjahr, Bestwerte.
 
-const STEP_DISCS = [
-  { key: 'all', label: 'Total', color: ACCENT },
-  ...['bike', 'run', 'swim', 'gym'].map(k => ({
-    key: k, label: DISCIPLINE_LABEL[k], color: DISCIPLINE_COLOR[k],
-  })),
+const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl p-5'
+const KOPF = 'text-[9px] font-mono tracking-[0.2em] text-[var(--text-muted)]'
+const DISPLAY = { fontFamily: 'Barlow Condensed, sans-serif' }
+
+const ZEITRAEUME = [
+  { tage: 28, label: '4W' },
+  { tage: 84, label: '12W' },
+  { tage: 364, label: 'YEAR' },
 ]
 
-function buildMonthStepData(sessions, ym) {
-  const monthSessions = sessions.filter(s => !s.deleted_at && s.session_date?.startsWith(ym))
-  const sorted = [...monthSessions].sort((a, b) => a.session_date?.localeCompare(b.session_date))
-  const c = { all: 0, bike: 0, run: 0, swim: 0, gym: 0 }
-  const h = { all: 0, bike: 0, run: 0, swim: 0, gym: 0 }
-  return sorted.map(s => {
-    const disc = s.discipline?.toLowerCase()
-    const hrs = parseFloat(((s.duration_min || 0) / 60).toFixed(2))
-    c.all++; h.all = parseFloat((h.all + hrs).toFixed(2))
-    if (c[disc] !== undefined) { c[disc]++; h[disc] = parseFloat((h[disc] + hrs).toFixed(2)) }
-    return {
-      date: s.session_date?.slice(8),
-      all_count: c.all, bike_count: c.bike, run_count: c.run, swim_count: c.swim, gym_count: c.gym,
-      all_hours: h.all, bike_hours: h.bike, run_hours: h.run, swim_hours: h.swim, gym_hours: h.gym,
-    }
-  })
-}
+const kurzTag = tag =>
+  parseTag(tag).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }).toUpperCase()
 
-const StepTooltip = ({ active, payload }) => {
-  if (!active || !payload?.length) return null
-  const d = payload[0]?.payload
+function Schalter({ optionen, wert, onWahl }) {
   return (
-    <div className="bg-[#111318] border border-[#1e2228] rounded-lg px-3 py-2 text-xs space-y-1">
-      <div className="text-[var(--text-secondary)] font-mono">Day {d?.date}</div>
-      {payload.map(p => (
-        <div key={p.dataKey} style={{ color: p.stroke }} className="font-mono">
-          {p.name}: {p.value}
-        </div>
+    <div className="flex rounded-lg p-0.5" style={{ background: '#0d0f14', border: '1px solid #1e2228' }}>
+      {optionen.map(o => (
+        <button
+          key={o.wert}
+          onClick={() => onWahl(o.wert)}
+          className="px-2.5 py-1 rounded-md text-[10px] font-mono tracking-widest transition-colors"
+          style={{
+            color: wert === o.wert ? ACCENT : '#8a909e',
+            background: wert === o.wert ? `${ACCENT}1f` : 'transparent',
+            boxShadow: wert === o.wert ? `inset 0 0 0 1px ${ACCENT}44` : 'none',
+          }}
+        >
+          {o.label}
+        </button>
       ))}
     </div>
   )
 }
 
-function fmtHours(min) {
-  const h = Math.floor(min / 60)
-  const m = min % 60
-  if (h === 0) return `${m}m`
-  return m > 0 ? `${h}h ${m}m` : `${h}h`
-}
-
-function ProgressTab({ sessions }) {
-  const active = useMemo(() => sessions.filter(s => !s.deleted_at), [sessions])
-
-  // Available months for selector
-  const months = useMemo(() => {
-    const set = new Set(active.map(s => s.session_date?.slice(0, 7)).filter(Boolean))
-    return [...set].sort((a, b) => b.localeCompare(a))
-  }, [active])
-
-  const [selectedMonth, setSelectedMonth] = useState(null)
-  const [yMode, setYMode] = useState('count')
-  const [activeDiscs, setActiveDiscs] = useState(new Set(['all', 'bike', 'run', 'swim', 'gym']))
-
-  const toggleDisc = (key) => setActiveDiscs(prev => {
-    const next = new Set(prev)
-    next.has(key) ? next.delete(key) : next.add(key)
-    return next
-  })
-
-  const currentMonth = selectedMonth ?? months[0] ?? ''
-  const stepData = useMemo(() => buildMonthStepData(sessions, currentMonth), [sessions, currentMonth])
-  const suffix = yMode === 'hours' ? '_hours' : '_count'
-
-  const stats = useMemo(() => {
-    const totals = { count: 0, km: 0, min: 0 }
-    const byDisc = {}
-    for (const [disc] of Object.entries(DISC_CONFIG)) {
-      byDisc[disc] = { count: 0, km: 0, min: 0 }
-    }
-    active.forEach(s => {
-      const disc = s.discipline?.toLowerCase()
-      totals.count++
-      totals.km += s.distance_km || 0
-      totals.min += s.duration_min || 0
-      if (byDisc[disc]) {
-        byDisc[disc].count++
-        byDisc[disc].km += s.distance_km || 0
-        byDisc[disc].min += s.duration_min || 0
-      }
-    })
-    return { totals, byDisc }
-  }, [active])
-
-  if (!active.length) {
-    return <div className="text-center py-8 text-[var(--text-secondary)] text-sm">No sessions yet.</div>
-  }
-
-  const disciplines = Object.entries(DISC_CONFIG).filter(([disc]) => stats.byDisc[disc].count > 0)
+/** Summen eines Zeitraums, mit der Veränderung zum Zeitraum davor.
+ *
+ *  Grün nach oben, Gelb erst ab −15 %: Weniger ist nicht automatisch
+ *  schlecht — eine Deload- oder Taperwoche soll weniger haben.
+ */
+function Zeitraum({ sessions }) {
+  const [tage, setTage] = useState(28)
+  const { jetzt, davor } = useMemo(() => zeitraum(sessions, tage), [sessions, tage])
+  const felder = [
+    { name: 'TIME', wert: stunden(jetzt.min), delta: veraenderung(jetzt.min, davor.min) },
+    { name: 'SESSIONS', wert: jetzt.n, delta: veraenderung(jetzt.n, davor.n) },
+    { name: 'DISTANCE', wert: Math.round(jetzt.km), einheit: 'km', delta: veraenderung(jetzt.km, davor.km) },
+    { name: 'TSS', wert: Math.round(jetzt.tss), delta: veraenderung(jetzt.tss, davor.tss) },
+  ]
+  const segmente = SPORTEN.filter(sp => jetzt.jeSport[sp]).map(sp => ({
+    key: sp,
+    name: (DISCIPLINE_LABEL[sp] || sp).toUpperCase(),
+    wert: jetzt.jeSport[sp],
+    farbe: DISCIPLINE_COLOR[sp] || DISCIPLINE_COLOR.other,
+    textFarbe: DISCIPLINE_COLOR[sp] || DISCIPLINE_COLOR.other,
+  }))
 
   return (
-    <div className="space-y-5">
-
-      {/* Monthly step chart */}
-      <div className="bg-[#111318] border border-[#1e2228] rounded-xl p-5">
-        {/* Controls */}
-        <div className="flex flex-wrap gap-2 items-center justify-between mb-4">
-          <div className="flex gap-1.5 flex-wrap">
-            {STEP_DISCS.map(({ key, label, color }) => (
-              <button key={key} onClick={() => toggleDisc(key)}
-                className="px-2.5 py-1 rounded-lg text-xs font-mono transition-all border"
+    <div className={CARD}>
+      <div className="flex items-end justify-between gap-x-4 gap-y-3 flex-wrap mb-5">
+        <div className="grid grid-cols-2 sm:flex gap-y-3">
+          {felder.map((f, i) => (
+            <div key={f.name} className={`pr-5 ${i % 2 ? 'pl-5 border-l border-[#1e2228]' : ''} sm:pl-5 sm:first:pl-0 ${i ? 'sm:border-l sm:border-[#1e2228]' : 'sm:border-l-0'}`}>
+              <div className={KOPF}>{f.name}</div>
+              <div className="flex items-baseline gap-1 mt-1.5">
+                <span className="text-3xl font-black leading-none tabular-nums text-[#e8eaf0]" style={DISPLAY}>{f.wert}</span>
+                {f.einheit && <span className="text-[10px] font-mono text-[var(--text-muted)]">{f.einheit}</span>}
+              </div>
+              <div
+                className="mt-1 text-[10px] font-mono tabular-nums h-3.5"
                 style={{
-                  borderColor: activeDiscs.has(key) ? color : '#1e2228',
-                  color: activeDiscs.has(key) ? color : 'var(--text-muted)',
-                  background: activeDiscs.has(key) ? `${color}15` : '#0d0f17',
+                  color: f.delta == null ? 'var(--text-muted)'
+                    : f.delta > 0.5 ? STATUS_COLOR.green : f.delta < -15 ? STATUS_COLOR.yellow : '#a7aebd',
                 }}
-              >{label}</button>
-            ))}
-          </div>
-          <div className="flex gap-2 flex-wrap items-center">
-            <select
-              value={currentMonth}
-              onChange={e => setSelectedMonth(e.target.value)}
-              className="text-xs font-mono px-2 py-1 rounded-lg border bg-[#0d0f17] text-[var(--text-secondary)]"
-              style={{ borderColor: '#1e2228' }}
-            >
-              {months.map(m => <option key={m} value={m}>{formatMonth(m)}</option>)}
-            </select>
-            <div className="flex gap-1 border border-[#1e2228] rounded-lg p-0.5 bg-[#0d0f17]">
-              {[{ v: 'count', label: 'Sessions' }, { v: 'hours', label: 'Hours' }].map(opt => (
-                <button key={opt.v} onClick={() => setYMode(opt.v)}
-                  className="px-2.5 py-1 rounded-md text-xs font-mono transition-all"
-                  style={{
-                    background: yMode === opt.v ? '#00d4ff20' : 'transparent',
-                    color: yMode === opt.v ? '#00d4ff' : 'var(--text-muted)',
-                    border: yMode === opt.v ? '1px solid #00d4ff33' : '1px solid transparent',
-                  }}
-                >{opt.label}</button>
-              ))}
+              >
+                {f.delta == null ? '—' : `${f.delta > 0 ? '+' : f.delta < 0 ? '−' : '±'}${Math.abs(Math.round(f.delta))} %`}
+              </div>
             </div>
-          </div>
+          ))}
         </div>
-        {stepData.length === 0 ? (
-          <div className="text-center py-6 text-[var(--text-muted)] text-xs font-mono">No sessions this month</div>
-        ) : (
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={stepData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e2228" vertical={false} />
-              <XAxis dataKey="date" tick={{ fill: '#a7aebd', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} interval={Math.max(0, Math.floor(stepData.length / 6) - 1)} />
-              <YAxis tick={{ fill: '#a7aebd', fontSize: 10, fontFamily: 'JetBrains Mono, monospace' }} axisLine={false} tickLine={false} allowDecimals={yMode === 'hours'} />
-              <Tooltip content={<StepTooltip />} />
-              {STEP_DISCS.map(({ key, label, color }) => activeDiscs.has(key) && (
-                <Line key={key} type="stepAfter" dataKey={`${key}${suffix}`} name={label}
-                  stroke={color} strokeWidth={key === 'all' ? 2.5 : 1.5}
-                  dot={false} activeDot={{ r: 3, fill: color }} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        )}
+        <Schalter
+          optionen={ZEITRAEUME.map(z => ({ wert: z.tage, label: z.label }))}
+          wert={tage}
+          onWahl={setTage}
+        />
       </div>
+      {segmente.length > 0 ? (
+        <SegmentLeiste kopf="TIME BY SPORT" mindestens={1} segmente={segmente} />
+      ) : (
+        <div className="text-[10px] font-mono text-[var(--text-muted)]">No sessions in this period.</div>
+      )}
+    </div>
+  )
+}
 
-      {/* Total summary strip */}
-      <div className="bg-[#111318] border border-[#1e2228] rounded-xl px-5 py-4 grid grid-cols-3 gap-4">
-        {[
-          { label: 'TOTAL SESSIONS', value: stats.totals.count, unit: null },
-          { label: 'TOTAL DISTANCE', value: stats.totals.km.toFixed(1), unit: 'km' },
-          { label: 'TOTAL TIME', value: fmtHours(stats.totals.min), unit: null },
-        ].map(({ label, value, unit }) => (
-          <div key={label} className="text-center">
-            <div className="text-xs text-[var(--text-secondary)] font-mono tracking-widest mb-1">{label}</div>
-            <div className="text-3xl font-black font-mono text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
-              {value}{unit && <span className="text-base text-[var(--text-secondary)] font-normal ml-1">{unit}</span>}
-            </div>
-          </div>
-        ))}
-      </div>
+/** Längste, weiteste und stärkste Einheit je Sportart.
+ *
+ *  Über den geladenen Zeitraum (zwei Jahre) — und so beschriftet, damit
+ *  niemand einen Rekord für ewig hält, der nur der beste der letzten zwei
+ *  Jahre ist. Distanz nicht beim Kraftraining, dort gibt es keine.
+ */
+function Rekorde({ sessions, onOeffnen }) {
+  const zeilen = useMemo(() => {
+    const aktiv = sessions.filter(s => !s.deleted_at)
+    return SPORTEN.map(sp => {
+      const eigene = aktiv.filter(s => sportVon(s) === sp)
+      if (!eigene.length) return null
+      const bester = feld => eigene.reduce((a, b) => ((b[feld] || 0) > (a?.[feld] || 0) ? b : a), null)
+      return {
+        sport: sp,
+        werte: [
+          { name: 'LONGEST', s: bester('duration_min'), text: x => formatDuration(x.duration_min) },
+          sp !== 'gym' && { name: 'FARTHEST', s: bester('distance_km'), text: x => `${x.distance_km.toFixed(1)} km` },
+          { name: 'HIGHEST TSS', s: bester('tss'), text: x => `${Math.round(x.tss)}` },
+        ].filter(w => w && w.s && w.s[{ LONGEST: 'duration_min', FARTHEST: 'distance_km', 'HIGHEST TSS': 'tss' }[w.name]]),
+      }
+    }).filter(z => z && z.werte.length)
+  }, [sessions])
 
-      {/* Per-discipline cards */}
-      <div className={`grid gap-3 ${{1:'grid-cols-1',2:'grid-cols-2',3:'grid-cols-3',4:'grid-cols-4'}[Math.min(disciplines.length,4)]}`}>
-        {disciplines.map(([disc, cfg]) => {
-          const s = stats.byDisc[disc]
-          const pct = Math.round((s.count / stats.totals.count) * 100)
+  if (!zeilen.length) return null
+  return (
+    <div className={CARD}>
+      <div className={`${KOPF} mb-3`}>RECORDS · LAST 2 YEARS</div>
+      <div className="divide-y divide-[#1e2228]">
+        {zeilen.map(z => {
+          const farbe = DISCIPLINE_COLOR[z.sport] || DISCIPLINE_COLOR.other
           return (
-            <div
-              key={disc}
-              className="bg-[#111318] border border-[#1e2228] rounded-xl overflow-hidden"
-              style={{ borderLeftColor: cfg.color, borderLeftWidth: 3 }}
-            >
-              {/* Header */}
-              <div className="flex items-center gap-2 px-4 pt-4 pb-2">
-                <SportIcon discipline={cfg.key} size={20} color={cfg.color} />
-                <span
-                  className="text-base font-bold tracking-wide"
-                  style={{ color: cfg.color, fontFamily: 'Barlow Condensed, sans-serif' }}
-                >
-                  {cfg.label.toUpperCase()}
-                </span>
-                <span className="ml-auto text-xs font-mono text-[var(--text-muted)]">{pct}% of total</span>
-              </div>
-
-              {/* Stats row */}
-              <div className="grid grid-cols-3 divide-x divide-[#1e2228] border-t border-[#1e2228]">
-                <div className="px-4 py-3 text-center">
-                  <div className="text-2xl font-black font-mono" style={{ color: cfg.color, fontFamily: 'Barlow Condensed, sans-serif' }}>{s.count}</div>
-                  <div className="text-xs text-[var(--text-secondary)] font-mono mt-0.5">sessions</div>
-                </div>
-                <div className="px-4 py-3 text-center">
-                  <div className="text-2xl font-black font-mono text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
-                    {s.km > 0 ? s.km.toFixed(1) : '—'}
-                  </div>
-                  <div className="text-xs text-[var(--text-secondary)] font-mono mt-0.5">km</div>
-                </div>
-                <div className="px-4 py-3 text-center">
-                  <div className="text-2xl font-black font-mono text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>{fmtHours(s.min)}</div>
-                  <div className="text-xs text-[var(--text-secondary)] font-mono mt-0.5">time</div>
-                </div>
-              </div>
-
-              {/* Progress bar */}
-              <div className="h-1" style={{ background: '#1e2228' }}>
-                <div className="h-full transition-all" style={{ width: `${pct}%`, background: cfg.color, opacity: 0.6 }} />
+            <div key={z.sport} className="grid grid-cols-[5.5rem_1fr] sm:grid-cols-[7rem_1fr] gap-3 py-2.5 items-center">
+              <span className="flex items-center gap-2 text-sm font-bold tracking-wide" style={{ ...DISPLAY, color: farbe }}>
+                <SportIcon discipline={z.sport} size={15} color={farbe} />
+                {(DISCIPLINE_LABEL[z.sport] || z.sport).toUpperCase()}
+              </span>
+              <div className="grid grid-cols-3 gap-3">
+                {z.werte.map(w => (
+                  <button
+                    key={w.name}
+                    onClick={() => onOeffnen(w.s)}
+                    className="text-left rounded-md px-2 py-1 -mx-2 hover:bg-[#0d0f17] transition-colors min-w-0"
+                    title="Open session"
+                  >
+                    <div className="text-[8px] font-mono tracking-[0.18em] text-[var(--text-muted)] truncate">{w.name}</div>
+                    <div className="text-lg font-black leading-tight tabular-nums text-[#e8eaf0] truncate" style={DISPLAY}>{w.text(w.s)}</div>
+                    <div className="text-[9px] font-mono text-[var(--text-muted)] truncate">{kurzTag(w.s.session_date)}</div>
+                  </button>
+                ))}
               </div>
             </div>
           )
         })}
       </div>
+    </div>
+  )
+}
+
+function ProgressTab({ sessions, volle, plaene, saison }) {
+  const [offen, setOffen] = useState(null)
+  const active = useMemo(() => sessions.filter(s => !s.deleted_at), [sessions])
+
+  if (!active.length) {
+    return <div className="text-center py-8 text-[var(--text-secondary)] text-sm">No sessions yet.</div>
+  }
+
+  // Für das Modal die volle Einheit (mit Zeitreihen), wenn sie geladen ist —
+  // die zwei Jahre fürs Diagramm kommen ohne.
+  const oeffnen = s => setOffen(volle.find(v => v.id === s.id) || s)
+
+  return (
+    <div className="space-y-4">
+      {offen && <SessionDetail session={offen} onClose={() => setOffen(null)} />}
+      <Zeitraum sessions={active} />
+      <div className={CARD}>
+        <WochenVolumen sessions={active} plaene={plaene} saison={saison} />
+      </div>
+      <div className={CARD}>
+        <TrainingsJahr sessions={active} />
+      </div>
+      <Rekorde sessions={active} onOeffnen={oeffnen} />
     </div>
   )
 }
@@ -510,43 +472,71 @@ function SessionsTab({ sessions, showDeleted, onToggleDeleted, onRefresh }) {
         const isOpen = effectiveOpenMonths.has(ym)
         const sorted = [...monthSessions].sort((a, b) => b.session_date?.localeCompare(a.session_date))
 
-        // Month summary stats
-        const totalHours = monthSessions.reduce((acc, s) => acc + (s.duration_min || 0) / 60, 0)
-        const totalTSS = monthSessions.reduce((acc, s) => acc + (s.tss || 0), 0)
+        // Monatskopf als Leiste: Stunden groß, darunter die Stunden je
+        // Sportart, rechts eine Säule je Kalenderwoche des Monats. Vorher
+        // standen dort „12 sessions · 14.3h · 820 TSS" und Sportart-Chips —
+        // dieselben Zahlen, aber ohne Verhältnis zueinander.
+        const aktiveImMonat = monthSessions.filter(s => !s.deleted_at)
+        const summeMin = aktiveImMonat.reduce((acc, s) => acc + (s.duration_min || 0), 0)
+        const totalTSS = aktiveImMonat.reduce((acc, s) => acc + (s.tss || 0), 0)
+        const jeSport = {}
+        aktiveImMonat.forEach(s => {
+          const sp = sportVon(s)
+          jeSport[sp] = (jeSport[sp] || 0) + (s.duration_min || 0)
+        })
+        const jeWoche = wochenSummen(aktiveImMonat)
+        const [jahr, monat] = ym.split('-').map(Number)
+        const wochenDesMonats = []
+        if (jahr && monat) {
+          const letzter = new Date(jahr, monat, 0)
+          for (let d = parseTag(montagVon(`${ym}-01`)); d <= letzter; d.setDate(d.getDate() + 7)) {
+            wochenDesMonats.push(isoTag(d))
+          }
+        }
+        const wochenMax = Math.max(1, ...wochenDesMonats.map(m => jeWoche[m]?.min || 0))
+        const dieseWoche = montagVon(isoTag(new Date()))
 
         return (
           <div key={ym} className="bg-[#111318] border border-[#1e2228] rounded-xl overflow-hidden">
             <button
               onClick={() => toggleMonth(ym)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-[#0d0f17] transition-colors"
+              className="w-full flex items-center justify-between gap-4 px-4 py-3 hover:bg-[#0d0f17] transition-colors text-left"
             >
-              <div className="flex items-center gap-3 flex-wrap">
-                <span
-                  className="text-base font-bold text-[#e8eaf0] tracking-wide"
-                  style={{ fontFamily: 'Barlow Condensed, sans-serif' }}
-                >
-                  {formatMonth(ym).toUpperCase()}
-                </span>
-                <span className="text-xs font-mono text-[var(--text-secondary)] bg-[#1e2228] px-2 py-0.5 rounded-full">
-                  {monthSessions.length} sessions
-                </span>
-                <span className="text-xs font-mono text-[var(--text-muted)]">{totalHours.toFixed(1)}h</span>
-                {totalTSS > 0 && <span className="text-xs font-mono text-[var(--text-muted)]">{Math.round(totalTSS)} TSS</span>}
-                <div className="flex gap-1 hidden sm:flex">
-                  {['bike','run','swim','gym'].map(d => {
-                    const cnt = monthSessions.filter(s => s.discipline?.toLowerCase() === d).length
-                    if (!cnt) return null
-                    return (
-                      <span key={d}
-                            className="text-xs font-mono px-1.5 py-0.5 rounded inline-flex items-center gap-1"
-                            style={{ color: DISC_CONFIG[d].color, background: `${DISC_CONFIG[d].color}20` }}>
-                        <SportIcon discipline={d} size={13} />
-                        {cnt}
-                      </span>
-                    )
-                  })}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline gap-3 flex-wrap">
+                  <span className="text-base font-bold text-[#e8eaf0] tracking-wide" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
+                    {formatMonth(ym).toUpperCase()}
+                  </span>
+                  <span className="text-2xl font-black leading-none tabular-nums text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
+                    {stunden(summeMin)}
+                  </span>
+                  <span className="text-[10px] font-mono tracking-widest text-[var(--text-muted)]">
+                    {aktiveImMonat.length} SESSIONS{totalTSS > 0 ? ` · ${Math.round(totalTSS)} TSS` : ''}
+                  </span>
                 </div>
+                {summeMin > 0 && (
+                  <div className="flex gap-[2px] h-1.5 mt-2 max-w-md rounded-full overflow-hidden">
+                    {SPORTEN.filter(sp => jeSport[sp]).map(sp => (
+                      <div key={sp} title={`${DISCIPLINE_LABEL[sp] || sp}: ${stunden(jeSport[sp])}`}
+                           style={{ flexGrow: jeSport[sp], flexBasis: 0, background: DISCIPLINE_COLOR[sp] || DISCIPLINE_COLOR.other, opacity: 0.85 }} />
+                    ))}
+                  </div>
+                )}
               </div>
+              {wochenDesMonats.length > 0 && summeMin > 0 && (
+                <div className="hidden sm:flex items-end gap-1 h-7 flex-shrink-0" aria-hidden="true">
+                  {wochenDesMonats.map(m => (
+                    <div key={m} className="w-2.5 h-full flex flex-col justify-end"
+                         title={`Week of ${parseTag(m).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}: ${stunden(jeWoche[m]?.min)}`}>
+                      <div className="w-full rounded-t-[2px]"
+                           style={{
+                             height: `${Math.max(6, ((jeWoche[m]?.min || 0) / wochenMax) * 100)}%`,
+                             background: m === dieseWoche ? ACCENT : jeWoche[m]?.min ? '#5b6475' : '#1e2228',
+                           }} />
+                    </div>
+                  ))}
+                </div>
+              )}
               <span className="text-[var(--text-secondary)] text-sm font-mono flex-shrink-0">{isOpen ? '▼' : '▶'}</span>
             </button>
 
@@ -573,34 +563,97 @@ function SessionsTab({ sessions, showDeleted, onToggleDeleted, onRefresh }) {
 }
 
 // ─── Plans Tab ─────────────────────────────────────────────────────────────────
+//
+// Jede Woche als Sieben-Tage-Streifen in Sportfarben statt Text-Chips
+// („Mo: bike"). Zwei Einträge am selben Tag teilen die Zelle — so sieht man
+// den Doppeltag. Der Phasenstreifen links trägt die Farbe der Planphase.
+
+const WOCHENTAGE = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
+const TAG_KURZ = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
+const SPORT_KURZ = { swim: 'SWIM', bike: 'BIKE', run: 'RUN', brick: 'BRICK', gym: 'GYM', hike: 'HIKE', rest: 'REST' }
+
+function phasenName(phase) {
+  if (!phase) return ''
+  return phaseFamilie(phase) === 'off' ? 'OFF SEASON' : blockName(phase)
+}
+
+function PlanWoche({ plan: p }) {
+  const [lang, setLang] = useState(false)
+  const farbe = phaseColor(p.plan_phase)
+  const tage = WOCHENTAGE.map((name, i) => ({
+    kurz: TAG_KURZ[i],
+    einheiten: (p.plan_content?.days || []).filter(d => d.day === name && (d.session_type || 'rest') !== 'rest'),
+  }))
+  const von = parseTag(p.week_start)
+  const bis = parseTag(p.week_end)
+  const zeitraumText = `${von.getDate()}${von.getMonth() !== bis.getMonth() ? ` ${von.toLocaleDateString('en-GB', { month: 'short' }).toUpperCase()}` : ''}–${bis.getDate()} ${bis.toLocaleDateString('en-GB', { month: 'short' }).toUpperCase()}`
+  const kommentar = p.plan_content?.coaching_comment
+
+  return (
+    <div className="bg-[#111318] border border-[#1e2228] rounded-xl p-4 pl-5 relative overflow-hidden">
+      <span className="absolute left-0 inset-y-0 w-[3px]" style={{ background: farbe }} />
+      <div className="flex items-baseline justify-between gap-3 flex-wrap mb-3">
+        <span className="text-[10px] font-mono tracking-widest text-[var(--text-secondary)]">
+          {/* Negative Wochen liegen vor dem Aufbau — „Week -3" wäre dort
+              eine Zahl ohne Bedeutung. */}
+          <span className="text-[#e8eaf0]">{p.week_number < 1 ? 'PREP' : `WEEK ${p.week_number}`}</span>
+          {p.plan_phase && <> · <span style={{ color: farbe }}>{phasenName(p.plan_phase)}</span></>}
+        </span>
+        <span className="text-[10px] font-mono tracking-widest text-[var(--text-muted)]">{zeitraumText}</span>
+      </div>
+
+      <div className="grid grid-cols-7 gap-1">
+        {tage.map(t => (
+          <div key={t.kurz} className="min-w-0">
+            <div className="text-[8px] font-mono tracking-widest text-[var(--text-muted)] mb-1 text-center">{t.kurz}</div>
+            <div className="h-11 flex flex-col gap-[2px]">
+              {t.einheiten.length === 0 ? (
+                <div className="flex-1 rounded-[3px] flex items-center justify-center text-[8px] font-mono text-[var(--text-muted)]"
+                     style={{ background: '#0d0f14', border: '1px solid #1a1d24' }}>
+                  —
+                </div>
+              ) : t.einheiten.map((e, i) => {
+                const sport = (e.session_type || '').toLowerCase()
+                const sf = DISCIPLINE_COLOR[sport] || DISCIPLINE_COLOR.other
+                return (
+                  <div key={i}
+                       className="flex-1 rounded-[3px] flex flex-col items-center justify-center min-h-0 overflow-hidden"
+                       style={{ background: `${sf}22`, boxShadow: `inset 0 0 0 1px ${sf}55` }}
+                       title={`${DISCIPLINE_LABEL[sport] || sport}${e.duration_min ? ` · ${e.duration_min} min` : ''}`}>
+                    <span className="text-[8px] sm:text-[9px] font-mono font-bold leading-none truncate max-w-full px-0.5" style={{ color: sf }}>
+                      {SPORT_KURZ[sport] || sport.toUpperCase()}
+                    </span>
+                    {t.einheiten.length === 1 && e.duration_min > 0 && (
+                      <span className="text-[8px] font-mono tabular-nums text-[var(--text-muted)] leading-none mt-1">{e.duration_min}′</span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {kommentar && (
+        <div className="mt-3">
+          <p className={`text-[var(--text-secondary)] text-xs leading-relaxed ${lang ? '' : 'line-clamp-2'}`}>{kommentar}</p>
+          {kommentar.length > 160 && (
+            <button onClick={() => setLang(v => !v)}
+                    className="mt-1 text-[9px] font-mono tracking-widest text-[var(--text-muted)] hover:text-[#00d4ff]">
+              {lang ? 'LESS' : 'MORE'}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function PlansTab({ plans }) {
   if (!plans.length) return <p className="text-[var(--text-secondary)] text-sm py-4">Noch keine Wochenpläne erstellt.</p>
   return (
-    <div className="space-y-4">
-      {plans.map(p => (
-        <div key={p.id} className="bg-[#111318] border border-[#1e2228] rounded-xl p-5">
-          <div className="flex justify-between items-start mb-2">
-            <span className="font-bold text-[#e8eaf0] tracking-wide" style={{ fontFamily: 'Barlow Condensed, sans-serif', fontSize: '1.05rem' }}>
-              {/* Negative Wochen liegen vor dem Aufbau — „Woche -3" wäre dort
-                  eine Zahl ohne Bedeutung. */}
-              {p.week_number < 1 ? `VORLAUF ${Math.abs(p.week_number) + 1}` : `WOCHE ${p.week_number}`}
-              {' — '}<span style={{ color: phaseColor(p.plan_phase) }}>{p.plan_phase}</span>
-            </span>
-            <span className="text-xs font-mono text-[var(--text-secondary)]">{p.week_start} – {p.week_end}</span>
-          </div>
-          {p.plan_content?.coaching_comment && (
-            <p className="text-[var(--text-secondary)] text-sm">{p.plan_content.coaching_comment}</p>
-          )}
-          <div className="mt-3 flex flex-wrap gap-1">
-            {(p.plan_content?.days || []).map((d, i) => (
-              <span key={i} className={`text-xs px-2 py-0.5 rounded-full font-mono ${d.session_type === 'rest' ? 'bg-[#1e2228] text-[var(--text-muted)]' : 'bg-[#1e2228] text-[var(--text-secondary)]'}`}>
-                {(d.day || '').slice(0, 2)}: {d.session_type}
-              </span>
-            ))}
-          </div>
-        </div>
-      ))}
+    <div className="space-y-3">
+      {plans.map(p => <PlanWoche key={p.id} plan={p} />)}
     </div>
   )
 }
@@ -627,6 +680,9 @@ export default function History() {
   // Fürs Fortschrittsdiagramm alle Einheiten der letzten zwei Jahre, ohne
   // Zeitreihen — die Monatsbalken brauchen nur Datum, Dauer und TSS.
   const [verlauf, setVerlauf] = useState([])
+  // Für die Deload-Dreiecke im Wochenvolumen; still, sie sind Beiwerk.
+  const [saison, setSaison] = useState(null)
+  useEffect(() => { getSaison().then(({ data }) => setSaison(data)).catch(() => {}) }, [])
 
   const load = async () => {
     setLoading(true)
@@ -702,7 +758,9 @@ export default function History() {
               )}
             </>
           )}
-          {tab === 'progress' && <ProgressTab sessions={verlauf.length ? verlauf : sessions} />}
+          {tab === 'progress' && (
+            <ProgressTab sessions={verlauf.length ? verlauf : sessions} volle={sessions} plaene={plans} saison={saison} />
+          )}
           {tab === 'plans' && <PlansTab plans={plans} />}
         </>
       )}

@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react'
-import { getWeekMetrics, getLatestHrv, getHrv, getHrvRange, getSessions, getSessionsSeit, getProfile, getIntakeStatus, getMe, getFtpCheck, getPmc, getBenchmarkTiming } from '../services/api'
+import { getWeekMetrics, getLatestHrv, getHrv, getHrvRange, getHrvLage, getSaison, getSessions, getSessionsSeit, getProfile, getIntakeStatus, getMe, getFtpCheck, getPmc, getBenchmarkTiming, getPlannedByMonday, getWochenBilanz } from '../services/api'
 import HRVInput from '../components/HRVInput'
 import HealthStatus from '../components/HealthStatus'
 import HRVHistoryChart from '../components/HRVHistoryChart'
 import PerformanceChart from '../components/PerformanceChart'
-import HRZoneChart from '../components/HRZoneChart'
+import { HRV_URTEIL } from '../components/HrvAmpel'
+import SaisonStrahl from '../components/leisten/SaisonStrahl'
+import WocheHero from '../components/leisten/WocheHero'
+import SegmentLeiste from '../components/leisten/SegmentLeiste'
+import SpannenSkala, { hrvZonen } from '../components/leisten/SpannenSkala'
 import Onboarding from '../components/Onboarding'
 import IntakeDialog from '../components/IntakeDialog'
 import EmailBestaetigung from '../components/EmailBestaetigung'
@@ -12,7 +16,7 @@ import FtpHinweis from '../components/FtpHinweis'
 import Glossary from '../components/Glossary'
 import TodayCard from '../components/TodayCard'
 import SportIcon from '../components/SportIcon'
-import { daysUntil, isoTag, kalenderwoche } from '../utils/dates'
+import { isoTag, kalenderwoche } from '../utils/dates'
 import SessionDetail from '../components/SessionDetail'
 import ReflectionEditor from '../components/ReflectionEditor'
 import { calculatePMC, formColor, formLabel } from '../components/PerformanceChart'
@@ -20,14 +24,14 @@ import { useNavigate } from 'react-router-dom'
 
 import {
   DISCIPLINE_COLOR, DISCIPLINE_LABEL, HR_ZONE_COLOR, HR_ZONE_LABEL,
-  STATUS_COLOR as HRV_COLOR, disciplineColor, disciplineLabel, phaseColor,
+  STATUS_COLOR as HRV_COLOR, disciplineColor, disciplineLabel,
 } from '../utils/colors'
 
 const HRV_TEXT = {
-  green: 'Training wie geplant',
-  yellow: 'Möglich — Intensität senken',
-  red: 'Locker oder Ruhetag',
-  keine: 'Heute noch nicht gemessen',
+  green: 'Train as planned',
+  yellow: 'Possible — lower the intensity',
+  red: 'Easy or rest day',
+  keine: 'Not measured today',
 }
 
 // ─── Glossary ─────────────────────────────────────────────────────────────────
@@ -66,6 +70,25 @@ export default function Dashboard() {
   // blitzte bei Garmin-Athleten kurz die Handeingabe auf.
   const [garminVerbunden, setGarminVerbunden] = useState(null)
   const [testTermin, setTestTermin] = useState(null)
+  // Für die Leisten: Saison (Strahl im Kopf) und HRV-Lage (Ø 7 Tage in der
+  // Ampelfarbe, dieselbe Rechnung wie in der Doppeltag-Kachel).
+  const [saison, setSaison] = useState(null)
+  const [hrvLage, setHrvLage] = useState(null)
+
+  // Für die THIS-WEEK-Kachel: Plan, Bilanz und acht Wochen Verlauf. Eigener
+  // Effekt statt im `load`: Fehlt einer davon, fällt nur sein Teil der
+  // Kachel weg, die übrige Seite lädt unberührt.
+  const [geplantWoche, setGeplantWoche] = useState(null)
+  const [bilanzWoche, setBilanzWoche] = useState(null)
+  const [verlaufAcht, setVerlaufAcht] = useState(null)
+  const wochenMontag = kalenderwoche().von
+  useEffect(() => {
+    const m = new Date(`${wochenMontag}T00:00:00`)
+    m.setDate(m.getDate() - 49)
+    getPlannedByMonday(wochenMontag).then(r => setGeplantWoche(r.data || [])).catch(() => {})
+    getWochenBilanz(wochenMontag).then(r => setBilanzWoche(r.data)).catch(() => {})
+    getSessionsSeit(isoTag(m)).then(r => setVerlaufAcht(r.data || [])).catch(() => {})
+  }, [wochenMontag])
 
   const load = async () => {
     setLoading(true)
@@ -106,6 +129,10 @@ export default function Dashboard() {
         getSessionsSeit(isoTag(vor)).then(({ data }) => setPmcErsatz(calculatePMC(data))).catch(() => {})
       })
       getBenchmarkTiming().then(({ data }) => setTestTermin(data)).catch(() => setTestTermin(null))
+      // Eigene Fehlerfänge: Fehlen Strahl oder Lage, bleibt das übrige
+      // Dashboard stehen — die Kachel fällt dann auf die Tageswerte zurück.
+      getSaison().then(({ data }) => setSaison(data)).catch(() => setSaison(null))
+      getHrvLage().then(({ data }) => setHrvLage(data || null)).catch(() => setHrvLage(null))
       setMetrics(m.data)
       setHrv(h.data)
       setHrvHistory(Array.isArray(hh.data) ? hh.data : [])
@@ -131,13 +158,13 @@ export default function Dashboard() {
   const heuteGemessen = hrv?.measured_at === isoTag(new Date())
   const status = heuteGemessen && hrv?.hrv_status ? hrv.hrv_status : 'keine'
   const statusColor = HRV_COLOR[status] || '#8a909e'
-  // Füllung des Rings relativ zur eigenen Spanne (rote Grenze bis oberes
-  // Bandende). Hier standen 61 und 99 ms — die Werte eines einzelnen Athleten.
-  const ringUnten = hrvGrenzen?.rot_unter
-  const ringOben = hrvGrenzen?.gruen_bis || (hrvGrenzen?.gruen_ab ? hrvGrenzen.gruen_ab * 1.2 : null)
-  const ringAnteil = hrv?.rmssd && ringUnten && ringOben && ringOben > ringUnten
-    ? Math.min(Math.max((hrv.rmssd - ringUnten) / (ringOben - ringUnten), 0), 1)
-    : 0
+  // Die große Zahl ist der 7-Tage-Schnitt in der Farbe, mit der die Urne
+  // gewichtet (jüngste Messung der letzten drei Tage). Vorher stand hier ein
+  // Ring, dessen Füllung die Lage in der Spanne zeigen sollte — ohne jede
+  // Marke, wo grün beginnt, ließ sich die Füllung nicht lesen. Die Empfehlung
+  // darunter bleibt bei der Messung von heute.
+  const lageFarbe = HRV_COLOR[hrvLage?.status] || statusColor
+  const spanne = hrvLage?.spanne || hrvGrenzen
 
   // Form (TSB) aus derselben Funktion wie das Diagramm weiter unten — eine
   // zweite Rechnung würde früher oder später eine andere Zahl zeigen.
@@ -252,57 +279,6 @@ export default function Dashboard() {
         <h1 className="text-3xl font-black tracking-tight text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
           DASHBOARD
         </h1>
-        {/* Nach dem Renntag zählt keine Wochennummer mehr auf ein Ziel hin,
-            das schon gelaufen ist — dann steht hier Off Season und der
-            Hinweis auf das nächste Ziel. */}
-        {metrics?.season_state === 'off_season' ? (
-          <h2 className="text-3xl font-black tracking-tight"
-              style={{ fontFamily: 'Barlow Condensed, sans-serif', color: phaseColor('Off Season') }}>
-            OFF SEASON
-            {metrics.race_date && (
-              <span className="ml-3 text-sm font-mono tracking-widest text-[var(--text-muted)]">
-                {Math.abs(daysUntil(metrics.race_date))} TAGE SEIT DEM RENNEN
-              </span>
-            )}
-          </h2>
-        ) : metrics?.season_state === 'base_period' ? (
-          /* Ziel steht, der Aufbau beginnt später. Hier eine Wochennummer zu
-             zeigen wäre falsch: Diese Wochen zählen nicht auf den Plan. */
-          /* Die Überschrift ist hier selbst der Phasenname, also trägt sie
-             auch dessen Farbe — im dritten Zweig steht die Phase dagegen als
-             eigener Zusatz neben der Wochennummer. */
-          <h2 className="text-3xl font-black tracking-tight"
-              style={{ fontFamily: 'Barlow Condensed, sans-serif', color: phaseColor('Grundlage') }}>
-            GRUNDLAGE
-            {metrics.plan_start_date && (
-              <span className="ml-3 text-sm font-mono tracking-widest text-[var(--text-muted)]">
-                AUFBAU AB {metrics.plan_start_date.slice(8, 10)}.{metrics.plan_start_date.slice(5, 7)}.{metrics.plan_start_date.slice(0, 4)}
-                {' · '}NOCH {Math.max(0, Math.ceil(daysUntil(metrics.plan_start_date) / 7))} WOCHEN
-              </span>
-            )}
-          </h2>
-        ) : metrics?.week_number ? (
-          <h2 className="text-3xl font-black tracking-tight text-[#e8eaf0]" style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
-            WEEK {metrics.week_number}
-            {metrics.total_weeks && (
-              <span className="text-[var(--text-muted)]"> / {metrics.total_weeks}</span>
-            )}
-            {metrics.phase && (
-              <span className="ml-3" style={{ color: phaseColor(metrics.phase) }}>
-                {metrics.phase.toUpperCase()}
-              </span>
-            )}
-            {/* Wie weit ist es noch — die Zahl, nach der man beim Öffnen als
-                Erstes sucht, stand bisher nur im Profil. */}
-            {metrics.race_date && daysUntil(metrics.race_date) >= 0 && (
-              <span className="ml-3 text-sm font-mono tracking-widest text-[var(--text-secondary)]">
-                {daysUntil(metrics.race_date) === 0
-                  ? 'HEUTE IST RENNTAG'
-                  : `NOCH ${daysUntil(metrics.race_date)} TAGE`}
-              </span>
-            )}
-          </h2>
-        ) : null}
       </div>
 
         <div className="text-right">
@@ -316,99 +292,128 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Die Saison als Strahl statt „WEEK 8 / 20 BUILD 2 · NOCH 37 TAGE" als
+          Überschrift: wo die Woche liegt, wie lange die Phase noch dauert,
+          wann der Deload kommt und wo die Rennen sitzen — auf einen Blick. */}
+      {saison && (
+        <div className={`${CARD} px-5 py-4`}>
+          <SaisonStrahl saison={saison} />
+        </div>
+      )}
+
       {/* ── Umfang der Woche: Anzahl, Zeit, Strecke ──
           Ganz oben, weil es die Fakten sind — was tatsächlich passiert ist,
           bevor es um Bewertung und Bereitschaft geht. */}
-      <div className={`${CARD} p-5`}>
-        <div className={SECTION_TITLE}>THIS WEEK</div>
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: 'SESSIONS', value: totals.count },
-            { label: 'TIME',     value: fmtTime(totals.min) },
-            { label: 'DISTANCE', value: totals.km.toFixed(1), unit: 'km' },
-          ].map(({ label, value, unit, color, hint }) => (
-            <div key={label} className="text-center">
-              <div className={`${LABEL} mb-1.5`}>{label}</div>
-              <div className="text-5xl font-black leading-none font-mono"
-                   style={{ color: color || '#e8eaf0', fontFamily: 'Barlow Condensed, sans-serif' }}>
-                {value}
-              </div>
-              {(unit || hint) && (
-                <div className="text-xs text-[var(--text-secondary)] font-mono mt-1">
-                  {[unit, hint].filter(Boolean).join(' · ')}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
+      <WocheHero sessions={weekSessions} geplant={geplantWoche} bilanz={bilanzWoche}
+                 verlauf={verlaufAcht} montag={wochenMontag} />
 
       {/* ── Wie es dir geht: HRV und Gesundheitszustand ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* HRV — zwei Spalten, weil Ring, Einordnung und Eingabe nebeneinander stehen */}
+        {/* HRV — Schnitt, Urteil und Spanne. Eine 14-Tage-Linie stand hier
+            auch, Amir hat sie gestrichen: Der Verlauf steht weiter unten in
+            der HRV History, zweimal dasselbe Bild war eins zu viel.
+            Flach gehalten (Amir: „zu dick"): Empfehlung und Garmin-Hinweis
+            stehen in den Zeilen, die es ohnehin gibt, statt in eigenen —
+            die Gesundheitskachel daneben wächst auf dieselbe Höhe mit. */}
         <div
-          className={`${CARD} p-5 lg:col-span-2 flex items-center gap-4 relative overflow-hidden`}
-          style={{ transition: 'box-shadow 0.6s ease' }}
+          className={`${CARD} px-5 py-4 lg:col-span-2 relative overflow-hidden`}
+          style={{
+            background: `linear-gradient(100deg, ${lageFarbe}10, transparent 55%), #111318`,
+            borderColor: `${lageFarbe}2a`,
+          }}
         >
-          {/* Status radial glow — the whole card breathes with readiness */}
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              background: `radial-gradient(ellipse 60% 80% at 18% 50%, ${statusColor}0e 0%, transparent 70%)`,
-              animation: 'hrvGlow 3s ease-in-out infinite',
-            }}
-          />
-
-          {/* Ring */}
-          <div className="relative flex-shrink-0 z-10">
-            {/* Breathing outer ring */}
-            <div
-              className="absolute inset-0 rounded-full"
-              style={{
-                boxShadow: `0 0 18px 4px ${statusColor}30`,
-                animation: 'hrvBreath 3s ease-in-out infinite',
-              }}
-            />
-            <svg width="64" height="64" viewBox="0 0 72 72">
-              <circle cx="36" cy="36" r="30" fill="none" stroke="#1e2228" strokeWidth="5" />
-              <circle
-                cx="36" cy="36" r="30"
-                fill="none" stroke={statusColor} strokeWidth="5"
-                strokeDasharray={`${2 * Math.PI * 30}`}
-                strokeDashoffset={`${2 * Math.PI * 30 * (1 - ringAnteil)}`}
-                strokeLinecap="round"
-                transform="rotate(-90 36 36)"
-                style={{ filter: `drop-shadow(0 0 6px ${statusColor}88)`, transition: 'stroke-dashoffset 0.6s ease' }}
-              />
-            </svg>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="font-mono font-bold text-base" style={{ color: statusColor }}>
-                {hrv ? Math.round(hrv.rmssd) : '–'}
-              </span>
-            </div>
-          </div>
-
-          {/* Text */}
-          <div className="flex-1 min-w-0 z-10">
-            <div className={LABEL}>HRV HEUTE</div>
-            <div className="text-xl font-bold mt-1 mb-1" style={{ color: statusColor, fontFamily: 'Barlow Condensed, sans-serif' }}>
-              {HRV_TEXT[status]}
-            </div>
-            {hrv && (
-              <div className="text-xs font-mono text-[var(--text-secondary)]">
-                {hrv.measured_at} · {hrv.rmssd} ms rMSSD
-                {hrv.readiness_score != null && ` · ${hrv.readiness_score} Body Battery`}
+          <div>
+            <div className="min-w-0">
+              <div className="flex items-baseline justify-between gap-3">
+                <div className={LABEL}>
+                  HRV
+                  {garminVerbunden === true && (
+                    <span className="ml-2 text-[9px] tracking-wider text-[var(--text-muted)] font-normal">· GARMIN CONNECT</span>
+                  )}
+                </div>
+                <span className="text-[10px] font-mono tracking-widest" style={{ color: lageFarbe }}>
+                  {hrvLage ? (HRV_URTEIL[hrvLage.status] || 'NOT CURRENT') : ''}
+                </span>
               </div>
-            )}
-          </div>
 
-          <div className="flex-shrink-0">
-            {garminVerbunden === true && (
-              <span className="text-[10px] font-mono text-[var(--text-muted)]">
-                HRV kommt automatisch aus Garmin
-              </span>
+              {/* Zwei Zahlen nebeneinander statt einer großen und einer
+                  winzigen: Der Schnitt entscheidet (über ihn gewichtet auch
+                  die Urne), der Tageswert ist, wonach man morgens schaut.
+                  Jede trägt das Zeichen ihrer Marke auf der Skala darunter —
+                  Strich für den Schnitt, Ring für heute. */}
+              <div className="flex items-end mt-1.5">
+                {hrvLage && (
+                  <div className="pr-6">
+                    <div className="flex items-center gap-1.5 text-[9px] font-mono tracking-[0.2em] text-[var(--text-muted)]">
+                      <span className="inline-block w-[3px] h-2.5 rounded-full" style={{ background: '#e8eaf0' }} />
+                      Ø 7 DAYS
+                    </div>
+                    <div className="flex items-baseline gap-1 mt-1.5">
+                      <span
+                        className="text-[2.6rem] font-black leading-none tabular-nums"
+                        style={{ color: lageFarbe, fontFamily: 'Barlow Condensed, sans-serif', textShadow: `0 0 18px ${lageFarbe}40` }}
+                      >
+                        {Math.round(hrvLage.schnitt_7)}
+                      </span>
+                      <span className="text-xs font-mono text-[var(--text-muted)]">ms</span>
+                    </div>
+                  </div>
+                )}
+                {hrv && (
+                  <div className={hrvLage ? 'pl-6 border-l border-[#1e2228]' : ''}>
+                    <div className="flex items-center gap-1.5 text-[9px] font-mono tracking-[0.2em] text-[var(--text-muted)]">
+                      <span className="inline-block w-2.5 h-2.5 rounded-full"
+                            style={{ border: `2px solid ${HRV_COLOR[hrv.hrv_status] || '#a7aebd'}` }} />
+                      {heuteGemessen ? 'TODAY' : `LAST ${hrv.measured_at.slice(8, 10)}.${hrv.measured_at.slice(5, 7)}.`}
+                    </div>
+                    <div className="flex items-baseline gap-1 mt-1.5">
+                      <span
+                        className={`${hrvLage ? 'text-3xl' : 'text-5xl'} font-black leading-none tabular-nums`}
+                        style={{ color: HRV_COLOR[hrv.hrv_status] || '#e8eaf0', fontFamily: 'Barlow Condensed, sans-serif' }}
+                      >
+                        {Math.round(hrv.rmssd)}
+                      </span>
+                      <span className="text-xs font-mono text-[var(--text-muted)]">ms</span>
+                    </div>
+                  </div>
+                )}
+                {!hrvLage && !hrv && (
+                  <span className="text-5xl font-black leading-none text-[var(--text-muted)]"
+                        style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>–</span>
+                )}
+                {/* Die Empfehlung rechts neben den Zahlen statt in einer
+                    eigenen Zeile darunter. */}
+                <div className="ml-auto pl-4 text-right text-sm font-bold leading-tight"
+                     style={{ color: statusColor, fontFamily: 'Barlow Condensed, sans-serif', letterSpacing: '0.02em' }}>
+                  {HRV_TEXT[status].toUpperCase()}
+                </div>
+              </div>
+
+              <SpannenSkala
+                className="mt-6 mb-4"
+                zonen={hrvZonen(spanne)}
+                marken={[
+                  { wert: hrvLage?.schnitt_7, name: 'Ø', titel: `Ø 7 days ${hrvLage?.schnitt_7} ms` },
+                  ...(hrv ? [{
+                    wert: hrv.rmssd,
+                    art: 'neben',
+                    name: heuteGemessen ? 'TODAY' : `${hrv.measured_at.slice(8, 10)}.${hrv.measured_at.slice(5, 7)}.`,
+                    farbe: HRV_COLOR[hrv.hrv_status] || '#a7aebd',
+                    titel: `${heuteGemessen ? 'Today' : 'Last'} ${hrv.rmssd} ms`,
+                  }] : []),
+                ]}
+              />
+              {spanne?.gruen_ab && spanne?.gruen_bis && (
+                <div className="flex justify-between mt-1.5 text-[9px] font-mono text-[var(--text-muted)] tabular-nums">
+                  <span>RED &lt; {Math.round(spanne.rot_unter)}</span>
+                  <span>NORMAL {Math.round(spanne.gruen_ab)}–{Math.round(spanne.gruen_bis)}</span>
+                </div>
+              )}
+            </div>
+
+            {garminVerbunden === false && (
+              <div className="mt-3 flex justify-end"><HRVInput onSaved={load} /></div>
             )}
-            {garminVerbunden === false && <HRVInput onSaved={load} />}
           </div>
         </div>
 
@@ -521,8 +526,21 @@ export default function Dashboard() {
                   </div>
                 ))}
               </div>
-              <div className={`${LABEL} mb-3`}>HR ZONES · WEEK AVERAGE</div>
-              <HRZoneChart zones={metrics.hr_zones_avg} />
+              {/* Eine Leiste statt fünf Säulen: Die Zonen sind Anteile einer
+                  Woche, die zusammen 100 % ergeben — das zeigt eine Leiste
+                  direkt, Säulen nur über die Achse. Nach Dauer gewichtet
+                  (Backend), sonst zählte ein Auslaufen wie eine lange Fahrt. */}
+              <SegmentLeiste
+                kopf="HR ZONES · SHARE OF THE WEEK"
+                mindestens={1}
+                segmente={HR_ZONE_LABEL.map((z, i) => ({
+                  key: z,
+                  name: z,
+                  wert: Math.round(metrics.hr_zones_avg[`z${i + 1}`] || 0),
+                  farbe: HR_ZONE_COLOR[i],
+                  textFarbe: HR_ZONE_COLOR[i],
+                }))}
+              />
             </div>
           )}
           </div>
@@ -607,7 +625,7 @@ export default function Dashboard() {
 
       {/* ── HRV-Verlauf ── */}
       <div className={`${CARD} p-5`}>
-        <div className={SECTION_TITLE}>HRV HISTORY · Grüner Bereich = deine Normalspanne</div>
+        <div className={SECTION_TITLE}>HRV HISTORY · GREEN AREA = YOUR NORMAL RANGE</div>
         <HRVHistoryChart data={hrvHistory} />
       </div>
 
