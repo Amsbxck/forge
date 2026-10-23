@@ -78,6 +78,11 @@ Die Verlauf-Seite nutzt dazu `WochenVolumen` (Stunden je Woche, darunter ein Pha
 
 Die THIS-WEEK-Kachel im Dashboard ist `WocheHero`: große Zahlen, Wochenband Mo–So (absolviert gefüllt, geplant als Umriss aus `/planned/am/{montag}`), Ist gegen Plan aus der Bilanz und 8 Wochen Stunden. Der Vergleich zur Vorwoche zählt nur **bis zum selben Wochentag**, sonst stünde jeder Mittwoch gegen eine volle Woche im Minus.
 
+Die PERFORMANCE-Kachel (`components/PerformanceChart.jsx`, eigenes SVG ohne Recharts) bekommt `pmc`, ein Jahr Einheiten, Saison und den Plan zweier Wochen vom Dashboard und lädt nichts selbst.
+- Die Lücke zwischen Fitness und Ermüdung ist die Form, darunter das Form-Band mit den Zonen aus `utils/form.js`. Das ist die einzige Quelle der Schwellen, auch für `formLabel`/`formColor`.
+- Die gestrichelte Vorschau rechnet mit den `target_tss` der geplanten Tage nach heute und denselben Konstanten wie `season_summary._pmc`.
+- Fitness ist bewusst weiß statt cyan, Cyan las sich neben den Sportfarben als Schwimmen.
+
 Die Leisten und die HRV History sind **englisch beschriftet** (Amirs Wunsch, nur dort; der Rest der App bleibt deutsch).
 
 Die HRV-Karte zeigt Ø 7 und den Tageswert nebeneinander. Die Skala beschriftet ihre Marken (Ø darüber, Ring für heute darunter). Eine 14-Tage-Linie hat Amir gestrichen, ebenso „Tage im Bereich“ in der HRV History. Deren x-Achse ist eine Zeitachse, der Zeitraum zählt nach Tagen statt nach Messungen.
