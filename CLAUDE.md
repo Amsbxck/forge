@@ -76,6 +76,8 @@ Zahlen stehen im Kontext statt als Text, überall in derselben ruhigen Optik (Am
 
 Die Verlauf-Seite nutzt dazu `WochenVolumen` (Stunden je Woche, darunter ein Phasenband aus `plan_phase` der Wochenpläne, Deload-Dreiecke nur für die laufende Saison aus `/metrics/saison`) und `TrainingsJahr` (Tages-Heatmap, Farbe = Hauptsportart, Helligkeit = TSS). Sie rechnet nur im Browser aus den geladenen zwei Jahren (`utils/einheiten.js`), gelöschte Einheiten zählen nicht.
 
+Die THIS-WEEK-Kachel im Dashboard ist `WocheHero`: große Zahlen, Wochenband Mo–So (absolviert gefüllt, geplant als Umriss aus `/planned/am/{montag}`), Ist gegen Plan aus der Bilanz und 8 Wochen Stunden. Der Vergleich zur Vorwoche zählt nur **bis zum selben Wochentag**, sonst stünde jeder Mittwoch gegen eine volle Woche im Minus.
+
 Die Leisten und die HRV History sind **englisch beschriftet** (Amirs Wunsch, nur dort; der Rest der App bleibt deutsch).
 
 Die HRV-Karte zeigt Ø 7 und den Tageswert nebeneinander. Die Skala beschriftet ihre Marken (Ø darüber, Ring für heute darunter). Eine 14-Tage-Linie hat Amir gestrichen, ebenso „Tage im Bereich“ in der HRV History. Deren x-Achse ist eine Zeitachse, der Zeitraum zählt nach Tagen statt nach Messungen.

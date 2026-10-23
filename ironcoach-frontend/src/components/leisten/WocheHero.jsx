@@ -133,7 +133,9 @@ function Delta({ jetzt, davor, absolut = false }) {
   return (
     <div className="h-4 mt-1.5 text-[10px] font-mono tracking-widest tabular-nums whitespace-nowrap">
       <span style={{ color: farbe }}>{text}</span>
-      <span className="text-[var(--text-muted)]"> VS LAST WEEK</span>
+      {/* Auf dem Handy ist die Spalte gut 100 px breit, der Zusatz liefe in
+          die Nachbarzahl. Dort steht er einmal unter den drei Zahlen. */}
+      <span className="hidden sm:inline text-[var(--text-muted)]"> VS LAST WEEK</span>
     </div>
   )
 }
@@ -240,11 +242,16 @@ export default function WocheHero({ sessions, geplant, bilanz, verlauf, montag }
               {f.delta}
             </div>
           ))}
+          {davor && (
+            <div className="sm:hidden col-span-3 mt-1 text-[9px] font-mono tracking-widest text-[var(--text-muted)]">
+              VS LAST WEEK, SAME DAYS
+            </div>
+          )}
         </div>
 
         {verlauf && (
           <div className="shrink-0">
-            <div className={`${KOPF} mb-1.5 text-right`}>8 WEEKS</div>
+            <div className={`${KOPF} mb-1.5 text-right`}>HOURS · 8 WEEKS</div>
             <div className="flex items-end gap-1.5 h-12">
               {acht.map(w => (
                 <div key={w.montag} className="w-3 h-full flex flex-col justify-end"
@@ -252,8 +259,10 @@ export default function WocheHero({ sessions, geplant, bilanz, verlauf, montag }
                   <div className="w-full rounded-t-[2px] transition-[height] duration-700 ease-out"
                        style={{
                          height: da ? `${Math.max(4, (w.min / achtMax) * 100)}%` : '4%',
-                         background: w.jetzt ? ACCENT : w.min ? '#4a5263' : '#1e2228',
-                         boxShadow: w.jetzt ? `0 0 10px ${ACCENT}88` : 'none',
+                         // Nicht ACCENT: Cyan liest sich neben den Sportfarben
+                         // als Schwimmen (so im Monatskopf des Verlaufs passiert).
+                         background: w.jetzt ? '#e8eaf0' : w.min ? '#4a5263' : '#1e2228',
+                         boxShadow: w.jetzt ? '0 0 10px #ffffff40' : 'none',
                        }} />
                 </div>
               ))}
@@ -268,7 +277,6 @@ export default function WocheHero({ sessions, geplant, bilanz, verlauf, montag }
           {tage.map(t => {
             const planMin = t.plan?.min || 0
             const istMin = t.ist?.min || 0
-            const imPlan = Math.min(istMin, planMin || istMin)
             const drueber = planMin ? Math.max(0, istMin - planMin) : 0
             const planFarbe = DISCIPLINE_COLOR[Object.entries(t.plan?.jeSport || {}).sort((a, b) => b[1] - a[1])[0]?.[0]] || '#5b6475'
             const an = hover?.tag === t.tag
@@ -309,7 +317,6 @@ export default function WocheHero({ sessions, geplant, bilanz, verlauf, montag }
                 {!planMin && !istMin && (
                   <div className="w-full h-[2px] rounded-full" style={{ background: '#1e2228' }} />
                 )}
-                {imPlan === 0 && null}
               </div>
             )
           })}

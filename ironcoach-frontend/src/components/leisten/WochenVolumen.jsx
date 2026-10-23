@@ -107,7 +107,9 @@ export default function WochenVolumen({ sessions, plaene, saison }) {
                   className="w-full flex flex-col-reverse rounded-t-[2px] overflow-hidden transition-[height] duration-700 ease-out"
                   style={{
                     height: `${hoehe}%`,
-                    boxShadow: w.jetzt ? `0 0 0 1px ${ACCENT}, 0 0 10px ${ACCENT}55` : 'none',
+                    // Weiß statt ACCENT: Cyan um blaue Schwimmanteile las
+                    // sich als Teil der Säule.
+                    boxShadow: w.jetzt ? '0 0 0 1px #e8eaf0, 0 0 10px #ffffff33' : 'none',
                     opacity: hover && !an ? 0.55 : 1,
                   }}
                 >

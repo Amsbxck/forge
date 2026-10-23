@@ -33,3 +33,6 @@ backups/
 
 # macOS-Ordnermetadaten
 .DS_Store
+
+# Private Notizen zur Garmin-Anbindung, bleiben lokal
+GARMIN_HRV.md

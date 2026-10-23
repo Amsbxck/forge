@@ -18,6 +18,7 @@ from uuid import uuid4
 
 import pytest
 
+from core.wochen import montag_von
 from core.phasenregeln import TAPER_SCHWIMMEN, UMLEGEN, doppel_block, vorrang_block
 from services import doppel_urne
 from services.doppel_urne import (
@@ -334,7 +335,8 @@ def test_taper_ausnahme_in_allen_pfaden():
 # --- Endpunkte ---------------------------------------------------------------
 
 def test_endpunkt_liefert_die_ziehung(client):
-    resp = client.get(f"/api/plan/doppeltag/am/{MONTAG}")
+    # Eine kommende Woche: Für vergangene zieht der Endpunkt nichts mehr.
+    resp = client.get(f"/api/plan/doppeltag/am/{montag_von(date.today()) + timedelta(weeks=1)}")
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert set(data) >= {"form", "titel", "grund", "hinweise", "hrv", "phase", "week_start"}
@@ -472,3 +474,16 @@ def test_wochenlage_liefert_dieselbe_phase_wie_der_plan(client, db):
     assert w["deload"] is False
     assert plan["plan_phase"].startswith(w["phase"])
     assert plan["week_start"] == str(w["week_start"])
+
+
+def test_vergangene_woche_zieht_nichts_und_plant_nichts(client):
+    """Amir sah bei Justin für eine Woche, bevor er die App hatte, „langen
+    Lauf teilen". Eine vorbei gegangene Woche bekommt weder eine Ziehung noch
+    einen Plan — der hätte nur Guthaben gekostet."""
+    vorige = montag_von(date.today()) - timedelta(weeks=1)
+    assert client.get(f"/api/plan/doppeltag/am/{vorige}").status_code == 404
+    resp = client.get(f"/api/plan/generate?montag={vorige}")
+    assert resp.status_code == 400
+    assert "vorbei" in resp.json()["detail"]
+    # Die laufende Woche bleibt offen.
+    assert client.get(f"/api/plan/doppeltag/am/{montag_von(date.today())}").status_code == 200
