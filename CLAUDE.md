@@ -83,6 +83,8 @@ Die PERFORMANCE-Kachel (`components/PerformanceChart.jsx`, eigenes SVG ohne Rech
 - Die gestrichelte Vorschau rechnet mit den `target_tss` der geplanten Tage nach heute und denselben Konstanten wie `season_summary._pmc`.
 - Fitness ist bewusst weiß statt cyan, Cyan las sich neben den Sportfarben als Schwimmen.
 
+Der BREAKDOWN im Dashboard hat links je Sportart eine `SportZeile` (Soll/Ist aus der Bilanz, Tagespunkte gemacht/offen/verpasst, Reflexionsring). Auch geplante Sportarten ohne Einheit bekommen eine Zeile. Rechts stehen TSS gegen Plan (`bilanz.tss`), der Ø Puls und die `IntensitaetsLeiste`: 80/20 aus `hr_zones_avg`, locker = Z1–2, ohne Urteil in Rot. Darunter `KeySessions`: die geplanten Einheiten mit Intensität Sweet Spot, Schwelle oder VO₂max (`intensity` vom Backend) mit Stand done/today/open/missed/skipped/replaced. Done zählt wie bei den Tagespunkten, also auch über eine Einheit derselben Sportart am selben Tag. Die Form steht nur noch in der Performance-Kachel. Ein Klick auf eine Zeile klappt die Einheiten mit `ReflectionEditor` auf.
+
 Die Leisten und die HRV History sind **englisch beschriftet** (Amirs Wunsch, nur dort; der Rest der App bleibt deutsch).
 
 Die HRV-Karte zeigt Ø 7 und den Tageswert nebeneinander. Die Skala beschriftet ihre Marken (Ø darüber, Ring für heute darunter). Eine 14-Tage-Linie hat Amir gestrichen, ebenso „Tage im Bereich“ in der HRV History. Deren x-Achse ist eine Zeitachse, der Zeitraum zählt nach Tagen statt nach Messungen.

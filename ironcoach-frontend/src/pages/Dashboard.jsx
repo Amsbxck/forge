@@ -7,7 +7,10 @@ import PerformanceChart from '../components/PerformanceChart'
 import { HRV_URTEIL } from '../components/HrvAmpel'
 import SaisonStrahl from '../components/leisten/SaisonStrahl'
 import WocheHero from '../components/leisten/WocheHero'
-import SegmentLeiste from '../components/leisten/SegmentLeiste'
+import SollIstLeiste from '../components/leisten/SollIstLeiste'
+import SportZeile, { SPALTEN, TAGE_KURZ, tagesPunkte } from '../components/leisten/SportZeile'
+import IntensitaetsLeiste from '../components/leisten/IntensitaetsLeiste'
+import KeySessions from '../components/leisten/KeySessions'
 import SpannenSkala, { hrvZonen } from '../components/leisten/SpannenSkala'
 import Onboarding from '../components/Onboarding'
 import IntakeDialog from '../components/IntakeDialog'
@@ -19,7 +22,7 @@ import SportIcon from '../components/SportIcon'
 import { isoTag, kalenderwoche } from '../utils/dates'
 import SessionDetail from '../components/SessionDetail'
 import ReflectionEditor from '../components/ReflectionEditor'
-import { calculatePMC, formColor, formLabel } from '../components/PerformanceChart'
+import { calculatePMC } from '../components/PerformanceChart'
 import { useNavigate } from 'react-router-dom'
 
 import {
@@ -146,7 +149,7 @@ export default function Dashboard() {
       // Leistungsdaten mehrerer Fahrten; ein Ausfall darf das Dashboard nicht
       // aufhalten.
       getFtpCheck().then(({ data }) => setFtpBefund(data?.befund || null)).catch(() => setFtpBefund(null))
-      // Scheitert der Abruf, rechnet `pmc` unten aus der Jahresliste — die
+      // Scheitert der Abruf, rechnet `pmcErsatz` aus der Jahresliste — die
       // ist ohnehin geladen, ein eigener Ersatzabruf wäre derselbe zweimal.
       getPmc().then(({ data }) => setPmcServer(Array.isArray(data) ? data : null)).catch(() => setPmcServer(null))
       getBenchmarkTiming().then(({ data }) => setTestTermin(data)).catch(() => setTestTermin(null))
@@ -200,15 +203,6 @@ export default function Dashboard() {
     : 4
   const hrColor = hrZoneIndex == null ? '#e8eaf0' : HR_ZONE_COLOR[hrZoneIndex]
 
-  // Serverwert zuerst, lokale Rechnung nur als Rückfall — genau wie im
-  // Diagramm weiter unten. Vorher rechnete die Kachel immer selbst, und
-  // sobald sich die beiden Formeln unterschieden, zeigten Kachel und
-  // Diagramm verschiedene Zahlen für denselben Tag. Zwei Rechnungen für
-  // eine Grösse laufen früher oder später auseinander.
-  const pmc = pmcServer?.length ? pmcServer : (pmcErsatz || [])
-  const form = pmc.length ? pmc[pmc.length - 1].tsb : null
-  const formFarbe = formColor(form)
-  const formText = formLabel
 
   const fmtTime = (min) => { const h = Math.floor(min/60), m = min%60; return h > 0 ? `${h}h${m>0?` ${m}m`:''}` : `${m}m` }
 
@@ -241,17 +235,30 @@ export default function Dashboard() {
     if (s.reflection) byDisc[d].reflektiert++
   })
 
-  // Aus den tatsächlich absolvierten Einheiten aufgebaut, nicht aus einer
-  // Aufzählung im Code.
-  const discEntries = Object.keys(byDisc)
+  // Die Zeilen des BREAKDOWN: jede Sportart mit Einheiten **oder** mit Plan —
+  // ein geplantes Rad ohne Einheit gehört dazu, sonst fiele genau das auf,
+  // was fehlt, nicht auf. Soll/Ist aus der Bilanz, wie auf der Planseite.
+  const bilanzJe = Object.fromEntries((bilanzWoche?.disziplinen || []).map(d => [d.discipline, d]))
+  const breakdownZeilen = [...new Set([
+    ...Object.keys(byDisc),
+    ...Object.values(bilanzJe).filter(d => d.geplant_min > 0).map(d => d.discipline),
+  ])]
+    .filter(Boolean)
     .sort((a, b) => {
       const ia = DISC_ORDER.indexOf(a), ib = DISC_ORDER.indexOf(b)
       return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
     })
-    .map(d => [d, {
-      label: disciplineLabel(d, byDisc[d].sport_type),
-      color: disciplineColor(d),
-    }])
+    .map(d => ({
+      disc: d,
+      name: disciplineLabel(d, byDisc[d]?.sport_type),
+      farbe: disciplineColor(d),
+      werte: byDisc[d],
+      soll: bilanzJe[d]?.geplant_min || 0,
+      ist: bilanzJe[d] ? bilanzJe[d].absolviert_min : byDisc[d]?.min || 0,
+      punkte: tagesPunkte(d, weekSessions, geplantWoche, wocheVon),
+    }))
+  const breakdownSkala = Math.max(1, ...breakdownZeilen.map(z => Math.max(z.soll, z.ist)))
+  const heuteImWoche = Math.round((new Date(`${isoTag(new Date())}T00:00:00`) - new Date(`${wocheVon}T00:00:00`)) / 86400000)
 
   const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
   const LABEL = 'text-xs font-mono tracking-widest text-[var(--text-secondary)]'
@@ -444,126 +451,85 @@ export default function Dashboard() {
       {/* ── Heute: die Frage, mit der man das Dashboard öffnet ── */}
       <TodayCard onOpenPlan={() => navigate('/plan')} />
 
-      {/* ── Aufschlüsselung der Woche ── */}
-      {discEntries.length > 0 && (
+      {/* ── Aufschlüsselung der Woche ──
+          Links je Sportart eine Zeile (Stunden, Soll/Ist, Tage, Reflexion),
+          rechts TSS gegen Plan, Puls und die 80/20-Leiste. Vorher bunte
+          Kästchen und drei Zahlen, darunter die Form — die steht jetzt in der
+          Performance-Kachel und hier nicht ein zweites Mal. */}
+      {breakdownZeilen.length > 0 && (
         <div className={`${CARD} p-5`}>
-          <div className={SECTION_TITLE}>
-            BREAKDOWN <span className="text-[var(--text-muted)]">· SPORTART ANKLICKEN FÜR INSIGHTS UND REFLEXION</span>
+          <div className="flex items-baseline justify-between gap-3 mb-4">
+            <span className="text-xs font-mono tracking-[0.25em] text-[var(--text-secondary)]">BREAKDOWN</span>
+            <span className="text-[9px] font-mono tracking-widest text-[var(--text-muted)]">TAP A SPORT TO REFLECT</span>
           </div>
 
-          {/* Discipline cards */}
-          {/* Disziplinen links, Zonenverteilung rechts: dieselbe Woche einmal
-              nach Sportart und einmal nach Intensität. Untereinander ließ
-              jede der beiden die halbe Breite leer. */}
-          {/* Feste Breite für die Zonen statt halbe-halbe: das Diagramm braucht
-              nicht mehr, und die Disziplinkarten passen dadurch in eine Reihe
-              statt in zwei mit einer angebrochenen. */}
-          <div className="grid gap-5"
-               style={metrics?.hr_zones_avg
-                 ? { gridTemplateColumns: 'minmax(0, 1fr) minmax(300px, 340px)' }
-                 : undefined}>
-          <div className="grid gap-3 content-start"
-               style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
-            {discEntries.map(([disc, cfg]) => {
-              const s = byDisc[disc]
-              const aktiv = gewaehlteDisziplin === disc
-              return (
-                <button
-                  key={disc}
-                  onClick={() => setGewaehlteDisziplin(aktiv ? null : disc)}
-                  title={aktiv ? 'Filter aufheben' : `Nur ${cfg.label} zeigen`}
-                  className="rounded-xl p-4 text-left transition-all"
-                  style={{
-                    background: aktiv ? `${cfg.color}1c` : `${cfg.color}0a`,
-                    border: `1px solid ${cfg.color}${aktiv ? '66' : '25'}`,
-                    borderLeft: `3px solid ${cfg.color}`,
-                  }}
-                >
-                  <div className="flex items-center gap-1.5 text-xs font-mono font-semibold mb-2.5"
-                       style={{ color: cfg.color }}>
-                    <SportIcon discipline={disc} size={15} />
-                    <span className="flex-1 min-w-0 truncate">{cfg.label}</span>
-                    <span className="text-[var(--text-muted)]">{aktiv ? '▴' : '▾'}</span>
-                  </div>
-                  <div className="text-3xl font-black leading-none mb-2 font-mono" style={{ color: cfg.color, fontFamily: 'Barlow Condensed, sans-serif' }}>{s.count}</div>
-                  <div className="space-y-0.5">
-                    <div className="text-sm font-mono text-[#e8eaf0]">{fmtTime(s.min)}</div>
-                    {s.km > 0 && <div className="text-xs font-mono text-[var(--text-secondary)]">{s.km.toFixed(1)} km</div>}
-                    {/* An welchen Tagen — ohne das ist „2 Einheiten" nur eine
-                        Zahl und man muss unten nachsehen. */}
-                    <div className="text-[10px] font-mono text-[var(--text-secondary)] pt-1">
-                      {s.dates
-                        .slice()
-                        .sort()
-                        .map(d => new Date(d + 'T00:00:00').toLocaleDateString('de-DE', { weekday: 'short' }))
-                        .join(' · ')}
-                    </div>
-                    {/* Wie viele Einheiten schon eine Reflexion haben —
-                        sonst muss man jede Kachel aufklappen, um es zu sehen. */}
-                    <div className="text-[10px] font-mono pt-0.5"
-                         style={{ color: s.reflektiert === s.count ? '#22c55e' : 'var(--text-muted)' }}>
-                      {s.reflektiert === s.count
-                        ? '✓ reflektiert'
-                        : `${s.reflektiert}/${s.count} reflektiert`}
-                    </div>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-
-          {metrics?.hr_zones_avg && (
-            <div className="lg:border-l lg:border-[#1e2228] lg:pl-5">
-              {/* Belastung und Durchschnittspuls gehören zur Zusammensetzung
-                  der Woche, nicht zu ihrem Umfang — neben Anzahl und Strecke
-                  standen sie ohne erkennbaren Bezug. */}
-              {/* Belastung, Puls und Form gleichmäßig über der Zonenverteilung:
-                  drei Zahlen zur selben Woche, gleich gewichtet. */}
-              <div className="grid grid-cols-3 gap-3 mb-4 pb-4 border-b border-[#1e2228]">
-                {[
-                  { label: 'TSS', wert: metrics?.total_tss ?? 0, farbe: '#e8eaf0', zusatz: null },
-                  {
-                    label: 'Ø PULS', wert: avgHr ?? '–', farbe: hrColor,
-                    zusatz: avgHr ? (hrZoneIndex == null ? 'bpm' : `bpm · ${HR_ZONE_LABEL[hrZoneIndex]}`) : null,
-                  },
-                  {
-                    label: 'FORM · TSB',
-                    wert: form == null ? '–' : `${form > 0 ? '+' : ''}${form}`,
-                    farbe: formFarbe,
-                    zusatz: form == null ? null : formText(form).toUpperCase(),
-                  },
-                ].map(({ label, wert, farbe, zusatz }) => (
-                  <div key={label}>
-                    <div className={LABEL}>{label}</div>
-                    <div className="text-3xl font-black font-mono leading-none mt-1"
-                         style={{ color: farbe, fontFamily: 'Barlow Condensed, sans-serif' }}>
-                      {wert}
-                    </div>
-                    {zusatz && (
-                      <div className="text-[10px] font-mono mt-1" style={{ color: farbe, opacity: 0.75 }}>
-                        {zusatz}
-                      </div>
-                    )}
-                  </div>
+          {/* Feste Breite für die rechte Spalte, die Zeilen nehmen den Rest. */}
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(300px,340px)]">
+            <div className="min-w-0">
+              {/* Wochentage genau über den Punkten — dieselben Spalten wie die Zeilen */}
+              <div className={`hidden px-3 pb-1.5 ${SPALTEN}`}>
+                <span /><span /><span />
+                <span className="flex">
+                  {TAGE_KURZ.map((t, i) => (
+                    <span key={i} className="w-4 text-center text-[8px] font-mono"
+                          style={{ color: i === heuteImWoche ? '#e8eaf0' : 'var(--text-muted)' }}>{t}</span>
+                  ))}
+                </span>
+                <span />
+              </div>
+              <div className="space-y-1">
+                {breakdownZeilen.map(z => (
+                  <SportZeile
+                    key={z.disc}
+                    {...z}
+                    skala={breakdownSkala}
+                    heuteIdx={heuteImWoche}
+                    aktiv={gewaehlteDisziplin === z.disc}
+                    onClick={() => setGewaehlteDisziplin(gewaehlteDisziplin === z.disc ? null : z.disc)}
+                  />
                 ))}
               </div>
-              {/* Eine Leiste statt fünf Säulen: Die Zonen sind Anteile einer
-                  Woche, die zusammen 100 % ergeben — das zeigt eine Leiste
-                  direkt, Säulen nur über die Achse. Nach Dauer gewichtet
-                  (Backend), sonst zählte ein Auslaufen wie eine lange Fahrt. */}
-              <SegmentLeiste
-                kopf="HR ZONES · SHARE OF THE WEEK"
-                mindestens={1}
-                segmente={HR_ZONE_LABEL.map((z, i) => ({
-                  key: z,
-                  name: z,
-                  wert: Math.round(metrics.hr_zones_avg[`z${i + 1}`] || 0),
-                  farbe: HR_ZONE_COLOR[i],
-                  textFarbe: HR_ZONE_COLOR[i],
-                }))}
-              />
             </div>
-          )}
+
+            <div className="lg:border-l lg:border-[#1e2228] lg:pl-6 space-y-5">
+              <div className="grid grid-cols-2 gap-5">
+                {/* TSS gegen den Plan der Woche (Bilanz: Summe der target_tss) */}
+                <div>
+                  <div className="text-[9px] font-mono tracking-[0.2em] text-[var(--text-muted)]">TSS</div>
+                  <div className="flex items-baseline gap-1.5 mt-1.5">
+                    <span className="text-3xl font-black leading-none tabular-nums text-[#f2f4f8]"
+                          style={{ fontFamily: 'Barlow Condensed, sans-serif' }}>
+                      {Math.round(bilanzWoche?.tss?.ist ?? metrics?.total_tss ?? 0)}
+                    </span>
+                    <span className="text-[10px] font-mono text-[var(--text-muted)] whitespace-nowrap">
+                      {bilanzWoche?.tss?.soll > 0 ? `/ ${Math.round(bilanzWoche.tss.soll)} PLANNED` : 'THIS WEEK'}
+                    </span>
+                  </div>
+                  {bilanzWoche?.tss?.soll > 0 && (
+                    <div className="mt-2">
+                      <SollIstLeiste kompakt ohneText name="TSS" soll={bilanzWoche.tss.soll}
+                                     ist={bilanzWoche.tss.ist} farbe="#e8eaf0" einheit="TSS" />
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-[9px] font-mono tracking-[0.2em] text-[var(--text-muted)]">AVG HR</div>
+                  <div className="flex items-baseline gap-1.5 mt-1.5">
+                    <span className="text-3xl font-black leading-none tabular-nums"
+                          style={{ fontFamily: 'Barlow Condensed, sans-serif', color: hrColor }}>
+                      {avgHr ?? '–'}
+                    </span>
+                    {avgHr && (
+                      <span className="text-[10px] font-mono" style={{ color: hrColor, opacity: 0.8 }}>
+                        BPM{hrZoneIndex == null ? '' : ` · ${HR_ZONE_LABEL[hrZoneIndex]}`}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {metrics?.hr_zones_avg && <IntensitaetsLeiste zonen={metrics.hr_zones_avg} />}
+              <KeySessions geplant={geplantWoche} sessions={weekSessions} />
+            </div>
           </div>
 
           {/* Aufgeklappte Sportart: alles zu diesen Einheiten an einer Stelle

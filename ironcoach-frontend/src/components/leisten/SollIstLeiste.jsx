@@ -11,8 +11,10 @@
  *  ohne sie füllt jede Leiste ihre eigene Breite.
  */
 export default function SollIstLeiste({
-  name, soll = 0, ist = 0, farbe, einheit = 'min', skala, kompakt = false,
+  name, soll = 0, ist = 0, farbe, einheit = 'min', skala, kompakt = false, ohneText = false,
 }) {
+  // `ohneText`: Wer die Zahlen selbst darüber setzt (die Sportzeilen im
+  // Dashboard), braucht sie unter der kompakten Leiste nicht ein zweites Mal.
   const max = Math.max(skala || 0, soll, ist, 1)
   const pct = v => `${Math.min(100, (v / max) * 100)}%`
   const ueber = ist > soll && soll > 0
@@ -63,7 +65,7 @@ export default function SollIstLeiste({
           />
         )}
       </div>
-      {kompakt && (
+      {kompakt && !ohneText && (
         <div className="mt-0.5 text-[9px] font-mono tabular-nums text-[var(--text-muted)]">{text}</div>
       )}
     </div>
