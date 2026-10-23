@@ -70,15 +70,12 @@ export default function WunschKonsole({
       <div className="grid lg:grid-cols-[minmax(0,1fr)_320px]">
         {/* Links: der Wunsch in eigenen Worten */}
         <div className="p-4 sm:p-5 space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-[9px] font-mono tracking-[0.2em] text-[var(--text-muted)]">
-              WÜNSCHE FÜR {zielSpanne}
-            </div>
-            <span
-              className="text-[9px] font-mono tracking-widest px-2 py-0.5 rounded"
-              style={{ color: ACCENT, background: `${ACCENT}12`, border: `1px solid ${ACCENT}30` }}
-            >
-              {modus}
+          {/* Kopf wie die Dashboard-Kacheln: Titel links, Zeitraum und Modus
+              rechts. Der Modus steht neutral, Cyan trägt nur der Knopf. */}
+          <div className="flex items-baseline justify-between gap-3 flex-wrap">
+            <span className="text-xs font-mono tracking-[0.25em] text-[var(--text-secondary)]">YOUR WISHES</span>
+            <span className="text-[10px] font-mono tracking-widest text-[var(--text-muted)]">
+              {modus} · {zielSpanne}
             </span>
           </div>
           <textarea
@@ -95,21 +92,21 @@ export default function WunschKonsole({
             rows={4}
             placeholder={platzhalter}
             className="w-full resize-y min-h-[104px] rounded-lg px-3.5 py-3 text-sm leading-relaxed text-[#e8eaf0] placeholder-[var(--text-muted)] outline-none transition-colors"
-            style={{ background: '#0d0f17', border: '1px solid #1e2228' }}
-            onFocus={e => { e.target.style.borderColor = `${ACCENT}55` }}
+            style={{ background: '#0d0f14', border: '1px solid #1e2228' }}
+            onFocus={e => { e.target.style.borderColor = '#ffffff26' }}
             onBlur={e => { e.target.style.borderColor = '#1e2228' }}
           />
           <div className="flex items-start justify-between gap-3 min-h-[16px]">
             <div className="text-[11px] text-[var(--text-secondary)] leading-snug">
               {vorschau && (
                 <>
-                  <span className="font-mono text-[9px] tracking-[0.2em] text-[var(--text-muted)]">WIRD GESENDET · </span>
+                  <span className="font-mono text-[9px] tracking-[0.2em] text-[var(--text-muted)]">WILL SEND · </span>
                   {vorschau}
                 </>
               )}
             </div>
             <span className="hidden sm:inline shrink-0 text-[9px] font-mono text-[var(--text-muted)]">
-              STRG/⌘ + ENTER
+              CTRL/⌘ + ENTER
             </span>
           </div>
         </div>
@@ -117,10 +114,10 @@ export default function WunschKonsole({
         {/* Rechts: was die App vorschlägt, was man anklicken kann, Absenden */}
         <div
           className="p-4 sm:p-5 flex flex-col gap-5 border-t lg:border-t-0 lg:border-l"
-          style={{ borderColor: '#1e2228', background: '#0f1116' }}
+          style={{ borderColor: '#1e2228', background: '#0d0f14' }}
         >
           {zeigtZiehung && (
-            <Abschnitt titel="DOPPELTAG DIESER WOCHE">
+            <Abschnitt titel="DOUBLE DAY THIS WEEK">
               <DoppeltagZiehung
                 ziehung={ziehung}
                 aus={ohneDoppeltag}
@@ -131,7 +128,7 @@ export default function WunschKonsole({
           )}
 
           {hatKnoepfe && (
-            <Abschnitt titel={zeigtZiehung ? 'ODER SELBST WÄHLEN' : 'OPTIONEN'}>
+            <Abschnitt titel={zeigtZiehung ? 'OR PICK YOURSELF' : 'OPTIONS'}>
               <WunschKnoepfe phase={phase} gewaehlt={gewaehlt} onToggle={onToggle} />
             </Abschnitt>
           )}
@@ -160,7 +157,7 @@ export default function WunschKonsole({
                     />
                   ))}
                 </span>
-                {plan ? 'PASST AN' : 'PLANT'}
+                {plan ? 'ADJUSTING' : 'PLANNING'}
               </span>
             ) : (
               <span className="flex items-center justify-center gap-2">

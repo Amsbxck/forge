@@ -39,10 +39,10 @@ export default function PlanExport({ plan }) {
       <button
         onClick={exportPdf}
         disabled={loading}
-        className="text-[11px] font-mono tracking-wide px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
-        style={{ background: '#00d4ff12', border: '1px solid #00d4ff33', color: '#00d4ff' }}
+        className="text-[10px] font-mono font-semibold tracking-widest px-3 py-1.5 rounded-lg transition-colors hover:brightness-125 disabled:opacity-50"
+        style={{ background: 'transparent', border: '1px solid #1e2228', color: '#a7aebd' }}
       >
-        {loading ? 'EXPORTIERE …' : 'PDF-EXPORT'}
+        {loading ? 'EXPORTING…' : 'PDF EXPORT'}
       </button>
       {error && <span className="text-xs" style={{ color: '#ef4444' }}>{error}</span>}
     </div>

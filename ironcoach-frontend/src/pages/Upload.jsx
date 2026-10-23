@@ -3,8 +3,7 @@ import { useDropzone } from 'react-dropzone'
 import { useNavigate } from 'react-router-dom'
 import { uploadFile } from '../services/api'
 import { fehlerText } from '../utils/fehler'
-
-const LABEL = 'text-xs font-mono tracking-widest text-[var(--text-secondary)]'
+import { DISPLAY, KOPF, Kachel, SeitenKopf, Stand, TITEL, toenung } from '../components/leisten/Kachel'
 
 function Particles() {
   const particles = Array.from({ length: 18 }, (_, i) => {
@@ -68,120 +67,115 @@ export default function Upload() {
     maxFiles: 1,
   })
 
+  // Woher die Datei kommt — als drei kurze Wege statt eines leeren Bildschirms
+  // unter der Ablage. Die Seite bestand vorher nur aus der Ablagefläche.
+  const QUELLEN = [
+    { name: 'GARMIN CONNECT', weg: 'Aktivität öffnen → Zahnrad → „Original exportieren". Die ZIP enthält die .fit.' },
+    { name: 'WAHOO', weg: 'In der ELEMNT-App die Fahrt öffnen → Teilen → .fit-Datei.' },
+    { name: 'STRAVA', weg: 'Aktivität öffnen → ⋯ → „Original exportieren" (nur am Rechner).' },
+  ]
+
   return (
-    <div className="space-y-6 page-enter">
+    <div className="space-y-4 page-enter">
+      <SeitenKopf titel="UPLOAD" zusatz=".FIT · .GPX" />
 
-      {/* Header */}
-      <div className="flex items-baseline gap-3">
-        <h1
-          className="text-3xl font-black tracking-tight text-[#e8eaf0]"
-          style={{ fontFamily: 'Barlow Condensed, sans-serif' }}
-        >
-          UPLOAD
-        </h1>
-        <span className="text-xs font-mono text-[var(--text-muted)] tracking-widest">.FIT / .GPX</span>
-      </div>
-
-      {/* Dropzone — diagonal cut corners */}
-      <div
-        {...getRootProps()}
-        className="relative p-16 text-center cursor-pointer transition-all select-none overflow-hidden"
-        style={{
-          background: isDragActive ? '#00d4ff08' : '#111318',
-          border: `1px solid ${isDragActive ? '#00d4ff55' : '#1e2228'}`,
-          clipPath: 'polygon(0 0, calc(100% - 28px) 0, 100% 28px, 100% 100%, 28px 100%, 0 calc(100% - 28px))',
-          boxShadow: isDragActive ? '0 0 40px #00d4ff12' : 'none',
-        }}
-      >
-        <input {...getInputProps()} />
-
-        {/* Accent lines on cut corners */}
-        <div className="absolute top-0 right-0 w-8 h-px" style={{ background: isDragActive ? '#00d4ff' : 'var(--text-muted)', transformOrigin: 'right', transform: 'rotate(0deg)', top: '27px', right: 0 }} />
-        <div className="absolute top-0 right-0 w-px h-8" style={{ background: isDragActive ? '#00d4ff' : 'var(--text-muted)', top: 0, right: '27px' }} />
-        <div className="absolute bottom-0 left-0 w-8 h-px" style={{ background: isDragActive ? '#00d4ff' : 'var(--text-muted)', bottom: '27px', left: 0 }} />
-        <div className="absolute bottom-0 left-0 w-px h-8" style={{ background: isDragActive ? '#00d4ff' : 'var(--text-muted)', bottom: 0, left: '27px' }} />
-
-        {/* Particles on success */}
-        {status?.ok && <Particles />}
-
-        {uploading ? (
-          <div className="flex flex-col items-center gap-4">
-            <div className="flex items-end gap-1" style={{ height: '32px' }}>
-              {[0, 1, 2, 3, 4].map(i => (
-                <div
-                  key={i}
-                  className="w-2 rounded-sm"
-                  style={{
-                    background: '#00d4ff',
-                    animation: `uploadBar 0.8s ease-in-out ${i * 0.12}s infinite alternate`,
-                    height: `${12 + i * 5}px`,
-                  }}
-                />
-              ))}
-            </div>
-            <p className="text-sm font-mono tracking-widest" style={{ color: '#00d4ff' }}>PARSING...</p>
-          </div>
-        ) : isDragActive ? (
-          <div className="flex flex-col items-center gap-2">
-            <div
-              className="text-5xl font-black"
-              style={{ fontFamily: 'Barlow Condensed, sans-serif', color: '#00d4ff', animation: 'dropPulse 0.6s ease-in-out infinite alternate' }}
-            >
-              DROP IT
-            </div>
-            <p className="text-xs font-mono text-[#00d4ff] opacity-60 tracking-wide">Release to upload</p>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-3">
-            <div
-              className="text-5xl font-black text-[#1e2228]"
-              style={{ fontFamily: 'Barlow Condensed, sans-serif' }}
-            >
-              DROP FILE
-            </div>
-            <p className="text-xs font-mono text-[var(--text-muted)] tracking-wide">
-              or click to select · .fit (Garmin/Wahoo) · .gpx
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Status */}
-      {status && (
+      {/* Die Ablage als Kachel wie im Dashboard. Vorher eine Fläche mit
+          abgeschnittenen Ecken und Zierstrichen — die gibt es sonst nirgends
+          in der App mehr. */}
+      <Kachel titel="DROP A FILE" rechts="ONE FILE AT A TIME">
         <div
-          className="rounded-xl p-5 relative overflow-hidden"
+          {...getRootProps()}
+          className="relative rounded-lg px-6 py-14 text-center cursor-pointer transition-all select-none overflow-hidden"
           style={{
-            background: status.ok ? '#22c55e10' : '#ef444410',
-            border: `1px solid ${status.ok ? '#22c55e30' : '#ef444430'}`,
+            background: isDragActive ? '#00d4ff0a' : '#0d0f14',
+            border: `1px dashed ${isDragActive ? '#00d4ff88' : '#2a2f38'}`,
+            boxShadow: isDragActive ? 'inset 0 0 40px #00d4ff10' : 'none',
           }}
         >
-          {status.ok ? (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full" style={{ background: '#22c55e', boxShadow: '0 0 8px #22c55e88' }} />
-                <span className="font-bold text-sm tracking-wide" style={{ fontFamily: 'Barlow Condensed, sans-serif', color: '#22c55e' }}>
-                  {status.data.message}
-                </span>
+          <input {...getInputProps()} />
+
+          {/* Particles on success */}
+          {status?.ok && <Particles />}
+
+          {uploading ? (
+            <div className="flex flex-col items-center gap-4">
+              <div className="flex items-end gap-1" style={{ height: '32px' }}>
+                {[0, 1, 2, 3, 4].map(i => (
+                  <div
+                    key={i}
+                    className="w-2 rounded-sm"
+                    style={{
+                      background: '#00d4ff',
+                      animation: `uploadBar 0.8s ease-in-out ${i * 0.12}s infinite alternate`,
+                      height: `${12 + i * 5}px`,
+                    }}
+                  />
+                ))}
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <p className="text-[10px] font-mono tracking-[0.25em]" style={{ color: '#00d4ff' }}>READING FILE…</p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-3">
+              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={isDragActive ? '#00d4ff' : '#5b6475'}
+                   strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+                   style={{ animation: isDragActive ? 'dropPulse 0.6s ease-in-out infinite alternate' : 'none' }}>
+                <path d="M12 16V4" /><path d="M7 9l5-5 5 5" /><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
+              </svg>
+              <div className="text-4xl font-black leading-none"
+                   style={{ ...DISPLAY, color: isDragActive ? '#00d4ff' : '#f2f4f8' }}>
+                {isDragActive ? 'RELEASE TO UPLOAD' : 'DROP FILE HERE'}
+              </div>
+              <p className="text-[10px] font-mono tracking-widest text-[var(--text-muted)]">
+                OR CLICK TO SELECT · .FIT (GARMIN / WAHOO) · .GPX
+              </p>
+            </div>
+          )}
+        </div>
+      </Kachel>
+
+      {/* Ergebnis: die gelesenen Werte als Zahlen wie in den Kacheln,
+          getönt grün oder rot statt einer vollen Farbfläche. */}
+      {status && (
+        <div className="rounded-xl p-5 border relative overflow-hidden" style={toenung(status.ok ? '#22c55e' : '#ef4444')}>
+          {status.ok ? (
+            <div className="space-y-4">
+              <div className="flex items-baseline justify-between gap-3 flex-wrap">
+                <span className={TITEL}>IMPORTED</span>
+                <Stand>{status.data.message}</Stand>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-4">
                 {Object.entries(status.data.parsed || {}).map(([k, v]) =>
                   v != null ? (
-                    <div key={k} className="rounded-lg px-3 py-2" style={{ background: '#111318', border: '1px solid #1e2228' }}>
-                      <div className={`${LABEL} mb-0.5`}>{k.replace(/_/g, ' ').toUpperCase()}</div>
-                      <div className="text-sm font-mono text-[#e8eaf0]">{String(v)}</div>
+                    <div key={k} className="min-w-0">
+                      <div className={KOPF}>{k.replace(/_/g, ' ').toUpperCase()}</div>
+                      <div className="text-2xl font-black leading-none tabular-nums text-[#f2f4f8] mt-1.5 truncate" style={DISPLAY}>
+                        {String(v)}
+                      </div>
                     </div>
                   ) : null
                 )}
               </div>
+              <div className="text-[9px] font-mono tracking-widest text-[var(--text-muted)]">BACK TO THE DASHBOARD IN A MOMENT…</div>
             </div>
           ) : (
-            <div className="flex items-start gap-2">
-              <span className="text-[#ef4444] font-bold font-mono mt-0.5">✕</span>
-              <p className="text-sm font-mono text-[#ef4444]">{status.error}</p>
+            <div className="space-y-2">
+              <span className={TITEL}>NOT IMPORTED</span>
+              <p className="text-sm text-[#f87171] leading-relaxed">{status.error}</p>
             </div>
           )}
         </div>
       )}
+
+      <Kachel titel="WHERE TO GET THE FILE">
+        <div className="grid gap-4 sm:grid-cols-3">
+          {QUELLEN.map((q, i) => (
+            <div key={q.name} className={i ? 'sm:pl-5 sm:border-l sm:border-[#ffffff0f]' : ''}>
+              <div className={KOPF}>{q.name}</div>
+              <p className="text-xs text-[var(--text-secondary)] leading-relaxed mt-1.5">{q.weg}</p>
+            </div>
+          ))}
+        </div>
+      </Kachel>
 
       <style>{`
         @keyframes uploadBar {

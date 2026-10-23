@@ -14,10 +14,20 @@ import { montagMitVersatz } from '../utils/dates'
 import { disciplineColor, phaseColor } from '../utils/colors'
 import SaisonStrahl from '../components/leisten/SaisonStrahl'
 import SollIstLeiste from '../components/leisten/SollIstLeiste'
+import { DISPLAY, KOPF, Knopf, TITEL, toenung } from '../components/leisten/Kachel'
 import { OPTIONEN, wunschText } from '../utils/trainingsoptionen'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
-const LABEL = 'text-xs font-mono tracking-widest text-[var(--text-secondary)]'
+
+/** „19–25 OCT" wie der Zeitraum in THIS WEEK, statt „2026-10-19 – 2026-10-25". */
+function zeitraumKurz(von, bis) {
+  if (!von || !bis) return ''
+  const a = new Date(`${von}T00:00:00`)
+  const b = new Date(`${bis}T00:00:00`)
+  const monat = d => d.toLocaleDateString('en-GB', { month: 'short' }).toUpperCase()
+  return `${a.getDate()}${a.getMonth() !== b.getMonth() ? ` ${monat(a)}` : ''}–${b.getDate()} ${monat(b)}`
+}
+const LABEL = KOPF
 
 /** planned_sessions → Kalenderformat. Trägt die id, damit Drag & Drop speichern kann. */
 function fromPlannedSessions(rows) {
@@ -341,7 +351,7 @@ export default function WeeklyPlan() {
     // Negative Nummern sind die Wochen vor dem Aufbaubeginn: 0 ist die Woche
     // unmittelbar davor, -7 die achte davor. Der Zusatz erklärt das, ohne
     // dass man die Rechnung kennen muss.
-    ? (plan.week_number < 1 ? `WK ${plan.week_number} · VORLAUF` : `WK ${plan.week_number}`)
+    ? (plan.week_number < 1 ? `WK ${plan.week_number} · PREP` : `WK ${plan.week_number}`)
     : new Date(montagMitVersatz(versatz) + 'T00:00:00').toLocaleDateString('de-DE',
         { day: '2-digit', month: '2-digit' })
   // Am Versatz erkannt, nicht am Vergleich der Wochennummern: Vor dem
@@ -391,7 +401,7 @@ export default function WeeklyPlan() {
   const bilanzZeilen = (bilanz?.disziplinen || []).filter(d => d.geplant_min > 0 || d.absolviert_min > 0)
   const bilanzSkala = Math.max(0, ...bilanzZeilen.map(d => Math.max(d.geplant_min, d.absolviert_min)))
   const wochenBilanz = versatz <= 0 && bilanzZeilen.some(d => d.geplant_min > 0) ? (
-    <div className="mb-4 rounded-lg p-3" style={{ background: '#0d0f17', border: '1px solid #1e2228' }}>
+    <div className="mb-4 rounded-lg p-3" style={{ background: '#0a0c0f99', border: '1px solid #1e2228' }}>
       <div className="flex items-baseline justify-between mb-2.5">
         <span className={LABEL}>PLANNED / DONE</span>
         {bilanz.tss?.soll > 0 && (
@@ -420,9 +430,9 @@ export default function WeeklyPlan() {
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-baseline gap-3">
+        <div className="flex items-baseline gap-x-3 gap-y-2 flex-wrap">
           <h1
-            className="text-3xl font-black tracking-tight text-[#e8eaf0]"
+            className="text-3xl font-black tracking-tight text-[#e8eaf0] whitespace-nowrap"
             style={{ fontFamily: 'Barlow Condensed, sans-serif' }}
           >
             WEEKLY PLAN
@@ -453,29 +463,24 @@ export default function WeeklyPlan() {
                   // die gerade angezeigte gelegt — mit „kein Plan".
                   disabled={(dir === 1 && versatz >= 1) || storno === 'laeuft'}
                   onClick={() => setVersatz(v => Math.min(1, v + dir))}
-                  className={`px-2 py-0.5 rounded font-mono text-[var(--text-secondary)] transition-colors ${i === 1 ? 'order-3' : ''} ${(dir === 1 && versatz >= 1) || storno === 'laeuft' ? 'opacity-30 cursor-not-allowed' : 'hover:text-[#00d4ff]'}`}
+                  className={`px-2 py-0.5 rounded-md font-mono text-[var(--text-secondary)] transition-colors ${i === 1 ? 'order-3' : ''} ${(dir === 1 && versatz >= 1) || storno === 'laeuft' ? 'opacity-30 cursor-not-allowed' : 'hover:text-[#e8eaf0] hover:bg-[#ffffff0a]'}`}
                   style={{ border: '1px solid #1e2228' }}
                 >
                   {label}
                 </button>
               ))}
-              <span className="text-lg font-mono order-2 px-1"
-                    style={{ color: versatz === 0 ? 'var(--text-muted)' : '#00d4ff' }}>
+              <span className="text-xs font-mono tracking-[0.2em] order-2 px-2"
+                    style={{ color: versatz === 0 ? 'var(--text-muted)' : '#e8eaf0' }}>
                 {wochenMarke}
-                {versatz === 1 && <span className="text-[10px] ml-1">KOMMENDE</span>}
-            {versatz < 0 && <span className="text-[10px] ml-1">VERGANGEN</span>}
-            </span>
+                {versatz === 1 && <span className="text-[9px] ml-1.5 text-[var(--text-muted)]">NEXT</span>}
+                {versatz < 0 && <span className="text-[9px] ml-1.5 text-[var(--text-muted)]">PAST</span>}
+              </span>
           </div>
 
           {!isCurrent && (
-            <button
-              onClick={() => setVersatz(0)}
-              disabled={storno === 'laeuft'}
-              className="text-[10px] font-mono px-2 py-1 rounded tracking-wide disabled:opacity-40"
-              style={{ background: '#00d4ff15', border: '1px solid #00d4ff33', color: '#00d4ff' }}
-            >
-              {currentWeek != null ? `ZURÜCK ZU WK ${currentWeek}` : 'ZURÜCK ZU DIESER WOCHE'}
-            </button>
+            <Knopf onClick={() => setVersatz(0)} disabled={storno === 'laeuft'}>
+              BACK TO THIS WEEK
+            </Knopf>
           )}
         </div>
 
@@ -505,7 +510,7 @@ export default function WeeklyPlan() {
         plan={plan}
         phase={knopfPhase}
         zielSpanne={zielSpanne}
-        modus={!plan ? 'PLAN ERSTELLEN' : ganzeWocheGewaehlt ? 'WOCHE NEU ERSTELLEN' : 'TAGE ANPASSEN'}
+        modus={!plan ? 'CREATE PLAN' : ganzeWocheGewaehlt ? 'REBUILD WEEK' : 'ADJUST DAYS'}
         requests={requests}
         onRequests={setRequests}
         vorschau={wunschText(gewaehlt, requests)}
@@ -545,8 +550,8 @@ export default function WeeklyPlan() {
 
       {/* Loading */}
       {loading && (
-        <div className="text-[var(--text-secondary)] font-mono text-sm py-8 text-center tracking-widest">
-          LOADING...
+        <div className="text-[var(--text-muted)] font-mono text-[10px] py-8 text-center tracking-[0.25em]">
+          LOADING…
         </div>
       )}
 
@@ -557,7 +562,7 @@ export default function WeeklyPlan() {
             className="text-2xl font-black text-[var(--text-muted)] mb-2"
             style={{ fontFamily: 'Barlow Condensed, sans-serif' }}
           >
-            {notFound && !isCurrent ? 'KEIN PLAN FÜR DIESE WOCHE' : 'NOCH KEIN PLAN'}
+            {notFound && !isCurrent ? 'NO PLAN FOR THIS WEEK' : 'NO PLAN YET'}
           </div>
           <p className="text-sm font-mono text-[var(--text-muted)]">
             {vergangen
@@ -574,38 +579,23 @@ export default function WeeklyPlan() {
         <div className="space-y-5">
 
           {/* Coaching brief card */}
-          <div
-            className="rounded-xl p-5 relative overflow-hidden"
-            style={{ background: '#111318', border: '1px solid #1e2228', borderLeft: '3px solid #00d4ff' }}
-          >
-            {/* Single diagonal light beam */}
-            <div
-              className="absolute pointer-events-none"
-              style={{
-                top: '-60px', left: '-60px',
-                width: '220px', height: '220px',
-                background: 'linear-gradient(135deg, #00d4ff0e 0%, transparent 55%)',
-                transform: 'rotate(-10deg)',
-              }}
-            />
-            <div className="relative z-10">
-              <div className="flex flex-wrap gap-4 mb-3">
+          {/* Getönt in der Phasenfarbe wie THIS WEEK in seinen Sportfarben —
+              vorher ein Cyan-Streifen links und ein Lichtkegel. */}
+          <div className="rounded-xl p-5 border relative overflow-hidden" style={toenung(phaseColor(plan.plan_phase))}>
+            <div>
+              <div className="mb-1"><span className={TITEL}>COACHING BRIEF</span></div>
+              <div className="flex flex-wrap items-end gap-x-6 gap-y-3 mb-4 mt-3">
                 <div>
-                  <div className={`${LABEL} mb-0.5`}>PHASE</div>
-                  <div
-                    className="text-sm font-bold"
-                    style={{
-                      fontFamily: 'Barlow Condensed, sans-serif',
-                      color: phaseColor(plan.plan_phase),
-                    }}
-                  >
+                  <div className={LABEL}>PHASE</div>
+                  <div className="text-2xl font-black leading-none mt-1.5"
+                       style={{ ...DISPLAY, color: phaseColor(plan.plan_phase) }}>
                     {plan.plan_phase?.toUpperCase()}
                   </div>
                 </div>
-                <div>
-                  <div className={`${LABEL} mb-0.5`}>ZEITRAUM</div>
-                  <div className="text-sm font-mono text-[var(--text-secondary)]">
-                    {plan.week_start} – {plan.week_end}
+                <div className="pl-6 border-l border-[#ffffff0f]">
+                  <div className={LABEL}>PERIOD</div>
+                  <div className="text-2xl font-black leading-none mt-1.5 tabular-nums text-[#f2f4f8]" style={DISPLAY}>
+                    {zeitraumKurz(plan.week_start, plan.week_end)}
                   </div>
                 </div>
                 {/* Stornieren: zurückhaltend, weil es löscht. Vergangene
@@ -613,15 +603,15 @@ export default function WeeklyPlan() {
                     Protokoll. In der laufenden Woche mit erledigten Tagen
                     steht er da, sagt aber, warum er nicht geht. */}
                 {versatz >= 0 && storno === null && (
-                  <button
+                  <Knopf
+                    art={stornierbar ? 'gefahr' : 'leise'}
                     onClick={() => setStorno('frage')}
                     disabled={!stornierbar}
                     title={stornierbar ? 'Plan dieser Woche stornieren' : (stornoGrund || '')}
-                    className="ml-auto self-start text-[10px] font-mono tracking-widest px-2 py-1 rounded transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-                    style={{ color: stornierbar ? '#ef4444cc' : 'var(--text-muted)', border: `1px solid ${stornierbar ? '#ef444455' : '#1e2228'}` }}
+                    className="ml-auto self-start"
                   >
-                    STORNIEREN
-                  </button>
+                    CANCEL PLAN
+                  </Knopf>
                 )}
               </div>
 
@@ -646,25 +636,14 @@ export default function WeeklyPlan() {
                     die Notiz in Obsidian wird entfernt. Danach kannst du die Woche neu erstellen.
                   </p>
                   <div className="flex gap-2">
-                    <button
-                      onClick={stornieren}
-                      disabled={storno === 'laeuft'}
-                      className="text-[10px] font-mono font-bold tracking-widest px-3 py-1.5 rounded disabled:opacity-50"
-                      style={{ background: '#ef444426', border: '1px solid #ef444477', color: '#ef4444' }}
-                    >
-                      {storno === 'laeuft' ? 'STORNIERT…' : 'JA, STORNIEREN'}
-                    </button>
-                    <button
-                      onClick={() => setStorno(null)}
-                      disabled={storno === 'laeuft'}
-                      // Der Fokus liegt auf dem harmlosen Knopf: Ein Enter direkt
-                      // nach dem Öffnen soll nicht den Plan löschen.
-                      autoFocus
-                      className="text-[10px] font-mono tracking-widest px-3 py-1.5 rounded text-[var(--text-secondary)] disabled:opacity-50"
-                      style={{ border: '1px solid #1e2228' }}
-                    >
-                      ABBRECHEN
-                    </button>
+                    <Knopf art="gefahr" onClick={stornieren} disabled={storno === 'laeuft'}>
+                      {storno === 'laeuft' ? 'CANCELLING…' : 'YES, CANCEL'}
+                    </Knopf>
+                    {/* Der Fokus liegt auf dem harmlosen Knopf: Ein Enter direkt
+                        nach dem Öffnen soll nicht den Plan löschen. */}
+                    <Knopf onClick={() => setStorno(null)} disabled={storno === 'laeuft'} autoFocus>
+                      KEEP
+                    </Knopf>
                   </div>
                 </div>
               )}
@@ -696,8 +675,8 @@ export default function WeeklyPlan() {
                   {plan.adjustments_applied.map((adj, i) => (
                     <span
                       key={i}
-                      className="text-xs font-mono px-2 py-0.5 rounded-full"
-                      style={{ background: '#00d4ff15', color: '#00d4ff', border: '1px solid #00d4ff25' }}
+                      className="text-[11px] font-mono px-2 py-0.5 rounded-md text-[var(--text-secondary)]"
+                      style={{ background: '#0d0f14', border: '1px solid #1e2228' }}
                     >
                       {adj}
                     </span>

@@ -70,8 +70,9 @@ export default function ApiBudget() {
     <div className={`${CARD} p-5`}>
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <div className="text-sm font-bold tracking-widest" style={{ ...DISPLAY, color: farbe }}>
-            CREDIT · COACH
+          {/* Kopf wie die übrigen Kacheln; die Farbe des Stands trägt die Zahl. */}
+          <div className="text-xs font-mono tracking-[0.25em] text-[var(--text-secondary)] mb-3">
+            COACH CREDIT
           </div>
           <div className="font-black leading-none mt-2"
                style={{ ...DISPLAY, color: farbe, fontSize: 'clamp(2.4rem, 5vw, 3.2rem)' }}>

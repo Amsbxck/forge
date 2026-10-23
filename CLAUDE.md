@@ -73,6 +73,8 @@ Zahlen stehen im Kontext statt als Text, überall in derselben ruhigen Optik (Am
 - `SaisonStrahl`: Phasen, Deloads, Rennen und heute nach Datum. Läuft auf Dashboard, Plan und Rennen.
   - Gezeichnet werden die Blöcke (`teile` je Phase aus `phase_for_week`, je 3 + 1 Wochen, siehe Designentscheidungen).
   - Die Kopfzeile zeigt vor dem Planstart „PLAN STARTS IN n WEEKS“, danach den nächsten Block mit Datum. Den nächsten Deload zeigt sie bewusst nicht mehr (Amir: bringt nichts).
+  - `ohneTage` blendet den Countdown aus (Rennen-Seite, dort steht DAYS TO RACE schon groß).
+- `Kachel.jsx`: das gemeinsame Kleid aller Seiten (`CARD`, `TITEL`, `KOPF`, `NEBEN`, `toenung`, `Kachel`, `SeitenKopf`, `Zahl`, `Schalter`, `Knopf`/`knopfStil`, `Stand`). Getönt in der Farbe der Sache statt farbiger Streifen links. Cyan nur für die eine Haupthandlung, Umschalter neutral weiß, im Verlauf in Sportfarbe. Neue Kacheln nehmen das von hier statt einer eigenen Kopie von `CARD`/`LABEL`.
 
 Die Verlauf-Seite nutzt dazu `WochenVolumen` (Stunden je Woche, darunter ein Phasenband aus `plan_phase` der Wochenpläne, Deload-Dreiecke nur für die laufende Saison aus `/metrics/saison`) und `TrainingsJahr` (Tages-Heatmap, Farbe = Hauptsportart, Helligkeit = TSS). Sie rechnet nur im Browser aus den geladenen zwei Jahren (`utils/einheiten.js`), gelöschte Einheiten zählen nicht.
 
@@ -85,7 +87,7 @@ Die PERFORMANCE-Kachel (`components/PerformanceChart.jsx`, eigenes SVG ohne Rech
 
 Der BREAKDOWN im Dashboard hat links je Sportart eine `SportZeile` (Soll/Ist aus der Bilanz, Tagespunkte gemacht/offen/verpasst, Reflexionsring). Auch geplante Sportarten ohne Einheit bekommen eine Zeile. Rechts stehen TSS gegen Plan (`bilanz.tss`), der Ø Puls und die `IntensitaetsLeiste`: 80/20 aus `hr_zones_avg`, locker = Z1–2, ohne Urteil in Rot. Darunter `KeySessions`: die geplanten Einheiten mit Intensität Sweet Spot, Schwelle oder VO₂max (`intensity` vom Backend) mit Stand done/today/open/missed/skipped/replaced. Done zählt wie bei den Tagespunkten, also auch über eine Einheit derselben Sportart am selben Tag. Die Form steht nur noch in der Performance-Kachel. Ein Klick auf eine Zeile klappt die Einheiten mit `ReflectionEditor` auf.
 
-Die Leisten und die HRV History sind **englisch beschriftet** (Amirs Wunsch, nur dort; der Rest der App bleibt deutsch).
+Kachelköpfe, kurze Beschriftungen, Knöpfe und die Navigation sind **englisch** (Amirs Wunsch, erst Dashboard, Leisten und HRV History, seit dem Design-Abgleich alle Seiten). Erklärende Sätze, Hinweise und Fehlermeldungen bleiben deutsch, ebenso die Coaching-Texte des Backends und die Zonennamen (Puls in `ZoneEditor.jsx`, Pace und Watt vom Backend). Die Wunsch-Knöpfe bleiben deutsch, ihre Texte hält ein Test mit `TRAININGSOPTIONEN.md` zusammen.
 
 Die HRV-Karte zeigt Ø 7 und den Tageswert nebeneinander. Die Skala beschriftet ihre Marken (Ø darüber, Ring für heute darunter). Eine 14-Tage-Linie hat Amir gestrichen, ebenso „Tage im Bereich“ in der HRV History. Deren x-Achse ist eine Zeitachse, der Zeitraum zählt nach Tagen statt nach Messungen.
 

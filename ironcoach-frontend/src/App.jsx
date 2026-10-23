@@ -18,15 +18,17 @@ import { ResetPage, VerifyPage } from './pages/AuthAction'
 import BestaetigungsSperre from './components/BestaetigungsSperre'
 import { getMe, getToken, logoutEverywhere, setToken, setUnauthorizedHandler } from './services/api'
 
+// Englisch wie die Seitentitel (HISTORY, RACES, CONNECTIONS) — vorher stand
+// im Menü „Verlauf", auf der Seite aber „HISTORY".
 const navItems = [
   { to: '/',        label: 'Dashboard', short: 'Dash' },
-  { to: '/history', label: 'Verlauf',   short: 'Verlauf' },
-  { to: '/races',   label: 'Rennen',    short: 'Rennen' },
+  { to: '/history', label: 'History',   short: 'History' },
+  { to: '/races',   label: 'Races',     short: 'Races' },
   { to: '/plan',    label: 'Plan',      short: 'Plan' },
   { to: '/chat',    label: 'Coach',     short: 'Coach' },
   { to: '/upload',  label: 'Upload',    short: 'Upload' },
-  { to: '/profile', label: 'Profil',    short: 'Profil' },
-  { to: '/connect', label: 'Anbindungen', short: 'Verbinden' },
+  { to: '/profile', label: 'Profile',   short: 'Profile' },
+  { to: '/connect', label: 'Connections', short: 'Connect' },
 ]
 
 export default function App() {

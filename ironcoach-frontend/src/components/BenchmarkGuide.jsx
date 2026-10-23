@@ -117,14 +117,15 @@ export default function BenchmarkGuide() {
       <button onClick={() => setOffen(o => !o)}
               className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#0d0f17] transition-colors">
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-sm font-bold tracking-widest text-[var(--text-secondary)]" style={DISPLAY}>
-            SO KOMMST DU ZU DEN WERTEN
+          {/* Kopf wie die Dashboard-Kacheln statt eines Barlow-Titels. */}
+          <span className="text-xs font-mono tracking-[0.25em] text-[var(--text-secondary)]">
+            HOW TO GET YOUR VALUES
           </span>
-          <span className="text-[10px] font-mono text-[var(--text-muted)]">
-            Testablauf, automatische Auswertung und Ablesen von Hand
+          <span className="text-[10px] font-mono tracking-widest text-[var(--text-muted)]">
+            TEST PROTOCOL · AUTO ANALYSIS · READ BY HAND
           </span>
         </div>
-        <span className="text-[var(--text-secondary)] font-mono text-sm">{offen ? '▲' : '▼'}</span>
+        <span className="text-[var(--text-muted)] font-mono text-[10px]">{offen ? '▴' : '▾'}</span>
       </button>
 
       {offen && (

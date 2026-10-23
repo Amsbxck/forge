@@ -52,7 +52,7 @@ export function blockName(name) {
 const kurzDatum = tag =>
   parseTag(tag).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }).toUpperCase()
 
-export default function SaisonStrahl({ saison, kompakt = false, fokus = null, ohneKopf = false }) {
+export default function SaisonStrahl({ saison, kompakt = false, fokus = null, ohneKopf = false, ohneTage = false }) {
   if (!saison) return null
 
   if (saison.lage === 'off_season') {
@@ -141,7 +141,9 @@ export default function SaisonStrahl({ saison, kompakt = false, fokus = null, oh
             </span>
           )}
         </div>
-        {tage != null && (
+        {/* `ohneTage` auf der Rennseite: Dort steht der Countdown schon groß in
+            der Zielkachel, zweimal „247" untereinander war einmal zu viel. */}
+        {tage != null && !ohneTage && (
           // Die Tage bis zum Rennen sind die Zahl, nach der man auf dem
           // Dashboard sucht — als Fließtext in 10 px ging sie unter.
           <span className="shrink-0 flex items-baseline gap-1.5 text-[10px] font-mono tracking-widest text-[var(--text-secondary)]">

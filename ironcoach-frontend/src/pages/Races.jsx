@@ -14,17 +14,19 @@ import BenchmarkGuide from '../components/BenchmarkGuide'
 import { daysUntil, formatTag } from '../utils/dates'
 import { DISCIPLINE_COLOR } from '../utils/colors'
 import { fehlerText } from '../utils/fehler'
+import { KOPF, Knopf, SeitenKopf, TITEL, NEBEN, knopfStil, toenung } from '../components/leisten/Kachel'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
-const LABEL = 'text-[10px] font-mono tracking-widest text-[var(--text-secondary)]'
+// Kurzlabels wie im Dashboard: gesperrt, gedämpft. Kachelköpfe nehmen `TITEL`.
+const LABEL = KOPF
 const DISPLAY = { fontFamily: 'Barlow Condensed, sans-serif' }
 
 // A verankert die Saison, B und C liegen darin. Ohne diese Unterscheidung
 // würde jeder eingetragene Wettkampf die Planung übernehmen.
 const PRIORITAETEN = [
-  { key: 'A', label: 'SAISONZIEL', hint: 'Bestimmt Planlänge, Phasen und Wochenzählung. Voller Taper.' },
-  { key: 'B', label: 'ZWISCHENWETTKAMPF', hint: 'Wird ernst genommen, ändert die Saison aber nicht. Kurze Entlastung davor.' },
-  { key: 'C', label: 'TRAININGSWETTKAMPF', hint: 'Wird als harte Einheit mitgenommen. Keine Entlastung davor.' },
+  { key: 'A', label: 'SEASON GOAL', hint: 'Bestimmt Planlänge, Phasen und Wochenzählung. Voller Taper.' },
+  { key: 'B', label: 'TUNE-UP RACE', hint: 'Wird ernst genommen, ändert die Saison aber nicht. Kurze Entlastung davor.' },
+  { key: 'C', label: 'TRAINING RACE', hint: 'Wird als harte Einheit mitgenommen. Keine Entlastung davor.' },
 ]
 const PRIO_COLOR = { A: '#00d4ff', B: '#f59e0b', C: '#8a909e' }
 
@@ -52,7 +54,7 @@ const LEG_COLOR = {
   bike: DISCIPLINE_COLOR.bike, t2: DISCIPLINE_COLOR.transition,
   run: DISCIPLINE_COLOR.run,
 }
-const LEG_LABEL = { swim: 'Schwimmen', t1: 'W1', bike: 'Rad', t2: 'W2', run: 'Laufen' }
+const LEG_LABEL = { swim: 'SWIM', t1: 'T1', bike: 'BIKE', t2: 'T2', run: 'RUN' }
 
 function fmtTime(seconds) {
   if (!seconds && seconds !== 0) return null
@@ -74,19 +76,21 @@ function SplitBar({ race }) {
 
   return (
     <div className="mt-3">
-      <div className="flex h-2 rounded-full overflow-hidden" style={{ background: '#0d0f17' }}>
+      {/* Wie die SegmentLeiste: Abschnitte mit Fuge statt eines durchgehenden Balkens. */}
+      <div className="flex gap-[3px] h-2">
         {legs.map(l => (
           <div
             key={l.key}
             title={`${LEG_LABEL[l.key]}: ${fmtTime(l.seconds)}`}
-            style={{ width: `${(l.seconds / total) * 100}%`, background: LEG_COLOR[l.key] }}
+            className="h-full rounded-[3px]"
+            style={{ flexGrow: l.seconds, flexBasis: 0, background: LEG_COLOR[l.key] }}
           />
         ))}
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
         {legs.filter(l => !['t1', 't2'].includes(l.key)).map(l => (
-          <span key={l.key} className="text-[11px] font-mono" style={{ color: LEG_COLOR[l.key] }}>
-            {LEG_LABEL[l.key]} {fmtTime(l.seconds)}
+          <span key={l.key} className="text-[9px] font-mono tracking-widest" style={{ color: LEG_COLOR[l.key] }}>
+            {LEG_LABEL[l.key]} <span className="text-[11px] tabular-nums text-[#e8eaf0] tracking-normal">{fmtTime(l.seconds)}</span>
           </span>
         ))}
       </div>
@@ -136,7 +140,9 @@ function RaceCard({ race, onDelete, onEdit, onImageChange }) {
   }
 
   return (
-    <div className={`${CARD} p-5 relative overflow-hidden group`} style={{ borderLeft: '3px solid #00d4ff' }}>
+    // Ohne Cyan-Streifen links: Die Karte ist getönt in der Farbe der Serie
+    // (wie das Abzeichen), sonst neutral — wie die Kacheln im Dashboard.
+    <div className={`${CARD} p-5 relative overflow-hidden group`} style={toenung(null)}>
       {/* Foto als Hintergrund, stark abgedunkelt — der Text muss lesbar
           bleiben, das Bild trägt nur die Stimmung. */}
       {image && (
@@ -151,14 +157,6 @@ function RaceCard({ race, onDelete, onEdit, onImageChange }) {
         </>
       )}
 
-      {/* Diagonaler Lichtstreifen wie auf der Plan-Seite */}
-      {!image && (
-        <div className="absolute pointer-events-none" style={{
-          top: '-60px', right: '-60px', width: '200px', height: '200px',
-          background: 'radial-gradient(circle, #00d4ff10 0%, transparent 65%)',
-        }} />
-      )}
-
       <div className="relative z-10">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -166,7 +164,7 @@ function RaceCard({ race, onDelete, onEdit, onImageChange }) {
               <SeriesBadge race={race} />
               <span className={LABEL}>{race.race_date} · {race.label}</span>
             </div>
-            <h3 className="text-xl font-black tracking-tight text-[#e8eaf0] mt-1 truncate" style={DISPLAY}>
+            <h3 className="text-2xl font-black tracking-tight text-[#f2f4f8] mt-2 truncate leading-none" style={DISPLAY}>
               {race.race_name.toUpperCase()}
             </h3>
             {race.location && (
@@ -175,17 +173,18 @@ function RaceCard({ race, onDelete, onEdit, onImageChange }) {
           </div>
 
           <div className="text-right flex-shrink-0">
-            <div className="text-3xl font-black font-mono tabular-nums text-[#00d4ff]" style={DISPLAY}>
+            <div className={KOPF}>FINISH</div>
+            <div className="text-4xl font-black leading-none tabular-nums text-[#f2f4f8] mt-1.5" style={{ ...DISPLAY, textShadow: '0 0 28px #ffffff14' }}>
               {fmtTime(race.finish_time_s) || '—'}
             </div>
             {race.overall_rank && (
-              <div className="text-[10px] font-mono text-[var(--text-secondary)]">
-                Platz {race.overall_rank}{race.finishers ? ` / ${race.finishers}` : ''}
+              <div className="text-[9px] font-mono tracking-widest text-[var(--text-muted)] mt-1.5">
+                RANK <span className="text-[#e8eaf0] tabular-nums">{race.overall_rank}</span>{race.finishers ? ` / ${race.finishers}` : ''}
               </div>
             )}
             {race.age_group_rank && (
-              <div className="text-[10px] font-mono text-[var(--text-secondary)]">
-                AK {race.age_group}: {race.age_group_rank}
+              <div className="text-[9px] font-mono tracking-widest text-[var(--text-muted)]">
+                AG {race.age_group} <span className="text-[#e8eaf0] tabular-nums">{race.age_group_rank}</span>
               </div>
             )}
           </div>
@@ -210,10 +209,10 @@ function RaceCard({ race, onDelete, onEdit, onImageChange }) {
           }}
         >
           <label
-            className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[#00d4ff] cursor-pointer"
+            className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[#e8eaf0] cursor-pointer"
             title={race.image_file ? 'Foto ersetzen' : 'Foto hinzufügen'}
           >
-            {busy ? '…' : (race.image_file ? 'FOTO ▸' : '+ FOTO')}
+            {busy ? '…' : (race.image_file ? 'PHOTO ▸' : '+ PHOTO')}
             <input type="file" accept="image/jpeg,image/png,image/webp"
                    className="hidden" onChange={pick} disabled={busy} />
           </label>
@@ -221,7 +220,7 @@ function RaceCard({ race, onDelete, onEdit, onImageChange }) {
             <button onClick={removeImage} disabled={busy}
                     className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
                     title="Foto entfernen">
-              ✕FOTO
+              ✕ PHOTO
             </button>
           )}
           <button
@@ -493,38 +492,25 @@ export default function Races() {
   // sich nach dessen Sportart. Die Kachel bleibt sichtbar, aber ausgegraut,
   // und zeigt den Weg zum Ziel statt eines toten Knopfs.
   const ohneZiel = testTermin ? !!testTermin.ohne_ziel : !goal
-  const testKnopf = busy === 'plan' ? 'LEGT AN…'
-    : ohneZiel ? 'ERST ZIEL SETZEN'
-    : testTermin?.geplant_ab ? `GEPLANT AB ${formatTag(testTermin.geplant_ab).toUpperCase()}`
-    : testGesperrt && testTermin?.frueheste ? `AB ${formatTag(testTermin.frueheste).toUpperCase()}`
-    : testGesperrt ? 'GESPERRT'
-    : 'TESTWOCHE PLANEN'
+  const testKnopf = busy === 'plan' ? 'CREATING…'
+    : ohneZiel ? 'SET A GOAL FIRST'
+    : testTermin?.geplant_ab ? `PLANNED FROM ${formatTag(testTermin.geplant_ab).toUpperCase()}`
+    : testGesperrt && testTermin?.frueheste ? `FROM ${formatTag(testTermin.frueheste).toUpperCase()}`
+    : testGesperrt ? 'LOCKED'
+    : 'PLAN TEST WEEK'
 
   const countdown = useMemo(() => (goal ? daysUntil(goal.race_date) : null), [goal])
 
   return (
     <div className="space-y-6 page-enter">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-3xl font-black tracking-tight text-[#e8eaf0]" style={DISPLAY}>
-          RACES
-        </h1>
+      <SeitenKopf titel="RACES" rechts={
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowGoalForm(v => !v)}
-            className="px-3 py-2 rounded-lg text-xs font-mono tracking-wide"
-            style={{ background: '#00d4ff20', border: '1px solid #00d4ff44', color: '#00d4ff' }}
-          >
-            {goal ? 'NEUES ZIEL' : 'ZIEL SETZEN'}
-          </button>
-          <button
-            onClick={() => setShowRaceForm(v => !v)}
-            className="px-3 py-2 rounded-lg text-xs font-mono tracking-wide text-[var(--text-secondary)]"
-            style={{ background: '#111318', border: '1px solid #1e2228' }}
-          >
-            + ERGEBNIS
-          </button>
+          <Knopf art="haupt" onClick={() => setShowGoalForm(v => !v)}>
+            {goal ? 'NEW GOAL' : 'SET GOAL'}
+          </Knopf>
+          <Knopf onClick={() => setShowRaceForm(v => !v)}>+ RESULT</Knopf>
         </div>
-      </div>
+      } />
 
       {error && (
         <div className="rounded-lg px-3 py-2 font-mono text-xs"
@@ -533,39 +519,36 @@ export default function Races() {
         </div>
       )}
 
-      {loading && <div className="text-[var(--text-secondary)] font-mono text-sm py-6 text-center tracking-widest">LÄDT…</div>}
+      {loading && <div className="text-[var(--text-muted)] font-mono text-[10px] py-6 text-center tracking-[0.25em]">LOADING…</div>}
 
       {/* Aktives Ziel — der Countdown ist das Herzstück der Seite */}
       {!loading && goal && (
-        <div className={`${CARD} p-6 relative overflow-hidden`}
-             style={{ borderLeft: `3px solid ${countdown >= 0 ? '#00d4ff' : 'var(--text-muted)'}` }}>
-          <div className="absolute pointer-events-none" style={{
-            top: '-80px', left: '-40px', width: '320px', height: '260px',
-            background: 'linear-gradient(135deg, #00d4ff12 0%, transparent 60%)', transform: 'rotate(-8deg)',
-          }} />
+        // Getönt statt Streifen und Lichtkegel, wie THIS WEEK im Dashboard.
+        <div className={`${CARD} p-5 sm:p-6 relative overflow-hidden`}
+             style={toenung(countdown >= 0 ? '#00d4ff' : null, 0.7)}>
           <div className="relative z-10 flex flex-wrap items-end justify-between gap-6">
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <SeriesBadge race={goal} />
                 {/* Ein gelaufenes Rennen ist kein „aktuelles Ziel" mehr. */}
-                <span className={LABEL}>
-                  {countdown > 0 ? 'AKTUELLES ZIEL'
-                    : countdown === 0 ? 'HEUTE IST RENNTAG'
-                    : 'LETZTES ZIEL · SAISON ABGESCHLOSSEN'}
+                <span className={TITEL}>
+                  {countdown > 0 ? 'SEASON GOAL'
+                    : countdown === 0 ? 'RACE DAY'
+                    : 'LAST GOAL · SEASON DONE'}
                 </span>
               </div>
-              <div className="text-2xl font-black tracking-tight text-[#e8eaf0] mt-1" style={DISPLAY}>
+              <div className="text-4xl font-black tracking-tight text-[#f2f4f8] mt-3 leading-none" style={{ ...DISPLAY, textShadow: '0 0 28px #ffffff14' }}>
                 {(goal.race_name || goal.label).toUpperCase()}
               </div>
-              <div className="text-xs font-mono text-[var(--text-secondary)] mt-1">
-                {goal.label} · {goal.race_date}
-                {goal.goal_time ? ` · Ziel ${goal.goal_time}` : ''}
+              <div className="text-[10px] font-mono tracking-widest text-[var(--text-muted)] mt-2.5">
+                {goal.label.toUpperCase()} · {goal.race_date}
+                {goal.goal_time ? <> · TARGET <span className="text-[#e8eaf0]">{goal.goal_time}</span></> : ''}
               </div>
               {/* Ohne Strahl (laufende Saison) die Planlänge als Text; mit
                   Strahl steht sie dort, samt Phasen. */}
               {!(saison?.phasen?.length > 0) && (
-                <div className="text-xs font-mono text-[var(--text-muted)] mt-0.5">
-                  {goal.total_weeks} Wochen ab {goal.plan_start_date}
+                <div className="text-[10px] font-mono tracking-widest text-[var(--text-muted)] mt-1">
+                  {goal.total_weeks} WEEKS FROM {goal.plan_start_date}
                 </div>
               )}
             </div>
@@ -573,20 +556,20 @@ export default function Races() {
               {countdown === 0 ? (
                 <>
                   <div className="text-5xl font-black leading-none" style={{ ...DISPLAY, color: '#00d4ff' }}>
-                    HEUTE
+                    TODAY
                   </div>
-                  <div className={LABEL}>VIEL ERFOLG</div>
+                  <div className={LABEL}>GOOD LUCK</div>
                 </>
               ) : (
                 <>
+                  <div className={`${LABEL} mb-1.5`}>
+                    {countdown > 0 ? 'DAYS TO RACE' : 'DAYS SINCE RACE'}
+                  </div>
                   <div
                     className="text-6xl font-black leading-none tabular-nums"
-                    style={{ ...DISPLAY, color: countdown > 0 ? '#00d4ff' : '#8a909e' }}
+                    style={{ ...DISPLAY, color: countdown > 0 ? '#f2f4f8' : '#8a909e', textShadow: '0 0 28px #ffffff14' }}
                   >
                     {Math.abs(countdown)}
-                  </div>
-                  <div className={LABEL}>
-                    {countdown > 0 ? 'TAGE BIS ZUM RENNEN' : 'TAGE SEIT DEM RENNEN'}
                   </div>
                 </>
               )}
@@ -598,7 +581,7 @@ export default function Races() {
               stand dort nur „20 Wochen ab …". */}
           {countdown >= 0 && saison?.phasen?.length > 0 && (
             <div className="relative z-10 mt-5 pt-4 border-t border-[#1e2228]">
-              <SaisonStrahl saison={saison} />
+              <SaisonStrahl saison={saison} ohneTage />
             </div>
           )}
 
@@ -610,13 +593,9 @@ export default function Races() {
                 Saison abgeschlossen. Setze ein neues Ziel — daraus ergeben sich
                 Planlänge, Phasen und die Wochenzählung neu.
               </div>
-              <button
-                onClick={() => setShowGoalForm(true)}
-                className="px-3 py-1.5 rounded-lg text-[11px] font-mono tracking-wide flex-shrink-0"
-                style={{ background: '#00d4ff20', border: '1px solid #00d4ff44', color: '#00d4ff' }}
-              >
-                NEUES ZIEL SETZEN
-              </button>
+              <Knopf art="haupt" onClick={() => setShowGoalForm(true)} className="flex-shrink-0">
+                SET NEW GOAL
+              </Knopf>
             </div>
           )}
         </div>
@@ -627,10 +606,8 @@ export default function Races() {
       {!loading && termine.length > 0 && (
         <div className={`${CARD} p-5`}>
           <div className="flex items-baseline justify-between gap-3 mb-3 flex-wrap">
-            <span className={LABEL}>WETTKÄMPFE UNTERWEGS</span>
-            <span className="text-[10px] font-mono text-[var(--text-muted)]">
-              ÄNDERN DIE SAISONSTRUKTUR NICHT
-            </span>
+            <span className={TITEL}>RACES ALONG THE WAY</span>
+            <span className={NEBEN}>DON'T CHANGE THE SEASON</span>
           </div>
           <div className="space-y-1">
             {termine.map(t => {
@@ -668,7 +645,7 @@ export default function Races() {
 
       {!loading && !goal && (
         <div className={`${CARD} p-8 text-center`}>
-          <div className="text-xl font-black text-[var(--text-muted)] mb-1" style={DISPLAY}>KEIN ZIEL GESETZT</div>
+          <div className="text-xl font-black text-[var(--text-muted)] mb-1" style={DISPLAY}>NO GOAL SET</div>
           <p className="text-sm font-mono text-[var(--text-muted)]">
             Wähle Sportart und Distanz — daraus ergeben sich Planlänge und Phasen.
           </p>
@@ -678,7 +655,7 @@ export default function Races() {
       {/* Zielformular */}
       <Modal
         open={showGoalForm} onClose={() => setShowGoalForm(false)}
-        title={goalForm.priority === 'A' ? 'SAISONZIEL SETZEN' : 'WETTKAMPF EINTRAGEN'}
+        title={goalForm.priority === 'A' ? 'SET SEASON GOAL' : 'ADD RACE'}
         subtitle={goalForm.priority === 'A'
           ? 'Planlänge und Phasen ergeben sich aus der Distanz'
           : 'Liegt in der laufenden Saison — Planlänge und Phasen bleiben unverändert'}
@@ -688,7 +665,7 @@ export default function Races() {
           {/* Zuerst die Art des Wettkampfs: davon hängt ab, ob die Saison neu
               gerechnet wird oder nur eine Woche angepasst. */}
           <div>
-            <span className={`${LABEL} block mb-1`}>ART DES WETTKAMPFS</span>
+            <span className={`${LABEL} block mb-1`}>TYPE OF RACE</span>
             <div className="grid gap-1 sm:grid-cols-3">
               {PRIORITAETEN.map(p => (
                 <button
@@ -712,7 +689,7 @@ export default function Races() {
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <label className="block">
-              <span className={`${LABEL} block mb-1`}>SPORTART</span>
+              <span className={`${LABEL} block mb-1`}>SPORT</span>
               <select
                 className={FIELD} style={FIELD_STYLE} value={goalForm.sport}
                 onChange={e => setSport(setGoalForm, goalForm)(e.target.value)}
@@ -721,7 +698,7 @@ export default function Races() {
               </select>
             </label>
             <label className="block">
-              <span className={`${LABEL} block mb-1`}>DISTANZ</span>
+              <span className={`${LABEL} block mb-1`}>DISTANCE</span>
               <select
                 className={FIELD} style={FIELD_STYLE} value={goalForm.distance}
                 onChange={e => setGoalForm({ ...goalForm, distance: e.target.value })}
@@ -738,14 +715,14 @@ export default function Races() {
                 ))}
               </select>
             </label>
-            <Field label="RENNTAG" type="date" required
+            <Field label="RACE DAY" type="date" required
                    value={goalForm.race_date}
                    onChange={e => setGoalForm({ ...goalForm, race_date: e.target.value })} />
-            <Field label="ZIELZEIT (OPTIONAL)" placeholder={beispielFuer(goalForm.sport).zielzeit}
+            <Field label="TARGET TIME (OPTIONAL)" placeholder={beispielFuer(goalForm.sport).zielzeit}
                    value={goalForm.goal_time}
                    onChange={e => setGoalForm({ ...goalForm, goal_time: e.target.value })} />
           </div>
-          <Field label="NAME DES RENNENS (OPTIONAL)" placeholder={beispielFuer(goalForm.sport).name}
+          <Field label="RACE NAME (OPTIONAL)" placeholder={beispielFuer(goalForm.sport).name}
                  value={goalForm.race_name}
                  onChange={e => setGoalForm({ ...goalForm, race_name: e.target.value })} />
           <div className="flex gap-2">
@@ -771,21 +748,21 @@ export default function Races() {
       <Modal
         open={showRaceForm}
         onClose={() => { setShowRaceForm(false); setBearbeiteId(null); setRaceForm(LEERES_RENNEN) }}
-        title={bearbeiteId ? 'ERGEBNIS BEARBEITEN' : 'ERGEBNIS EINTRAGEN'}
+        title={bearbeiteId ? 'EDIT RESULT' : 'ADD RESULT'}
         subtitle="Zeiten als H:MM:SS oder MM:SS"
         width="max-w-3xl"
       >
         <form onSubmit={submitRace} className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <label className="block">
-              <span className={`${LABEL} block mb-1`}>SPORTART</span>
+              <span className={`${LABEL} block mb-1`}>SPORT</span>
               <select className={FIELD} style={FIELD_STYLE} value={raceForm.sport}
                       onChange={e => setSport(setRaceForm, raceForm)(e.target.value)}>
                 {types.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
               </select>
             </label>
             <label className="block">
-              <span className={`${LABEL} block mb-1`}>DISTANZ</span>
+              <span className={`${LABEL} block mb-1`}>DISTANCE</span>
               <select className={FIELD} style={FIELD_STYLE} value={raceForm.distance}
                       onChange={e => setRaceForm({ ...raceForm, distance: e.target.value })}>
                 {distancesFor(raceForm.sport).map(d => (
@@ -793,9 +770,9 @@ export default function Races() {
                 ))}
               </select>
             </label>
-            <Field label="DATUM" type="date" required value={raceForm.race_date}
+            <Field label="DATE" type="date" required value={raceForm.race_date}
                    onChange={e => setRaceForm({ ...raceForm, race_date: e.target.value })} />
-            <Field label="ORT" placeholder={beispielFuer(raceForm.sport).ort} value={raceForm.location}
+            <Field label="LOCATION" placeholder={beispielFuer(raceForm.sport).ort} value={raceForm.location}
                    onChange={e => setRaceForm({ ...raceForm, location: e.target.value })} />
           </div>
           <Field label="NAME" required placeholder={beispielFuer(raceForm.sport).name}
@@ -807,29 +784,29 @@ export default function Races() {
           <div className={`grid gap-3 sm:grid-cols-2 ${
             raceForm.sport === 'triathlon' ? 'lg:grid-cols-5' : 'lg:grid-cols-2'
           }`}>
-            <Field label="GESAMTZEIT" placeholder={beispielFuer(raceForm.sport).zeit}
+            <Field label="FINISH TIME" placeholder={beispielFuer(raceForm.sport).zeit}
                    value={raceForm.finish_time}
                    onChange={e => setRaceForm({ ...raceForm, finish_time: e.target.value })} />
             {raceForm.sport === 'triathlon' && (
               <>
-                <Field label="SCHWIMMEN" placeholder="34:20" value={raceForm.swim_time}
+                <Field label="SWIM" placeholder="34:20" value={raceForm.swim_time}
                        onChange={e => setRaceForm({ ...raceForm, swim_time: e.target.value })} />
-                <Field label="RAD" placeholder="2:52:10" value={raceForm.bike_time}
+                <Field label="BIKE" placeholder="2:52:10" value={raceForm.bike_time}
                        onChange={e => setRaceForm({ ...raceForm, bike_time: e.target.value })} />
-                <Field label="LAUFEN" placeholder="1:52:30" value={raceForm.run_time}
+                <Field label="RUN" placeholder="1:52:30" value={raceForm.run_time}
                        onChange={e => setRaceForm({ ...raceForm, run_time: e.target.value })} />
               </>
             )}
-            <Field label="PLATZ" type="number" placeholder="412" value={raceForm.overall_rank}
+            <Field label="RANK" type="number" placeholder="412" value={raceForm.overall_rank}
                    onChange={e => setRaceForm({ ...raceForm, overall_rank: e.target.value })} />
           </div>
-          <Field label="NOTIZEN" placeholder="Wie lief es? Was nimmst du mit?"
+          <Field label="NOTES" placeholder="Wie lief es? Was nimmst du mit?"
                  value={raceForm.notes}
                  onChange={e => setRaceForm({ ...raceForm, notes: e.target.value })} />
           <div className="flex gap-2">
             <button type="submit" className="px-4 py-2 rounded-lg text-sm font-mono font-bold"
                     style={{ background: '#00d4ff20', border: '1px solid #00d4ff44', color: '#00d4ff' }}>
-              {bearbeiteId ? 'ÄNDERUNGEN SPEICHERN' : 'ERGEBNIS SPEICHERN'}
+              {bearbeiteId ? 'SAVE CHANGES' : 'SAVE RESULT'}
             </button>
             <button type="button"
                     onClick={() => { setShowRaceForm(false); setBearbeiteId(null); setRaceForm(LEERES_RENNEN) }}
@@ -844,11 +821,9 @@ export default function Races() {
       {/* Achievements */}
       {!loading && (
         <div className="space-y-3">
-          <div className="flex items-baseline gap-3">
-            <h2 className="text-xl font-black tracking-tight text-[#e8eaf0]" style={DISPLAY}>ACHIEVEMENTS</h2>
-            <span className="text-sm font-mono text-[var(--text-muted)]">
-              {races.length} {races.length === 1 ? 'Rennen' : 'Rennen'}
-            </span>
+          <div className="flex items-baseline justify-between gap-3 px-1">
+            <span className={TITEL}>ACHIEVEMENTS</span>
+            <span className={NEBEN}>{races.length} {races.length === 1 ? 'RACE' : 'RACES'}</span>
           </div>
 
           {races.length === 0 ? (
@@ -874,7 +849,7 @@ export default function Races() {
         <div className={`${CARD} p-5 transition-opacity`} style={ohneZiel ? { opacity: 0.6 } : undefined}>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
-              <div className={LABEL}>BENCHMARK</div>
+              <div className={TITEL}>BENCHMARK</div>
               <p className="text-sm text-[var(--text-secondary)] mt-1">
                 Zonen aus deinen Testeinheiten ableiten statt schätzen.
               </p>
@@ -894,7 +869,7 @@ export default function Races() {
               ) : testTermin?.geplant_ab ? (
                 <p className="text-[11px] font-mono mt-2 leading-relaxed max-w-md text-[var(--text-secondary)]">
                   Testwoche geplant ab {formatTag(testTermin.geplant_ab)}.{' '}
-                  <Link to="/plan" className="underline hover:text-[#00d4ff]">
+                  <Link to="/plan" className="underline hover:text-[#e8eaf0]">
                     Im Wochenplan ansehen oder stornieren
                   </Link>
                 </p>
@@ -921,14 +896,14 @@ export default function Races() {
                         : planBenchmark}
                       disabled={busy === 'plan' || (testGesperrt && !ohneZiel)}
                       title={testGesperrt && !ohneZiel ? (testTermin?.gruende || []).join(' ') : undefined}
-                      className="px-3 py-2 rounded-lg text-xs font-mono tracking-wide text-[var(--text-secondary)] disabled:opacity-40 disabled:cursor-not-allowed"
-                      style={{ background: '#111318', border: '1px solid #1e2228' }}>
+                      className="px-3 py-1.5 rounded-lg text-[10px] font-mono font-semibold tracking-widest disabled:opacity-40 disabled:cursor-not-allowed"
+                      style={knopfStil('leise')}>
                 {testKnopf}
               </button>
               <button onClick={checkZones} disabled={busy === 'derive'}
-                      className="px-3 py-2 rounded-lg text-xs font-mono tracking-wide text-[#00d4ff] disabled:opacity-40"
-                      style={{ background: '#00d4ff15', border: '1px solid #00d4ff33' }}>
-                {busy === 'derive' ? 'RECHNET…' : 'WERTE BERECHNEN'}
+                      className="px-3 py-1.5 rounded-lg text-[10px] font-mono font-semibold tracking-widest disabled:opacity-40"
+                      style={knopfStil('haupt')}>
+                {busy === 'derive' ? 'CALCULATING…' : 'CALCULATE VALUES'}
               </button>
             </div>
           </div>
@@ -959,11 +934,11 @@ export default function Races() {
                 const jetzt = zones.current || {}
                 return [
                   { label: 'FTP', neu: zones.applied?.includes('ftp_watts') ? zones.ftp_vorschlag : null, alt: jetzt.ftp_watts, einheit: 'W' },
-                  { label: 'SCHWELLENPACE', neu: pace(zones.threshold_pace_s_per_km), alt: pace(jetzt.threshold_pace_s_per_km), einheit: '/km' },
-                  { label: 'SCHWELLENPULS', neu: zones.threshold_hr, alt: jetzt.threshold_hr, einheit: 'bpm' },
-                  { label: 'MAX. HF', neu: zones.max_hr, alt: jetzt.max_hr, einheit: 'bpm' },
+                  { label: 'THRESHOLD PACE', neu: pace(zones.threshold_pace_s_per_km), alt: pace(jetzt.threshold_pace_s_per_km), einheit: '/km' },
+                  { label: 'THRESHOLD HR', neu: zones.threshold_hr, alt: jetzt.threshold_hr, einheit: 'bpm' },
+                  { label: 'MAX HR', neu: zones.max_hr, alt: jetzt.max_hr, einheit: 'bpm' },
                   { label: 'CSS', neu: pace(zones.css_pace_s_per_100m), alt: pace(jetzt.css_pace_s_per_100m), einheit: '/100m' },
-                  { label: 'PULS SCHWIMMEN', neu: zones.swim_threshold_hr, alt: jetzt.swim_threshold_hr, einheit: 'bpm' },
+                  { label: 'SWIM HR', neu: zones.swim_threshold_hr, alt: jetzt.swim_threshold_hr, einheit: 'bpm' },
                 ]
               })().map(({ label, neu, alt, einheit }) => {
                 const aendert = neu != null && String(neu) !== String(alt ?? '')
@@ -1000,7 +975,7 @@ export default function Races() {
                   zwanzig Minuten waren kein Test. Der Text sagt, welcher es ist. */}
               <div className="sm:col-span-3 rounded-lg p-3"
                    style={{ background: '#f59e0b0d', border: '1px solid #f59e0b33' }}>
-                  <div className={LABEL} style={{ color: '#f59e0b' }}>FTP EINTRAGEN</div>
+                  <div className={LABEL} style={{ color: '#f59e0b' }}>ENTER FTP</div>
                   <p className="text-[11px] font-mono text-[var(--text-secondary)] mt-1 leading-relaxed">
                     {zones.ftp_hinweis
                       || (zones.ftp_vorschlag
@@ -1042,7 +1017,7 @@ export default function Races() {
                       }}
                       className="px-3 py-1.5 rounded-lg text-[11px] font-mono tracking-wide disabled:opacity-40"
                       style={{ background: '#f59e0b20', border: '1px solid #f59e0b44', color: '#f59e0b' }}>
-                      {busy === 'ftp' ? 'SPEICHERT…' : 'FTP SPEICHERN'}
+                      {busy === 'ftp' ? 'SAVING…' : 'SAVE FTP'}
                     </button>
                   </div>
                   <p className="text-[10px] font-mono text-[var(--text-muted)] mt-2 leading-relaxed">
@@ -1060,7 +1035,7 @@ export default function Races() {
                   <button onClick={applyZones} disabled={busy === 'apply'}
                           className="px-3 py-1.5 rounded-lg text-[11px] font-mono tracking-wide disabled:opacity-40"
                           style={{ background: '#22c55e15', border: '1px solid #22c55e40', color: '#22c55e' }}>
-                    {busy === 'apply' ? 'ÜBERNIMMT…' : 'INS PROFIL ÜBERNEHMEN'}
+                    {busy === 'apply' ? 'APPLYING…' : 'APPLY TO PROFILE'}
                   </button>
                 )}
                 <p className="text-[11px] font-mono text-[var(--text-muted)] leading-relaxed flex-1 min-w-[240px]">

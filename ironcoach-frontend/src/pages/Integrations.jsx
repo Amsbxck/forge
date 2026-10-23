@@ -7,17 +7,20 @@ import {
 } from '../services/api'
 import { fehlerText } from '../utils/fehler'
 
+import { SeitenKopf, TITEL, knopfStil, toenung } from '../components/leisten/Kachel'
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
-const LABEL = 'text-[10px] font-mono tracking-widest text-[var(--text-secondary)]'
+const LABEL = 'text-[9px] font-mono tracking-[0.2em] text-[var(--text-muted)]'
+// Knöpfe aus `leisten/Kachel`: dieselbe Größe überall, Marke als Farbe des Hauptknopfs.
+const KNOPF = 'px-3 py-1.5 rounded-lg text-[10px] font-mono font-semibold tracking-widest transition-colors hover:brightness-125 disabled:opacity-40'
 const DISPLAY = { fontFamily: 'Barlow Condensed, sans-serif' }
 const FIELD = 'rounded-lg px-3 py-2 text-sm font-mono text-[#e8eaf0] placeholder-[var(--text-muted)] outline-none w-full'
-const FIELD_STYLE = { background: '#0d0f17', border: '1px solid #1e2228' }
+const FIELD_STYLE = { background: '#0d0f14', border: '1px solid #1e2228' }
 
 function Status({ ok, children }) {
   const color = ok ? '#22c55e' : '#3a3f4a'
   return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] font-mono" style={{ color }}>
-      <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+    <span className="inline-flex items-center gap-1.5 text-[10px] font-mono tracking-widest uppercase" style={{ color: ok ? color : 'var(--text-muted)' }}>
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: color, boxShadow: ok ? `0 0 6px ${color}88` : 'none' }} />
       {children}
     </span>
   )
@@ -120,22 +123,24 @@ function GarminKachel({ zustand, onChange }) {
   }
 
   return (
-    <div className={`${CARD} p-5`} style={{ borderLeft: `3px solid ${GARMIN}` }}>
+    // Getönt in der Markenfarbe statt eines Streifens am linken Rand — wie
+    // die Kacheln im Dashboard.
+    <div className={`${CARD} p-5`} style={toenung(GARMIN, 0.7)}>
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-lg font-black tracking-tight text-[#e8eaf0]" style={DISPLAY}>GARMIN CONNECT</h2>
-          <p className="text-xs text-[var(--text-secondary)] mt-1 max-w-md leading-relaxed">
+          <h2 className={TITEL}>GARMIN CONNECT</h2>
+          <p className="text-xs text-[var(--text-secondary)] mt-3 max-w-md leading-relaxed">
             Holt jeden Morgen deine nächtliche HRV und jeden Sonntag deine Normalspanne
             direkt aus Garmin Connect. Dafür brauchst du einen persönlichen API-Schlüssel.
           </p>
-          <div className="mt-2">
+          <div className="mt-3">
             <Status ok={verbunden && !zustand?.letzter_fehler}>
-              {verbunden ? `Verbunden · Schlüssel ${zustand.api_key_hint}` : 'Nicht verbunden'}
+              {verbunden ? `Connected · key ${zustand.api_key_hint}` : 'Not connected'}
             </Status>
           </div>
           {verbunden && (
-            <div className="text-[11px] font-mono text-[var(--text-muted)] mt-1">
-              Letzter Abruf: {zeitpunkt(zustand.letzter_abruf) || 'noch keiner'}
+            <div className="text-[9px] font-mono tracking-widest text-[var(--text-muted)] mt-1.5">
+              LAST FETCH {zeitpunkt(zustand.letzter_abruf) || '—'}
             </div>
           )}
           {zustand?.letzter_fehler && <Rueckmeldung ok={false}>{zustand.letzter_fehler}</Rueckmeldung>}
@@ -148,7 +153,7 @@ function GarminKachel({ zustand, onChange }) {
             <p className="text-[11px] font-mono text-[var(--text-muted)] mt-2 max-w-md leading-relaxed">
               Der automatische Abruf ist auf dem Server nicht eingeschaltet.
               {verbunden
-                ? ' ‚Jetzt abrufen‘ funktioniert trotzdem.'
+                ? ' ‚Fetch now‘ funktioniert trotzdem.'
                 : ' Nach dem Verbinden kannst du von Hand abrufen.'}
             </p>
           )}
@@ -157,14 +162,14 @@ function GarminKachel({ zustand, onChange }) {
         {verbunden && (
           <div className="flex gap-2 flex-wrap">
             <button onClick={abrufen} disabled={!!busy}
-                    className="px-3 py-2 rounded-lg text-xs font-mono font-bold tracking-wide disabled:opacity-40"
-                    style={{ background: `${GARMIN}20`, border: `1px solid ${GARMIN}55`, color: GARMIN }}>
-              {busy === 'abrufen' ? 'RUFT AB…' : 'JETZT ABRUFEN'}
+                    className={KNOPF}
+                    style={knopfStil('haupt', GARMIN)}>
+              {busy === 'abrufen' ? 'FETCHING…' : 'FETCH NOW'}
             </button>
             <button onClick={trennen} disabled={!!busy}
-                    className="px-3 py-2 rounded-lg text-xs font-mono tracking-wide text-[var(--text-secondary)] disabled:opacity-40"
-                    style={{ border: '1px solid #1e2228' }}>
-              TRENNEN
+                    className={KNOPF}
+                    style={knopfStil('leise')}>
+              DISCONNECT
             </button>
           </div>
         )}
@@ -174,16 +179,16 @@ function GarminKachel({ zustand, onChange }) {
         <form onSubmit={verbinden} className="mt-4 space-y-3">
           <label className="block max-w-md">
             <span className={`${LABEL} block mb-1`}>
-              API-SCHLÜSSEL {verbunden && '(NEUEN SCHLÜSSEL EINTRAGEN)'}
+              API KEY {verbunden && '(ENTER A NEW KEY)'}
             </span>
             <input type="password" className={FIELD} style={FIELD_STYLE} value={schluessel}
                    onChange={e => setSchluessel(e.target.value)}
                    placeholder="aus Garmin Connect kopieren" autoComplete="off" />
           </label>
           <button type="submit" disabled={!!busy || !schluessel.trim()}
-                  className="px-3 py-2 rounded-lg text-xs font-mono font-bold tracking-wide disabled:opacity-40"
-                  style={{ background: `${GARMIN}20`, border: `1px solid ${GARMIN}55`, color: GARMIN }}>
-            {busy === 'verbinden' ? 'VERBINDET…' : 'VERBINDEN'}
+                  className={KNOPF}
+                  style={knopfStil('haupt', GARMIN)}>
+            {busy === 'verbinden' ? 'CONNECTING…' : 'CONNECT'}
           </button>
 
           <details className="text-[11px] font-mono text-[var(--text-muted)]">
@@ -386,9 +391,7 @@ export default function Integrations() {
 
   return (
     <div className="space-y-6 page-enter">
-      <h1 className="text-3xl font-black tracking-tight text-[#e8eaf0]" style={DISPLAY}>
-        ANBINDUNGEN
-      </h1>
+      <SeitenKopf titel="CONNECTIONS" />
 
       {error && (
         <div className="rounded-lg px-3 py-2 font-mono text-xs"
@@ -398,19 +401,19 @@ export default function Integrations() {
       )}
 
       {/* Strava */}
-      <div className={`${CARD} p-5`} style={{ borderLeft: '3px solid #fc4c02' }}>
+      <div className={`${CARD} p-5`} style={toenung('#fc4c02', 0.7)}>
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h2 className="text-lg font-black tracking-tight text-[#e8eaf0]" style={DISPLAY}>STRAVA</h2>
-            <p className="text-xs text-[var(--text-secondary)] mt-1 max-w-md leading-relaxed">
+            <h2 className={TITEL}>STRAVA</h2>
+            <p className="text-xs text-[var(--text-secondary)] mt-3 max-w-md leading-relaxed">
               Liefert deine Einheiten samt Runden und Leistungsdaten. Ohne Verbindung
               bleibt nur der manuelle Upload von FIT-Dateien.
             </p>
-            <div className="mt-2">
+            <div className="mt-3">
               <Status ok={state.strava.connected}>
                 {state.strava.connected
-                  ? `Verbunden · Athlet ${state.strava.athlete_id}`
-                  : 'Nicht verbunden'}
+                  ? `Connected · athlete ${state.strava.athlete_id}`
+                  : 'Not connected'}
               </Status>
             </div>
             {stravaRueckmeldung && (
@@ -427,15 +430,15 @@ export default function Integrations() {
 
           {state.strava.connected ? (
             <button onClick={unlinkStrava} disabled={busy === 'strava'}
-                    className="px-3 py-2 rounded-lg text-xs font-mono tracking-wide text-[var(--text-secondary)] disabled:opacity-40"
-                    style={{ border: '1px solid #1e2228' }}>
-              TRENNEN
+                    className={KNOPF}
+                    style={knopfStil('leise')}>
+              DISCONNECT
             </button>
           ) : (
             <button onClick={connectStrava} disabled={busy === 'strava'}
-                    className="px-3 py-2 rounded-lg text-xs font-mono font-bold tracking-wide disabled:opacity-40"
-                    style={{ background: '#fc4c0220', border: '1px solid #fc4c0255', color: '#fc4c02' }}>
-              {busy === 'strava' ? 'ÖFFNET…' : 'MIT STRAVA VERBINDEN'}
+                    className={KNOPF}
+                    style={knopfStil('haupt', '#fc4c02')}>
+              {busy === 'strava' ? 'OPENING…' : 'CONNECT STRAVA'}
             </button>
           )}
         </div>
@@ -449,12 +452,12 @@ export default function Integrations() {
                 <span className={LABEL}>WEBHOOK</span>
                 <Status ok={webhook.active}>
                   {webhook.active
-                    ? 'Registriert — Einheiten kommen sofort an'
-                    : 'Nicht registriert — Abgleich läuft stündlich'}
+                    ? 'Registered · sessions arrive instantly'
+                    : 'Not registered · hourly sync'}
                 </Status>
               </span>
               <span className="text-[10px] font-mono text-[var(--text-muted)]">
-                {webhook.can_manage ? 'EINRICHTEN ▾' : 'DETAILS ▾'}
+                {webhook.can_manage ? 'SET UP ▾' : 'DETAILS ▾'}
               </span>
             </summary>
 
@@ -482,7 +485,7 @@ export default function Integrations() {
 
               {webhook.can_manage && (<>
               <label className="block">
-                <span className={`${LABEL} block mb-1`}>ÖFFENTLICHE ADRESSE DIESER APP</span>
+                <span className={`${LABEL} block mb-1`}>PUBLIC ADDRESS OF THIS APP</span>
                 <input className={FIELD} style={FIELD_STYLE} value={publicUrl}
                        onChange={e => setPublicUrl(e.target.value)}
                        placeholder="https://dein-rechner.tailnet.ts.net" />
@@ -494,15 +497,15 @@ export default function Integrations() {
 
               <div className="flex gap-2 flex-wrap">
                 <button onClick={saveHook} disabled={busy === 'hook' || !publicUrl}
-                        className="px-3 py-2 rounded-lg text-xs font-mono tracking-wide text-[#00d4ff] disabled:opacity-40"
-                        style={{ background: '#00d4ff15', border: '1px solid #00d4ff33' }}>
-                  {busy === 'hook' ? 'REGISTRIERT…' : (webhook.active ? 'NEU REGISTRIEREN' : 'REGISTRIEREN')}
+                        className={KNOPF}
+                        style={knopfStil('haupt')}>
+                  {busy === 'hook' ? 'REGISTERING…' : (webhook.active ? 'RE-REGISTER' : 'REGISTER')}
                 </button>
                 {webhook.active && (
                   <button onClick={removeHook} disabled={busy === 'hook'}
-                          className="px-3 py-2 rounded-lg text-xs font-mono text-[var(--text-secondary)] disabled:opacity-40"
-                          style={{ border: '1px solid #1e2228' }}>
-                    ENTFERNEN
+                          className={KNOPF}
+                          style={knopfStil('leise')}>
+                    REMOVE
                   </button>
                 )}
               </div>
@@ -547,26 +550,26 @@ export default function Integrations() {
                     onChange={(daten) => setState(s => ({ ...s, ...daten }))} />
 
       {/* Obsidian */}
-      <form onSubmit={save} className={`${CARD} p-5 space-y-4`} style={{ borderLeft: '3px solid #7c3aed' }}>
+      <form onSubmit={save} className={`${CARD} p-5 space-y-4`} style={toenung('#7c3aed', 0.7)}>
         <div>
-          <h2 className="text-lg font-black tracking-tight text-[#e8eaf0]" style={DISPLAY}>OBSIDIAN</h2>
-          <p className="text-xs text-[var(--text-secondary)] mt-1 max-w-2xl leading-relaxed">
+          <h2 className={TITEL}>OBSIDIAN</h2>
+          <p className="text-xs text-[var(--text-secondary)] mt-3 max-w-2xl leading-relaxed">
             Optional. Jede Einheit wird als Notiz in <em>deinen eigenen</em> Vault geschrieben —
             mit Struktur, Plan/Ist-Vergleich und einem Bereich für deine Reflexion.
             Was du dort schreibst, liest der Coach bei der nächsten Planung mit.
           </p>
-          <div className="mt-2">
+          <div className="mt-3">
             <Status ok={state.obsidian.configured}>
               {state.obsidian.configured
-                ? `Eingerichtet · Schlüssel ${state.obsidian.api_key_hint}`
-                : 'Nicht eingerichtet'}
+                ? `Set up · key ${state.obsidian.api_key_hint}`
+                : 'Not set up'}
             </Status>
           </div>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block sm:col-span-2">
-            <span className={`${LABEL} block mb-1`}>ADRESSE DER LOCAL REST API</span>
+            <span className={`${LABEL} block mb-1`}>LOCAL REST API ADDRESS</span>
             <input className={FIELD} style={FIELD_STYLE} value={form.base_url}
                    onChange={e => setForm({ ...form, base_url: e.target.value })}
                    placeholder="100.84.12.7" />
@@ -580,7 +583,7 @@ export default function Integrations() {
           </label>
           <label className="block">
             <span className={`${LABEL} block mb-1`}>
-              API-SCHLÜSSEL {state.obsidian.configured && '(LEER = UNVERÄNDERT)'}
+              API KEY {state.obsidian.configured && '(EMPTY = UNCHANGED)'}
             </span>
             <input type="password" className={FIELD} style={FIELD_STYLE} value={form.api_key}
                    onChange={e => setForm({ ...form, api_key: e.target.value })}
@@ -588,7 +591,7 @@ export default function Integrations() {
                    autoComplete="off" />
           </label>
           <label className="block">
-            <span className={`${LABEL} block mb-1`}>ORDNER IM VAULT</span>
+            <span className={`${LABEL} block mb-1`}>VAULT FOLDER</span>
             <input className={FIELD} style={FIELD_STYLE} value={form.vault_subdir}
                    onChange={e => setForm({ ...form, vault_subdir: e.target.value })}
                    placeholder="Training" />
@@ -597,16 +600,16 @@ export default function Integrations() {
 
         <div className="flex gap-2 items-center flex-wrap">
           <button type="submit" disabled={busy === 'save'}
-                  className="px-4 py-2 rounded-lg text-sm font-mono font-bold disabled:opacity-40"
-                  style={{ background: '#00d4ff20', border: '1px solid #00d4ff44', color: '#00d4ff' }}>
-            {busy === 'save' ? 'SPEICHERT…' : 'SPEICHERN'}
+                  className={KNOPF}
+                  style={knopfStil('haupt')}>
+            {busy === 'save' ? 'SAVING…' : 'SAVE'}
           </button>
           <button type="button" onClick={check} disabled={busy === 'test'}
-                  className="px-4 py-2 rounded-lg text-sm font-mono text-[var(--text-secondary)] disabled:opacity-40"
-                  style={{ border: '1px solid #1e2228' }}>
-            {busy === 'test' ? 'PRÜFT…' : 'VERBINDUNG TESTEN'}
+                  className={KNOPF}
+                  style={knopfStil('leise')}>
+            {busy === 'test' ? 'TESTING…' : 'TEST CONNECTION'}
           </button>
-          {saved && <span className="text-[11px] font-mono" style={{ color: '#22c55e' }}>✓ gespeichert</span>}
+          {saved && <span className="text-[11px] font-mono" style={{ color: '#22c55e' }}>✓ saved</span>}
         </div>
 
 

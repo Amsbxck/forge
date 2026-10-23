@@ -5,6 +5,7 @@ import {
 import SportIcon from './SportIcon'
 import { DISCIPLINE_COLOR } from '../utils/colors'
 import FtpHinweis from './FtpHinweis'
+import { toenung } from './leisten/Kachel'
 
 const CARD = 'bg-[#111318] border border-[#1e2228] rounded-xl'
 const LABEL = 'text-[10px] font-mono tracking-widest text-[var(--text-secondary)] block mb-1'
@@ -58,10 +59,7 @@ function SportKarte({ disziplin, titel, werte, quelle, hinweis, warnung, kinder,
       <div className={`${CARD} p-5 flex flex-col`} style={{ opacity: .45 }}>
         <div className="flex items-center gap-2 mb-3">
           <SportIcon discipline={disziplin} size={16} color="var(--text-muted)" />
-          <span className="text-sm font-bold tracking-widest"
-                style={{ ...DISPLAY, color: 'var(--text-muted)' }}>
-            {titel}
-          </span>
+          <span className="text-xs font-mono tracking-[0.25em] text-[var(--text-muted)]">{titel}</span>
         </div>
         <div className="font-black leading-none text-[var(--text-muted)]"
              style={{ ...DISPLAY, fontSize: 'clamp(2rem, 4vw, 2.6rem)' }}>—</div>
@@ -73,26 +71,25 @@ function SportKarte({ disziplin, titel, werte, quelle, hinweis, warnung, kinder,
   }
 
   return (
-    <div className={`${CARD} p-5 flex flex-col`}>
-      <div className="flex items-center justify-between gap-2 mb-3">
-        <div className="flex items-center gap-2">
-          <SportIcon discipline={disziplin} size={16} color={farbe} />
-          <span className="text-sm font-bold tracking-widest"
-                style={{ ...DISPLAY, color: farbe }}>
-            {titel}
-          </span>
+    // Getönt in der Sportfarbe, die Zahlen weiß — wie die Kacheln im
+    // Dashboard. Vorher standen die Zahlen selbst in der Sportfarbe.
+    <div className={`${CARD} p-5 flex flex-col`} style={toenung(farbe, 0.8)}>
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <div className="flex items-center gap-2" style={{ color: farbe }}>
+          <SportIcon discipline={disziplin} size={14} color={farbe} />
+          <span className="text-xs font-mono tracking-[0.25em]">{titel}</span>
         </div>
         <div className="flex items-center gap-2">
           {gesetzt && onReset && (
             <button onClick={onReset} disabled={busy}
                     className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
                     title="Werte verwerfen — danach greift die Ableitung wieder">
-              ZURÜCKSETZEN
+              RESET
             </button>
           )}
           <button onClick={() => setOffen(o => !o)}
-                  className="text-[10px] font-mono" style={{ color: farbe }}>
-            {offen ? 'SCHLIESSEN' : gesetzt ? 'ÄNDERN' : 'EINTRAGEN'}
+                  className="text-[10px] font-mono tracking-widest" style={{ color: farbe }}>
+            {offen ? 'CLOSE' : gesetzt ? 'EDIT' : 'ENTER'}
           </button>
         </div>
       </div>
@@ -100,20 +97,20 @@ function SportKarte({ disziplin, titel, werte, quelle, hinweis, warnung, kinder,
       <div className="flex gap-7 flex-wrap">
         {werte.map(w => (
           <div key={w.label}>
-            <div className="text-[11px] font-mono font-bold tracking-widest text-[var(--text-secondary)]">{w.label}</div>
-            <div className="font-black leading-none mt-1"
-                 style={{ ...DISPLAY, color: w.wert ? farbe : 'var(--text-muted)', fontSize: 'clamp(2.8rem, 6.5vw, 4.2rem)' }}>
+            <div className="text-[9px] font-mono tracking-[0.2em] text-[var(--text-muted)]">{w.label}</div>
+            <div className="font-black leading-none mt-1.5"
+                 style={{ ...DISPLAY, color: w.wert ? '#f2f4f8' : 'var(--text-muted)', fontSize: 'clamp(2.8rem, 6.5vw, 4.2rem)', textShadow: w.wert ? '0 0 28px #ffffff14' : 'none' }}>
               {w.wert || '—'}
               {w.wert && w.einheit && (
-                <span className="text-lg font-normal text-[var(--text-secondary)] ml-1">{w.einheit}</span>
+                <span className="text-xs font-mono font-normal text-[var(--text-muted)] ml-1">{w.einheit}</span>
               )}
             </div>
           </div>
         ))}
       </div>
 
-      <div className="text-[10px] font-mono text-[var(--text-muted)] mt-2">
-        {gesetzt ? (quelle === 'manual' ? 'von dir eingetragen' : quelle === 'auto' ? 'aus den Testeinheiten abgeleitet' : hinweis) : hinweis}
+      <div className="text-[9px] font-mono tracking-widest text-[var(--text-muted)] mt-2.5 uppercase">
+        {gesetzt ? (quelle === 'manual' ? 'set by you' : quelle === 'auto' ? 'derived from test sessions' : hinweis) : hinweis}
       </div>
 
       {warnung && (
@@ -177,14 +174,14 @@ export default function Thresholds({ profile, ftpBefund, onChanged, sport }) {
       <div className="grid gap-4 lg:grid-cols-3">
         {/* ── Rad ── */}
         <SportKarte
-          disziplin="bike" titel="RAD · FTP" busy={busy}
+          disziplin="bike" titel="CYCLING · FTP" busy={busy}
           relevant={zaehlt.includes('ftp')}
           werte={[{ label: 'FTP', wert: profile.ftp_watts, einheit: 'W' }]}
           /* Eigenes Herkunftsfeld statt `zones_source`: Das gilt für das
              ganze Profil, und eine von Hand eingetragene FTP stünde dort als
              gemessen, sobald irgendetwas anderes gemessen wurde. */
           quelle={profile.ftp_source === 'benchmark' ? 'auto' : profile.ftp_source === 'manual' ? 'manual' : null}
-          hinweis="Bezugsgröße aller Wattvorgaben"
+          hinweis="Basis of all power targets"
           kinder={
             <div className="space-y-3">
               <label className="block">
@@ -209,14 +206,14 @@ export default function Thresholds({ profile, ftpBefund, onChanged, sport }) {
 
         {/* ── Laufen ── */}
         <SportKarte
-          disziplin="run" titel="LAUFEN · SCHWELLE" busy={busy}
+          disziplin="run" titel="RUNNING · THRESHOLD" busy={busy}
           relevant={zaehlt.includes('run_threshold')}
           werte={[
-            { label: 'PULS', wert: profile.threshold_hr, einheit: 'bpm' },
+            { label: 'HR', wert: profile.threshold_hr, einheit: 'bpm' },
             { label: 'PACE', wert: alsZeit(profile.threshold_pace_s_per_km), einheit: '/km' },
           ]}
           quelle={profile.threshold_source}
-          hinweis="Bezugsgröße der pulsbasierten Belastung"
+          hinweis="Basis of heart-rate load"
           warnung={!profile.threshold_hr
             ? 'Ohne Schwellenpuls wird gegen die Obergrenze von Zone 2 gerechnet. Die liegt tiefer als die echte Schwelle, wodurch jede Einheit belastender aussieht, als sie war.'
             : null}
@@ -250,16 +247,16 @@ export default function Thresholds({ profile, ftpBefund, onChanged, sport }) {
 
         {/* ── Schwimmen ── */}
         <SportKarte
-          disziplin="swim" titel="SCHWIMMEN · CSS" busy={busy}
+          disziplin="swim" titel="SWIMMING · CSS" busy={busy}
           relevant={zaehlt.includes('css')}
           werte={[
-            { label: 'PULS', wert: profile.swim_threshold_hr, einheit: 'bpm' },
+            { label: 'HR', wert: profile.swim_threshold_hr, einheit: 'bpm' },
             { label: 'CSS', wert: alsZeit(profile.css_pace_s_per_100m), einheit: '/100m' },
           ]}
           quelle={profile.css_source}
           hinweis={profile.css_dist_lang_m
-            ? `Aus ${profile.css_dist_lang_m} m und ${profile.css_dist_kurz_m} m je maximal`
-            : 'Aus zwei Strecken je maximal'}
+            ? `From ${profile.css_dist_lang_m} m and ${profile.css_dist_kurz_m} m, each all-out`
+            : 'From two distances, each all-out'}
           warnung={profile.css_source === 'auto'
             ? 'Aus den Runden abgeleitet. Welche Bahn der Test war, kann die App nur raten — prüfe die Zeiten und korrigiere sie, wenn sie nicht stimmen.'
             : null}

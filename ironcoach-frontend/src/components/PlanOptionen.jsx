@@ -172,25 +172,23 @@ export default function PlanOptionen({ phase, onWunsch }) {
   const moeglichJetzt = OPTIONEN.filter(o => istMoeglich(o, familie)).length
 
   return (
-    <div className="bg-[#0d0f17] border border-[#1e2228] rounded-xl overflow-hidden">
+    <div className="bg-[#111318] border border-[#1e2228] rounded-xl overflow-hidden">
+      {/* Kopf wie die Dashboard-Kacheln statt eines Barlow-Titels. */}
       <button
         onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#111318] transition-colors"
+        className="w-full flex items-center justify-between gap-3 px-5 py-4 hover:bg-[#ffffff05] transition-colors"
       >
-        <div className="flex items-center gap-3 flex-wrap">
-          <span
-            className="font-bold tracking-widest text-[var(--text-secondary)]"
-            style={{ fontFamily: 'Barlow Condensed, sans-serif', fontSize: '0.85rem' }}
-          >
-            WAS DU DIR WÜNSCHEN KANNST
+        <div className="flex items-baseline gap-3 flex-wrap text-left">
+          <span className="text-xs font-mono tracking-[0.25em] text-[var(--text-secondary)]">
+            WHAT YOU CAN ASK FOR
           </span>
-          <span className="text-xs font-mono text-[var(--text-muted)]">
-            {moeglichJetzt} von {OPTIONEN.length} jetzt möglich
-            {familie ? ` · Phase ${FAMILIE_LABEL[familie]}` : ''}
+          <span className="text-[10px] font-mono tracking-widest text-[var(--text-muted)]">
+            {moeglichJetzt} / {OPTIONEN.length} POSSIBLE NOW
+            {familie ? ` · ${String(FAMILIE_LABEL[familie]).toUpperCase()}` : ''}
           </span>
         </div>
-        <span className="text-[var(--text-secondary)] font-mono text-sm">
-          {open ? '▲' : '▼'}
+        <span className="text-[var(--text-muted)] font-mono text-[10px]">
+          {open ? '▴' : '▾'}
         </span>
       </button>
 
