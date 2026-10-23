@@ -172,12 +172,13 @@ def wochenlage(db: Session, montag: date | None = None) -> dict:
 
 def doppeltag_ziehung(db: Session, montag: date | None = None) -> dict:
     """Die Doppeltag-Form der Woche — dieselbe, die der Generator einbaut."""
-    from services.doppel_urne import ziehung
+    from services.doppel_urne import hrv_lage, ziehung
 
     w = wochenlage(db, montag)
     z = ziehung(db, w["week_start"], w["phase"], w["profile"].user_id,
                 deload=w["deload"])
-    return {**z, "phase": w["phase"], "week_start": w["week_start"]}
+    return {**z, "phase": w["phase"], "week_start": w["week_start"],
+            "hrv": hrv_lage(db, w["profile"])}
 
 
 async def generate_and_save_plan(

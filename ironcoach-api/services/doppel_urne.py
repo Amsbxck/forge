@@ -36,6 +36,7 @@ import logging
 import random
 from collections import defaultdict
 from datetime import date, timedelta
+from types import SimpleNamespace
 
 from sqlalchemy.orm import Session
 
@@ -160,6 +161,48 @@ def _hrv_status(db: Session, user_id: int | None, heute: date) -> str | None:
     return status if status in ("green", "yellow", "red") else None
 
 
+def hrv_lage(db: Session, profile, heute: date | None = None) -> dict | None:
+    """Die HRV für die Ampel in der Plankachel — Status, 7-Tage-Schnitt, Spanne.
+
+    Die Farbe ist **derselbe** Status, mit dem die Urne gewichtet
+    (`_hrv_status`, jüngste Messung der letzten drei Tage). Eine eigene
+    Bewertung des Schnitts gäbe zwei Ampeln, die sich widersprechen können;
+    der Schnitt ist hier die Zahl dazu, nicht das Urteil.
+
+    `None` ohne eine einzige Messung in den letzten sieben Tagen — dann gibt
+    es nichts anzuzeigen, und die Kachel schweigt statt „0 ms“ zu zeigen.
+    """
+    from models import HrvMeasurement
+    from services.hrv_baseline import compute_baseline, thresholds_for
+
+    heute = heute or date.today()
+    user_id = getattr(profile, "user_id", None)
+    abfrage = db.query(HrvMeasurement).filter(
+        HrvMeasurement.measured_at > heute - timedelta(days=7),
+        HrvMeasurement.measured_at <= heute,
+    )
+    if user_id is not None:
+        abfrage = abfrage.filter(HrvMeasurement.user_id == user_id)
+    messungen = abfrage.order_by(HrvMeasurement.measured_at.desc()).all()
+    werte = [m.rmssd for m in messungen if m.rmssd]
+    if not werte:
+        return None
+
+    # Ausdrücklich für diesen Athleten: Ohne gesetzten Nutzer (Skript,
+    # Hintergrundjob) filtert der Mandantenhook nichts, und die Spanne wäre
+    # über alle Athleten gerechnet.
+    nutzer = SimpleNamespace(id=user_id) if user_id is not None else None
+    grenzen = thresholds_for(profile, compute_baseline(db, nutzer, today=heute))
+    return {
+        "status": _hrv_status(db, user_id, heute),
+        "schnitt_7": round(sum(werte) / len(werte), 1),
+        "messungen": len(werte),
+        "letzter_wert": messungen[0].rmssd,
+        "letzter_tag": messungen[0].measured_at,
+        "spanne": grenzen,
+    }
+
+
 def _doppeltag_vertragen(db: Session, user_id: int | None, montag: date) -> bool:
     """Gab es in den letzten Wochen einen **absolvierten** Doppeltag?
 
@@ -188,7 +231,9 @@ def ziehung(db: Session, montag: date, phase: str | None,
             heute: date | None = None) -> dict:
     """Die Doppeltag-Form der Woche ab `montag`.
 
-    Rückgabe: `{"form", "titel", "grund", "gewichte"}`. `form` ist `None` für
+    Rückgabe: `{"form", "titel", "grund", "hinweise", "gewichte"}`. `grund`
+    ist der ganze Satz samt HRV, `hinweise` dasselbe ohne die HRV (die Kachel
+    zeigt sie als Ampel, `hrv_lage`). `form` ist `None` für
     „kein Doppeltag", `gewichte` die Urne nach allen Regeln — für Tests und
     für den, der nachvollziehen will, warum.
     """
@@ -199,8 +244,10 @@ def ziehung(db: Session, montag: date, phase: str | None,
     regeln = regeln_fuer(phase)
     familie = phase_family(phase)
 
-    def ohne(grund: str, gewichte: dict | None = None) -> dict:
+    def ohne(grund: str, gewichte: dict | None = None,
+             hinweise: list[str] | None = None) -> dict:
         return {"form": None, "titel": None, "grund": grund,
+                "hinweise": hinweise if hinweise is not None else [grund],
                 "gewichte": gewichte or {KEIN: 1.0}}
 
     if not regeln:
@@ -257,7 +304,9 @@ def ziehung(db: Session, montag: date, phase: str | None,
 
     # --- HRV ----------------------------------------------------------------
     status = _hrv_status(db, user_id, heute)
-    gruende.append(HRV_TEXT[status])
+    # Getrennt gehalten: `grund` (für Prompt und Tests) nennt die HRV als
+    # Klartext, die Kachel zeigt sie als Ampel und braucht nur den Rest.
+    hrv_teil = HRV_TEXT[status]
     if status == "red":
         # Unter der Spanne: zweite Einheiten streichen, keine Doppelschwelle.
         # Lockeres Schwimmen darf bleiben (Laufdokument, HRV-Tabelle).
@@ -284,14 +333,16 @@ def ziehung(db: Session, montag: date, phase: str | None,
     # Feste Reihenfolge, damit dieselbe Saat auf jedem Rechner dasselbe zieht.
     kugeln = [(f, g) for f, g in sorted(gewichte.items()) if g > 0]
     if not kugeln or all(f == KEIN for f, _ in kugeln):
-        return ohne(" · ".join(gruende + ["keine Form passt diese Woche"]), gewichte)
+        rest = gruende + ["keine Form passt diese Woche"]
+        return ohne(" · ".join([hrv_teil] + rest), gewichte, rest)
 
     zufall = random.Random(f"{user_id}:{montag.isoformat()}")
     form = zufall.choices([f for f, _ in kugeln], weights=[g for _, g in kugeln])[0]
     if form == KEIN:
-        return ohne(" · ".join(gruende + ["diesmal ohne Doppeltag gezogen"]), gewichte)
-    return {"form": form, "titel": TITEL[form], "grund": " · ".join(gruende),
-            "gewichte": gewichte}
+        rest = gruende + ["diesmal ohne Doppeltag gezogen"]
+        return ohne(" · ".join([hrv_teil] + rest), gewichte, rest)
+    return {"form": form, "titel": TITEL[form], "grund": " · ".join([hrv_teil] + gruende),
+            "hinweise": gruende, "gewichte": gewichte}
 
 
 # Was je Form wohin wandert. Ohne diese Zeile wüsste der Coach, *welcher*
