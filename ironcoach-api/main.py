@@ -24,7 +24,7 @@ from core.deps import require_user
 from services.api_budget import BudgetExhausted
 from routers import (
     auth, upload, plan, chat, metrics, health, hrv, history, integrations,
-    obsidian, planned, races, strava_webhook,
+    obsidian, planned, races, strava_webhook, intervals_oauth,
 )
 
 
@@ -124,6 +124,9 @@ for module in PROTECTED:
 # Alles übrige unter /api/strava/ verlangt eine Anmeldung.
 app.include_router(strava_webhook.router)
 app.include_router(strava_webhook.api_router, dependencies=[Depends(require_user)])
+# intervals.icu wie Strava: Die Rückleitung weist sich über den state aus.
+app.include_router(intervals_oauth.router)
+app.include_router(intervals_oauth.api_router, dependencies=[Depends(require_user)])
 
 
 @app.middleware("http")

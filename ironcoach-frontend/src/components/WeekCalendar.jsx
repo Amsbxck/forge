@@ -467,7 +467,17 @@ function ErsatzDialog({ einheit, onClose, onSpeichern }) {
 /** `istJeEinheit`: was zu jeder geplanten Einheit tatsächlich absolviert wurde
  *  (`GET /planned/am/{montag}/bilanz`, Schlüssel = id als Text). Damit zeigt
  *  ein erledigter Tag „75 / 60 min" als Leiste statt nur ein Häkchen. */
-export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinheit }) {
+function aufDieUhr(day, heute) {
+  if (day.id == null || !day.date || day.date < heute) return false
+  if (!['planned', 'moved', 'completed'].includes(day.status || 'planned')) return false
+  const teile = day.session_type === 'brick'
+    ? [day.details?.bike, day.details?.run].filter(t => t && typeof t === 'object' && Object.keys(t).length)
+    : ['run', 'bike'].includes(day.session_type) ? [day.details || {}] : []
+  const rennen = t => ['typ', 'workout'].some(f => String(t?.[f] || '').toLowerCase().includes('wettkampf'))
+  return teile.some(t => !rennen(t))
+}
+
+export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinheit, anUhr = false }) {
   const [days, setDays] = useState(() => sortDays(initialDays))
   const heute = heutigesDatum()
   const [dragIndex, setDragIndex] = useState(null)
@@ -665,6 +675,18 @@ export default function WeekCalendar({ days: initialDays, onPersisted, istJeEinh
         >
           + REPLACED
         </button>
+      )}
+      {/* Läuft über intervals.icu von selbst auf die Geräte. Nur ein Stand,
+          kein Knopf: Gesendet wird nach jeder Änderung ohnehin. Dieselbe
+          Auswahl wie im Backend (`geplantes_workout.workouts`): Läufe,
+          Radeinheiten und beide Teile eines Bricks ab heute, keine Rennen.
+          „Device" statt „Watch": Ob es auf Uhr oder Radcomputer landet,
+          entscheidet jeder in intervals.icu selbst. */}
+      {anUhr && aufDieUhr(day, heute) && (
+        <div className="text-[9px] font-mono tracking-widest text-[var(--text-muted)] mt-1"
+             title="Über intervals.icu auf die dort verbundenen Geräte (Garmin, Wahoo)">
+          ↑ ON YOUR DEVICE
+        </div>
       )}
       <DetailsSection details={day.details} sessionType={day.session_type} />
     </>

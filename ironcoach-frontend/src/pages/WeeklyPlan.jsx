@@ -3,6 +3,7 @@ import {
   generatePlan, adjustPlanDays,
   getPlanByMonday, getPlannedByMonday, cancelPlan,
   getWeekMetrics, getNeuplanung, getDoppeltagZiehung, getSaison, getWochenBilanz,
+  getIntegrations,
 } from '../services/api'
 import { fehlerText } from '../utils/fehler'
 import WeekCalendar from '../components/WeekCalendar'
@@ -125,6 +126,12 @@ export default function WeeklyPlan() {
   // (geplant gegen absolviert, für die Leisten und die Tageskarten).
   const [saison, setSaison] = useState(null)
   const [bilanz, setBilanz] = useState(null)
+  // Ob Läufe und Radeinheiten über intervals.icu auf die Geräte gehen. Nur für
+  // den kleinen Stand an den Karten, ein Fehler hier blendet ihn einfach aus.
+  const [anUhr, setAnUhr] = useState(false)
+  useEffect(() => {
+    getIntegrations().then(({ data }) => setAnUhr(!!data.intervals?.configured)).catch(() => {})
+  }, [])
 
   // Die Woche, die gerade angezeigt wird — als Ref, damit verspätete
   // Antworten und Zeitgeber wissen, ob sie noch gemeint sind. Vorher lud ein
@@ -690,6 +697,7 @@ export default function WeeklyPlan() {
           <WeekCalendar
             days={calendarDays}
             istJeEinheit={bilanz?.einheiten}
+            anUhr={anUhr}
             onPersisted={() => loadPlanned(versatzRef.current)}
           />
 

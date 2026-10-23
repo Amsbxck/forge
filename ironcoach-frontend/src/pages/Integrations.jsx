@@ -4,6 +4,8 @@ import {
   getStravaAuthUrl, disconnectStrava, confirmStrava,
   getWebhookStatus, registerWebhook, deleteWebhook,
   connectGarmin, garminAbrufen, disconnectGarmin,
+  connectIntervals, intervalsAbgleichen, disconnectIntervals,
+  getIntervalsAuthUrl, confirmIntervals,
 } from '../services/api'
 import { fehlerText } from '../utils/fehler'
 
@@ -214,6 +216,182 @@ function GarminKachel({ zustand, onChange }) {
   )
 }
 
+// Eigene Farbe für intervals.icu, abseits der Sportfarben und von Strava,
+// Garmin und Obsidian.
+const INTERVALS = '#5b8def'
+
+/** intervals.icu: die geplanten Läufe und Radeinheiten als Workout auf die Geräte.
+ *
+ *  Garmin nimmt selbst nichts an (Personal API nur lesend, Connect
+ *  importiert keine Workout-Dateien). intervals.icu schon, und von dort
+ *  gehen die Workouts zu dem, was der Athlet dort verbunden hat: Garmin,
+ *  Wahoo oder beides. Das richtet jeder bei intervals.icu selbst ein. Zwei Wege: der Knopf (OAuth,
+ *  sobald intervals.icu die App freigeschaltet hat) oder ID und Schlüssel.
+ *  Gesendet wird danach von selbst, nach jeder Planänderung.
+ */
+function IntervalsKachel({ zustand, rueckmeldungAussen, onChange }) {
+  const [athleteId, setAthleteId] = useState('')
+  const [schluessel, setSchluessel] = useState('')
+  const [busy, setBusy] = useState(null)
+  const [rueckmeldung, setRueckmeldung] = useState(null)
+  const verbunden = zustand?.configured
+  const meldung = rueckmeldung || rueckmeldungAussen
+
+  const zaehlung = (e) => {
+    if (!e) return ''
+    const teile = []
+    if (e.angelegt) teile.push(`${e.angelegt} neu`)
+    if (e.ersetzt) teile.push(`${e.ersetzt} aktualisiert`)
+    if (e.geloescht) teile.push(`${e.geloescht} entfernt`)
+    return teile.length ? teile.join(' · ') : 'Alles schon aktuell.'
+  }
+
+  const oauth = async () => {
+    setBusy('oauth'); setRueckmeldung(null)
+    try {
+      const { data } = await getIntervalsAuthUrl()
+      window.location.href = data.auth_url
+    } catch (err) {
+      setRueckmeldung({ ok: false, text: fehlerText(err, 'Verbindung konnte nicht gestartet werden') })
+      setBusy(null)
+    }
+  }
+
+  const verbinden = async (ev) => {
+    ev.preventDefault()
+    if (!athleteId.trim() || !schluessel.trim()) return
+    setBusy('verbinden'); setRueckmeldung(null)
+    try {
+      const { data } = await connectIntervals(athleteId.trim(), schluessel.trim())
+      setSchluessel('')
+      onChange(data)
+      setRueckmeldung({ ok: true, text: 'intervals.icu ist verbunden. Die Workouts dieser und der nächsten Woche gehen gerade raus.' })
+    } catch (err) {
+      setRueckmeldung({ ok: false, text: fehlerText(err, 'Verbinden fehlgeschlagen') })
+    } finally { setBusy(null) }
+  }
+
+  const abgleichen = async () => {
+    setBusy('abgleich'); setRueckmeldung(null)
+    try {
+      const { data } = await intervalsAbgleichen()
+      onChange(data)
+      if (!data.ergebnis?.fehler) setRueckmeldung({ ok: true, text: zaehlung(data.ergebnis) })
+    } catch (err) {
+      setRueckmeldung({ ok: false, text: fehlerText(err, 'Abgleich fehlgeschlagen') })
+    } finally { setBusy(null) }
+  }
+
+  const trennen = async () => {
+    if (!confirm('intervals.icu trennen? Die kommenden FORGE-Workouts werden dort und damit auch auf Uhr und Radcomputer entfernt.')) return
+    setBusy('trennen'); setRueckmeldung(null)
+    try {
+      const { data } = await disconnectIntervals()
+      onChange(data)
+      if (data.aufgeraeumt === false) {
+        setRueckmeldung({ ok: false, text: 'Getrennt. Die kommenden Workouts konnten bei intervals.icu nicht entfernt werden, bitte dort von Hand löschen.' })
+      }
+    } catch (err) {
+      setRueckmeldung({ ok: false, text: fehlerText(err, 'Trennen fehlgeschlagen') })
+    } finally { setBusy(null) }
+  }
+
+  return (
+    <div className={`${CARD} p-5`} style={toenung(INTERVALS, 0.7)}>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className={TITEL}>INTERVALS.ICU · TO GARMIN & WAHOO</h2>
+          <p className="text-xs text-[var(--text-secondary)] mt-3 max-w-md leading-relaxed">
+            Schickt deine geplanten Läufe (mit Ziel-Pace) und Radeinheiten (mit Watt) als
+            Workout an intervals.icu. Von dort landen sie auf der Garmin-Uhr oder dem
+            Wahoo, je nachdem, was du dort verbindest. Nach jeder Planänderung von selbst.
+          </p>
+          <div className="mt-3">
+            <Status ok={verbunden && !zustand?.letzter_fehler}>
+              {verbunden
+                ? `Connected · ${zustand.athlete_id}${zustand.weg === 'schluessel' ? ` · key ${zustand.api_key_hint}` : ''}`
+                : 'Not connected'}
+            </Status>
+          </div>
+          {verbunden && (
+            <div className="text-[9px] font-mono tracking-widest text-[var(--text-muted)] mt-1.5">
+              LAST SYNC {zeitpunkt(zustand.letzter_abgleich) || '—'}
+            </div>
+          )}
+          {zustand?.letzter_fehler && <Rueckmeldung ok={false}>{zustand.letzter_fehler}</Rueckmeldung>}
+          {meldung && <Rueckmeldung ok={meldung.ok}>{meldung.text}</Rueckmeldung>}
+        </div>
+
+        {verbunden ? (
+          <div className="flex gap-2 flex-wrap">
+            <button onClick={abgleichen} disabled={!!busy} className={KNOPF}
+                    style={knopfStil('haupt', INTERVALS)}>
+              {busy === 'abgleich' ? 'SYNCING…' : 'SYNC NOW'}
+            </button>
+            <button onClick={trennen} disabled={!!busy} className={KNOPF} style={knopfStil('leise')}>
+              DISCONNECT
+            </button>
+          </div>
+        ) : zustand?.oauth_bereit && (
+          <button onClick={oauth} disabled={!!busy} className={KNOPF}
+                  style={knopfStil('haupt', INTERVALS)}>
+            {busy === 'oauth' ? 'OPENING…' : 'CONNECT INTERVALS.ICU'}
+          </button>
+        )}
+      </div>
+
+      {!verbunden && (
+        <details className="mt-4" open={!zustand?.oauth_bereit}>
+          <summary className="text-[11px] font-mono text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-secondary)]">
+            {zustand?.oauth_bereit ? 'Oder mit API-Schlüssel verbinden' : 'Mit API-Schlüssel verbinden'}
+          </summary>
+          <form onSubmit={verbinden} className="mt-3 space-y-3">
+            <div className="grid sm:grid-cols-[10rem_minmax(0,1fr)] gap-3 max-w-md">
+              <label className="block">
+                <span className={`${LABEL} block mb-1`}>ATHLETE ID</span>
+                <input className={FIELD} style={FIELD_STYLE} value={athleteId}
+                       onChange={e => setAthleteId(e.target.value)} placeholder="i12345" autoComplete="off" />
+              </label>
+              <label className="block">
+                <span className={`${LABEL} block mb-1`}>API KEY</span>
+                <input type="password" className={FIELD} style={FIELD_STYLE} value={schluessel}
+                       onChange={e => setSchluessel(e.target.value)}
+                       placeholder="aus intervals.icu kopieren" autoComplete="off" />
+              </label>
+            </div>
+            <button type="submit" disabled={!!busy || !athleteId.trim() || !schluessel.trim()}
+                    className={KNOPF} style={knopfStil('haupt', INTERVALS)}>
+              {busy === 'verbinden' ? 'CONNECTING…' : 'CONNECT'}
+            </button>
+          </form>
+        </details>
+      )}
+
+      <details className="text-[11px] font-mono text-[var(--text-muted)] mt-4">
+        <summary className="cursor-pointer hover:text-[var(--text-secondary)]">So richtest du es ein</summary>
+        <ol className="mt-2 space-y-1 list-decimal list-inside leading-relaxed max-w-md">
+          <li>Ein kostenloses Konto bei intervals.icu anlegen.</li>
+          <li>
+            Dort unter Settings → Connections Garmin und/oder Wahoo verbinden und
+            jeweils <strong> „Upload planned workouts"</strong> einschalten. Ohne das
+            bleiben die Workouts in intervals.icu und kommen nie aufs Gerät.
+          </li>
+          {!zustand?.oauth_bereit && (
+            <li>
+              Unter Settings → Developer Settings die Athleten-ID ablesen und einen
+              API-Schlüssel erzeugen, beides hier eintragen.
+            </li>
+          )}
+          <li>
+            Gesendet werden Läufe und Radeinheiten ab heute, ein Koppeltraining als
+            zwei Workouts (Rad, dann Lauf). Rennen nicht: Dort trainierst du ohne Workout.
+          </li>
+        </ol>
+      </details>
+    </div>
+  )
+}
+
 export default function Integrations() {
   const [state, setState] = useState(null)
   const [form, setForm] = useState({ base_url: '', api_key: '', vault_subdir: '' })
@@ -226,6 +404,7 @@ export default function Integrations() {
   const [hookResult, setHookResult] = useState(null)
   // Ergebnis der Strava-Freigabe, aus der Adresszeile gelesen.
   const [stravaRueckmeldung, setStravaRueckmeldung] = useState(null)
+  const [intervalsRueckmeldung, setIntervalsRueckmeldung] = useState(null)
 
   const load = useCallback(async () => {
     try {
@@ -306,6 +485,27 @@ export default function Integrations() {
     // erneut, obwohl gerade nichts passiert ist.
     window.history.replaceState({}, '', window.location.pathname)
     if (stand === 'ok') load()
+  }, [load])
+
+  // Rückkehr aus der Freigabe bei intervals.icu, wie bei Strava: erst mit
+  // dem angemeldeten Konto bestätigen, dann ist verbunden.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search)
+    const stand = p.get('intervals')
+    if (!stand) return
+    window.history.replaceState({}, '', window.location.pathname)
+    if (stand !== 'bestaetigen') {
+      setIntervalsRueckmeldung({ ok: false, text: p.get('grund') || 'Die Verbindung mit intervals.icu ist fehlgeschlagen.' })
+      return
+    }
+    confirmIntervals(p.get('vorgang'))
+      .then(() => {
+        setIntervalsRueckmeldung({ ok: true, text: 'intervals.icu ist verbunden. Die Workouts dieser und der nächsten Woche gehen gerade raus.' })
+        load()
+      })
+      .catch(err => setIntervalsRueckmeldung({
+        ok: false, text: fehlerText(err, 'Die Verbindung mit intervals.icu konnte nicht abgeschlossen werden.'),
+      }))
   }, [load])
 
   const save = async (e) => {
@@ -548,6 +748,10 @@ export default function Integrations() {
       {/* Garmin Connect — direkt unter Strava, gleicher Aufbau. */}
       <GarminKachel zustand={state.garmin}
                     onChange={(daten) => setState(s => ({ ...s, ...daten }))} />
+
+      {/* intervals.icu direkt unter Garmin: Es bringt die Workouts auf dieselbe Uhr (und aufs Wahoo). */}
+      <IntervalsKachel zustand={state.intervals} rueckmeldungAussen={intervalsRueckmeldung}
+                       onChange={(daten) => setState(s => ({ ...s, ...daten }))} />
 
       {/* Obsidian */}
       <form onSubmit={save} className={`${CARD} p-5 space-y-4`} style={toenung('#7c3aed', 0.7)}>

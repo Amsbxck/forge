@@ -368,6 +368,9 @@ def create_benchmark_plan(db: Session, user=None):
             setattr(plan, feld, wert)
         plan.storniert = True
         return plan, True
+    if projiziert:
+        from services.intervals_sync import anstossen
+        anstossen(db, stand.get("user_id"), [stand.get("week_start")])
     try:
         db.refresh(plan)
     except Exception:

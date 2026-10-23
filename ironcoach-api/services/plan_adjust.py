@@ -285,6 +285,9 @@ async def tage_anpassen(db: Session, plan: WeeklyPlan, wunsch: str) -> dict:
         abgewiesen = abgewiesen + [
             "Kalender nicht aktualisiert — bitte Woche neu laden"
         ]
+    else:
+        from services.intervals_sync import anstossen
+        anstossen(db, neu.user_id, [neu.week_start])
 
     try:
         from services.obsidian.plan_note import sync_plan_note

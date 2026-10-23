@@ -19,6 +19,7 @@ from schemas import (
     PlannedSwapIn,
 )
 from services.plan_projection import backfill_all, planned_sessions_available, project_plan
+from services.intervals_sync import anstossen
 from services.plan_selection import active_plan_for_week, plan_der_woche
 
 from services.obsidian.notes import DISCIPLINE_LABEL
@@ -223,6 +224,7 @@ def patch_planned(session_id: int, body: PlannedSessionPatch, db: Session = Depe
             )
         row.training_type = body.training_type
 
+    vorher = row.planned_date
     if body.planned_date is not None and body.planned_date != row.planned_date:
         if row.moved_from_date is None:
             row.moved_from_date = row.planned_date
@@ -239,6 +241,8 @@ def patch_planned(session_id: int, body: PlannedSessionPatch, db: Session = Depe
 
     db.commit()
     db.refresh(row)
+    # Beide Wochen, falls über die Wochengrenze gezogen.
+    anstossen(db, row.user_id, [vorher, row.planned_date])
     return row
 
 
@@ -303,6 +307,7 @@ def set_replacement(
     row.replacement_intensity = stufe
     db.commit()
     db.refresh(row)
+    anstossen(db, row.user_id, [row.planned_date])
     return row
 
 
@@ -321,6 +326,7 @@ def clear_replacement(session_id: int, db: Session = Depends(get_db)):
     row.replacement_intensity = None
     db.commit()
     db.refresh(row)
+    anstossen(db, row.user_id, [row.planned_date])
     return row
 
 
@@ -353,6 +359,7 @@ def swap_planned(body: PlannedSwapIn, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(a)
     db.refresh(b)
+    anstossen(db, a.user_id, [a_date, b_date])
     return [a, b]
 
 
@@ -410,4 +417,6 @@ def reproject(plan_id: int, db: Session = Depends(get_db)):
     if not plan:
         raise HTTPException(status_code=404, detail=f"Plan {plan_id} nicht gefunden")
     written = project_plan(db, plan)
+    if written:
+        anstossen(db, plan.user_id, [plan.week_start])
     return {"plan_id": plan_id, "sessions": written}
