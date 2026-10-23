@@ -348,6 +348,11 @@ export default function WeeklyPlan() {
   // Beginn des Aufbaus tragen laufende und kommende Woche dieselbe Nummer,
   // und die Seite hielte die kommende für die laufende.
   const isCurrent = versatz === 0
+  // Eine vorbei gegangene Woche: nichts mehr zu planen oder zu ziehen. Vorher
+  // bot die Konsole dort „Plan erstellen" an, und die Urne schlug bei Justin
+  // für eine Woche, bevor er die App hatte, „langen Lauf teilen" vor. Das
+  // Backend lehnt beides für vergangene Wochen ab (`routers/plan._vergangen`).
+  const vergangen = versatz < 0
 
   // Der Montag der angezeigten Woche — Ziel des Erstellen-Knopfes und
   // gleichzeitig seine Beschriftung.
@@ -358,14 +363,14 @@ export default function WeeklyPlan() {
   // Doppeltag" nicht in die nächste Woche mitwandert.
   useEffect(() => {
     setOhneDoppeltag(false)
-    if (!notFound) { setZiehung(null); return }
+    if (!notFound || vergangen) { setZiehung(null); return }
     let aktuell = true
     getDoppeltagZiehung(zielMontag)
       .then(({ data }) => { if (aktuell) setZiehung(data) })
       // Ohne Ziehung bleibt die Kachel wie bisher — der Plan entsteht trotzdem.
       .catch(() => { if (aktuell) setZiehung(null) })
     return () => { aktuell = false }
-  }, [zielMontag, notFound])
+  }, [zielMontag, notFound, vergangen])
 
   const zielSpanne = (() => {
     const mo = new Date(zielMontag + 'T00:00:00')
@@ -496,7 +501,7 @@ export default function WeeklyPlan() {
       }} />
 
       {/* Gesundheit davor: Wer krank ist, soll das sehen, bevor er plant. */}
-      <WunschKonsole
+      {!vergangen && <WunschKonsole
         plan={plan}
         phase={knopfPhase}
         zielSpanne={zielSpanne}
@@ -517,7 +522,7 @@ export default function WeeklyPlan() {
         absendbar={absendbar}
         absenden={absenden}
         generating={generating}
-      />
+      />}
 
       {hinweis && (
         <div className="rounded-xl px-4 py-3 font-mono text-[11px] flex items-start gap-3"
@@ -555,7 +560,9 @@ export default function WeeklyPlan() {
             {notFound && !isCurrent ? 'KEIN PLAN FÜR DIESE WOCHE' : 'NOCH KEIN PLAN'}
           </div>
           <p className="text-sm font-mono text-[var(--text-muted)]">
-            {notFound && !isCurrent
+            {vergangen
+              ? 'Für diese Woche gab es keinen Plan. Sie ist vorbei, geplant wird nur noch ab dieser Woche.'
+              : notFound && !isCurrent
               ? 'Für diese Woche wurde noch kein Plan erstellt.'
               : 'Mit „Plan erstellen“ entsteht der Wochenplan für diese Woche.'}
           </p>

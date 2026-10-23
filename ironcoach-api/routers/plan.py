@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from datetime import date
 
-from core.wochen import kalenderwoche
+from core.wochen import kalenderwoche, montag_von
 from models import AthleteProfile, User, WeeklyPlan
 from schemas import WeeklyPlanOut
 from services.plan_generator import generate_and_save_plan, get_current_week
@@ -42,6 +42,20 @@ from core.deps import get_current_user, get_profile, get_plan_anchor
 router = APIRouter()
 
 
+def _vergangen(montag: date | None) -> bool:
+    """Liegt die Woche ganz in der Vergangenheit?
+
+    Für eine vorbei gegangene Woche gibt es nichts mehr zu planen. Die
+    Plankachel bot trotzdem „Plan erstellen" an, und die Urne zog eine
+    Doppeltag-Form — Amir sah bei Justin für eine Woche, in der er die App
+    noch gar nicht hatte, „langen Lauf teilen". Ein Plan dafür hätte nur
+    Guthaben gekostet und im Verlauf eine Woche vorgetäuscht, die so nie
+    geplant war. Die laufende Woche bleibt offen, auch am Sonntag: Wer
+    mittwochs krank wird, plant sie neu.
+    """
+    return montag is not None and montag_von(montag) < montag_von(date.today())
+
+
 @router.get("/plan/generate", response_model=WeeklyPlanOut)
 async def generate_plan(
     requests: str = Query(default="", description="Besondere Wünsche oder Hinweise"),
@@ -63,6 +77,11 @@ async def generate_plan(
     schreibt dasselbe Datum auf den Knopf — dann ist vor dem Drücken
     sichtbar, was entsteht.
     """
+    if _vergangen(montag):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Die Woche ab {montag_von(montag)} ist vorbei — dafür entsteht kein Plan mehr.",
+        )
     try:
         plan = await generate_and_save_plan(
             db, special_requests=requests, montag=montag, doppeltag=doppeltag,
@@ -137,6 +156,8 @@ def doppeltag_der_woche(montag: date, db: Session = Depends(get_db)):
     """
     from services.plan_generator import doppeltag_ziehung
 
+    if _vergangen(montag):
+        raise HTTPException(status_code=404, detail="Die Woche ist vorbei — es wird nichts mehr gezogen.")
     try:
         z = doppeltag_ziehung(db, montag)
     except ValueError as e:

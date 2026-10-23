@@ -523,18 +523,26 @@ function SessionsTab({ sessions, showDeleted, onToggleDeleted, onRefresh }) {
                   </div>
                 )}
               </div>
+              {/* Stunden je Kalenderwoche des Monats, alle Sportarten zusammen.
+                  Die laufende Woche war hier cyan (ACCENT) — fast dieselbe Farbe
+                  wie Schwimmen, Amir las die Säule als Schwimmwoche. Grau und
+                  hell sagen jetzt nur „Woche" und „diese Woche", die Farben
+                  bleiben den Sportarten vorbehalten. */}
               {wochenDesMonats.length > 0 && summeMin > 0 && (
-                <div className="hidden sm:flex items-end gap-1 h-7 flex-shrink-0" aria-hidden="true">
+                <div className="hidden sm:flex flex-col items-end flex-shrink-0" aria-hidden="true">
+                <div className="text-[8px] font-mono tracking-[0.2em] text-[var(--text-muted)] mb-1">HOURS / WEEK</div>
+                <div className="flex items-end gap-1 h-7">
                   {wochenDesMonats.map(m => (
                     <div key={m} className="w-2.5 h-full flex flex-col justify-end"
                          title={`Week of ${parseTag(m).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}: ${stunden(jeWoche[m]?.min)}`}>
                       <div className="w-full rounded-t-[2px]"
                            style={{
                              height: `${Math.max(6, ((jeWoche[m]?.min || 0) / wochenMax) * 100)}%`,
-                             background: m === dieseWoche ? ACCENT : jeWoche[m]?.min ? '#5b6475' : '#1e2228',
+                             background: m === dieseWoche ? '#e8eaf0' : jeWoche[m]?.min ? '#5b6475' : '#1e2228',
                            }} />
                     </div>
                   ))}
+                </div>
                 </div>
               )}
               <span className="text-[var(--text-secondary)] text-sm font-mono flex-shrink-0">{isOpen ? '▼' : '▶'}</span>
