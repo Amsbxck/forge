@@ -99,11 +99,19 @@ export const adjustPlanDays = (wunsch, montag = null) =>
     params: montag ? { wunsch, montag } : { wunsch },
     timeout: 120000,
   })
-export const generatePlan = (requests = '', montag = null) =>
+// `doppeltag = false` lässt die gezogene Doppeltag-Form weg — der Schalter
+// „ohne Doppeltag" und ein gewählter Doppeltag-Knopf, der die Ziehung ersetzt.
+export const generatePlan = (requests = '', montag = null, doppeltag = true) =>
   api.get('/api/plan/generate', {
-    params: montag ? { requests, montag } : { requests },
+    params: {
+      requests,
+      ...(montag ? { montag } : {}),
+      ...(doppeltag ? {} : { doppeltag: false }),
+    },
     timeout: 180000,
   })
+// Die Doppeltag-Form, die für eine Woche gezogen ist — vor dem Erstellen.
+export const getDoppeltagZiehung = (montag) => api.get(`/api/plan/doppeltag/am/${montag}`)
 // Über den Montag statt über die Wochennummer: Die Nummer ist vor dem
 // Beginn des Aufbaus für jedes Datum 1, damit liesse sich nicht blättern.
 export const getPlanByMonday = (montag) => api.get(`/api/plan/am/${montag}`)

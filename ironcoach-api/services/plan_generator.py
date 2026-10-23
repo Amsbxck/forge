@@ -88,10 +88,103 @@ def build_athlete_dict(profile: AthleteProfile, goal=None) -> dict:
     }
 
 
+def wochenlage(db: Session, montag: date | None = None) -> dict:
+    """Woche, Phase und Deload der Woche ab `montag` — ohne etwas zu erzeugen.
+
+    Herausgelöst aus `generate_and_save_plan`, weil die Doppeltag-Urne die
+    Phase **vor** dem Erstellen braucht: Die Plankachel zeigt die gezogene
+    Form an, bevor es einen Plan gibt. Eine zweite Kopie dieser Bestimmung
+    wäre die nächste Abweichung — der Generator nutzt deshalb selbst diese
+    Funktion.
+    """
+    from core.deps import get_active_goal, total_weeks_for
+    from core.race_types import is_deload, phase_for_week, season_state
+    from core.wochen import montag_von
+
+    profile = get_profile(db)
+    if not profile:
+        raise ValueError("Kein Athletenprofil gefunden")
+
+    # Ziel bestimmt Distanz, Planlänge und Phasen; die Einschränkungen
+    # kommen aus dem Profil des Athleten statt aus dem Prompt-Text.
+    goal = get_active_goal(db)
+    anchor = goal or profile
+    total_weeks = total_weeks_for(anchor)
+
+    # Wochennummer und Wochendaten müssen aus derselben Quelle stammen.
+    # Vorher kam die Nummer vom Ziel und das Datum vom Profil: sobald beide
+    # Startdaten auseinanderlagen — bei jedem Athleten, der nach der
+    # Registrierung ein Ziel setzt — wies der Plan Wochen im falschen Jahr aus.
+    plan_start = getattr(anchor, "plan_start_date", None) or profile.plan_start_date
+
+    if montag is not None:
+        # Auf den Montag ziehen: Die Adresse soll nicht davon abhängen,
+        # welchen Wochentag der Aufrufer geschickt hat.
+        current_week = get_week_for_date(anchor, montag_von(montag))
+    else:
+        current_week = get_current_week(anchor)
+
+    # Wochendaten hier, nicht erst beim Speichern: Der Phasenzustand weiter
+    # unten muss für die **geplante** Woche gelten, nicht für heute. Sonst
+    # bekäme die kommende Woche die Phase der laufenden — bei einem Plan, der
+    # über eine Phasengrenze reicht, also die falsche Vorgabe.
+    week_start, week_end = get_week_dates(current_week, plan_start)
+
+    ziel_datum = getattr(goal, "race_date", None)
+    lage = (
+        "preparation" if goal is None
+        else season_state(ziel_datum, today=week_start, plan_start=plan_start)
+    )
+    ist_offseason = goal is None or lage == "off_season"
+    ist_grundlage = lage == "base_period"
+
+    # In Off Season und Grundlage gibt es keine Aufbauphase — die Nummer aus
+    # dem Anker hätte sonst etwa „Build 1" ergeben und damit Wochenform,
+    # Formatrotation (mit %FTP-Formaten) und Bericht gegen Aufbauregeln
+    # gestellt.
+    phase = (
+        "Off Season" if ist_offseason
+        else "Grundlage" if ist_grundlage
+        else phase_for_week(current_week, total_weeks)
+    )
+    return {
+        "profile": profile,
+        "goal": goal,
+        "anchor": anchor,
+        "total_weeks": total_weeks,
+        "plan_start": plan_start,
+        "current_week": current_week,
+        "week_start": week_start,
+        "week_end": week_end,
+        "ziel_datum": ziel_datum,
+        "lage": lage,
+        "ist_offseason": ist_offseason,
+        "ist_grundlage": ist_grundlage,
+        "phase": phase,
+        # Dieselbe Bedingung wie im Prompt (`prompt_templates`): Ohne
+        # Wochenzähler (Grundlage, Off Season) gibt es keinen Deload.
+        "deload": (
+            is_deload(current_week, total_weeks)
+            and not (ist_offseason or ist_grundlage)
+        ),
+    }
+
+
+def doppeltag_ziehung(db: Session, montag: date | None = None) -> dict:
+    """Die Doppeltag-Form der Woche — dieselbe, die der Generator einbaut."""
+    from services.doppel_urne import ziehung
+
+    w = wochenlage(db, montag)
+    z = ziehung(db, w["week_start"], w["phase"], w["profile"].user_id,
+                deload=w["deload"])
+    return {**z, "phase": w["phase"], "week_start": w["week_start"]}
+
+
 async def generate_and_save_plan(
     db: Session,
     special_requests: str = "",
     montag: date | None = None,
+    doppeltag: bool = True,
 ) -> WeeklyPlan:
     """Einen Wochenplan erzeugen und speichern.
 
@@ -106,40 +199,19 @@ async def generate_and_save_plan(
     laufenden Woche weg, und genau das braucht man, wenn man mittwochs krank
     wird. Deshalb entscheidet der Aufrufer, und die Oberfläche schreibt das
     Ziel auf den Knopf.
+
+    `doppeltag=False` lässt die gezogene Doppeltag-Form weg — der Schalter
+    „ohne Doppeltag" in der Plankachel, und ein Wunsch-Knopf für einen
+    Doppeltag, der die Ziehung ersetzt.
     """
-    profile = get_profile(db)
-    if not profile:
-        raise ValueError("Kein Athletenprofil gefunden")
-
-    # Ziel bestimmt Distanz, Planlänge und Phasen; die Einschränkungen
-    # kommen aus dem Profil des Athleten statt aus dem Prompt-Text.
-    from core.deps import get_active_goal, total_weeks_for
-    goal = get_active_goal(db)
-    anchor = goal or profile
-    total_weeks = total_weeks_for(anchor)
+    w = wochenlage(db, montag)
+    profile = w["profile"]
+    goal = w["goal"]
+    total_weeks = w["total_weeks"]
     constraints = profile.coaching_constraints
-
-    # Wochennummer und Wochendaten müssen aus derselben Quelle stammen.
-    # Vorher kam die Nummer vom Ziel und das Datum vom Profil: sobald beide
-    # Startdaten auseinanderlagen — bei jedem Athleten, der nach der
-    # Registrierung ein Ziel setzt — wies der Plan Wochen im falschen Jahr aus.
-    plan_start = getattr(anchor, "plan_start_date", None) or profile.plan_start_date
-
-    from core.wochen import montag_von
-
-    if montag is not None:
-        # Auf den Montag ziehen: Die Adresse soll nicht davon abhängen,
-        # welchen Wochentag der Aufrufer geschickt hat.
-        current_week = get_week_for_date(anchor, montag_von(montag))
-    else:
-        current_week = get_current_week(anchor)
-
-    # Wochendaten hier, nicht erst beim Speichern: Der Phasenzustand weiter
-    # unten muss für die **geplante** Woche gelten, nicht für heute. Sonst
-    # bekäme die kommende Woche die Phase der laufenden — bei einem Plan, der
-    # über eine Phasengrenze reicht, also die falsche Vorgabe.
-    target_week = current_week
-    week_start, week_end = get_week_dates(target_week, plan_start)
+    plan_start = w["plan_start"]
+    current_week = w["current_week"]
+    week_start, week_end = w["week_start"], w["week_end"]
 
     cutoff = date.today() - timedelta(days=14)
     sessions = db.query(TrainingSession).filter(
@@ -191,16 +263,11 @@ async def generate_and_save_plan(
 
     # Off Season: kein Saisonziel in der Zukunft. Dann gilt Erhalt statt
     # Aufbau — und ausdrücklich ohne Watt- und Pacevorgaben.
-    from core.race_types import season_state
     from services.offseason import phase_label as offseason_phase
     from services.offseason import prompt_block as offseason_block_for
 
-    ziel_datum = getattr(goal, "race_date", None)
-    lage = (
-        "preparation" if goal is None
-        else season_state(ziel_datum, today=week_start, plan_start=plan_start)
-    )
-    ist_offseason = goal is None or lage == "off_season"
+    ziel_datum = w["ziel_datum"]
+    ist_offseason = w["ist_offseason"]
     # Für die **geplante** Woche, nicht für heute: Wer am Sonntag die Woche
     # nach dem Rennen plant, steht heute noch davor. Die Off-Season-Logik
     # selbst bleibt unverändert; sie nimmt den Bezugstag schon an.
@@ -214,7 +281,7 @@ async def generate_and_save_plan(
     from services.base_period import phase_label as base_phase
     from services.base_period import prompt_block as base_block_for
 
-    ist_grundlage = lage == "base_period"
+    ist_grundlage = w["ist_grundlage"]
     base_block = base_block_for(
         plan_start,
         race_label=getattr(goal, "race_name", None) or getattr(goal, "label", None),
@@ -246,17 +313,10 @@ async def generate_and_save_plan(
     # Wie die Vorwoche tatsächlich aussah — Anzahl harter Einheiten und ihr
     # Abstand. Berichtend: Die Phasenvorgabe steht daneben, abgelehnt wird
     # nichts.
-    from core.race_types import phase_for_week
     from services.week_shape import prompt_block as wochenform_block_for
-    # In Off Season und Grundlage gibt es keine Aufbauphase — die Nummer aus
-    # dem Anker hätte sonst etwa „Build 1" ergeben und damit Wochenform,
-    # Formatrotation (mit %FTP-Formaten) und Bericht gegen Aufbauregeln
-    # gestellt.
-    _phase = (
-        "Off Season" if ist_offseason
-        else "Grundlage" if ist_grundlage
-        else phase_for_week(current_week, total_weeks)
-    )
+    # Die Phase aus `wochenlage` — dort steht, warum Off Season und Grundlage
+    # keine Aufbauphase bekommen.
+    _phase = w["phase"]
     wochenform_block = wochenform_block_for(
         db, _ws, _phase, user_id=profile.user_id,
     )
@@ -265,6 +325,20 @@ async def generate_and_save_plan(
     # gewechselt werden kann statt dreimal dasselbe zu planen.
     from services.intervall_format import rotation_block
     wochenform_block += rotation_block(db, _ws, _phase, user_id=profile.user_id)
+
+    # Die Doppeltag-Form dieser Woche, aus der Urne gezogen — dieselbe Ziehung,
+    # die die Plankachel vorher anzeigt (gesät mit Athlet und Montag). Sie geht
+    # in diesen einen Aufruf mit; einen zweiten für Doppeltage gibt es nicht.
+    if doppeltag:
+        from services.doppel_urne import prompt_block as doppel_urne_block
+        from services.doppel_urne import ziehung
+        try:
+            wochenform_block += doppel_urne_block(
+                ziehung(db, _ws, _phase, profile.user_id, deload=w["deload"]),
+                _phase,
+            )
+        except Exception as e:  # pragma: no cover - ein Vorschlag darf den Plan nie reißen
+            logger.warning("Doppeltag-Ziehung fehlgeschlagen: %s", e)
 
     plan_content = await generate_weekly_plan(
         athlete_profile=build_athlete_dict(profile, goal),
@@ -313,7 +387,7 @@ async def generate_and_save_plan(
 
     db_plan = WeeklyPlan(
         user_id=profile.user_id,
-        week_number=target_week,
+        week_number=current_week,
         week_start=week_start,
         week_end=week_end,
         # In der Off Season steht die Phase fest; sie vom Modell zu übernehmen

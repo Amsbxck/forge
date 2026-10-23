@@ -49,6 +49,10 @@ async def generate_plan(
         default=None,
         description="Montag der Woche, für die geplant werden soll. Ohne Angabe die laufende.",
     ),
+    doppeltag: bool = Query(
+        default=True,
+        description="Die gezogene Doppeltag-Form einbauen (Schalter „ohne Doppeltag“).",
+    ),
     db: Session = Depends(get_db),
 ):
     """Plan erzeugen — für die laufende Woche oder für die angegebene.
@@ -60,7 +64,9 @@ async def generate_plan(
     sichtbar, was entsteht.
     """
     try:
-        plan = await generate_and_save_plan(db, special_requests=requests, montag=montag)
+        plan = await generate_and_save_plan(
+            db, special_requests=requests, montag=montag, doppeltag=doppeltag,
+        )
         return plan
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -119,6 +125,32 @@ async def plan_anpassen(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Anpassung fehlgeschlagen: {e}")
+
+
+@router.get("/plan/doppeltag/am/{montag}")
+def doppeltag_der_woche(montag: date, db: Session = Depends(get_db)):
+    """Die Doppeltag-Form, die für diese Woche gezogen ist — vor dem Erstellen.
+
+    Die Plankachel zeigt sie an, bevor es einen Plan gibt, damit man sie
+    abschalten kann, ohne einen zweiten Aufruf zu bezahlen. Es ist dieselbe
+    Ziehung, die `generate` einbaut (gesät mit Athlet und Montag).
+    """
+    from services.plan_generator import doppeltag_ziehung
+
+    try:
+        z = doppeltag_ziehung(db, montag)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {
+        "form": z["form"],
+        "titel": z["titel"],
+        "grund": z["grund"],
+        # Die Urne selbst, damit die Kachel zeigen kann, woraus gezogen wurde —
+        # eine Form mit Gewicht 0 steht gar nicht erst darin.
+        "gewichte": {f: g for f, g in z["gewichte"].items() if g > 0},
+        "phase": z["phase"],
+        "week_start": z["week_start"],
+    }
 
 
 @router.get("/plan/current", response_model=WeeklyPlanOut)

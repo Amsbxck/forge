@@ -324,3 +324,21 @@ def test_doppeltage_erreichen_auch_die_grundlagenphase():
     assert "## DOPPELTAGE" in text
     assert "schwimmen_als_zweite" in text
     assert "nicht auf einzelne Tage passen" in text
+
+
+def test_glossar_nennt_die_taper_ausnahme_und_das_umlegen():
+    """Im Taper ist lockeres Schwimmen gezogen oder gewünscht möglich — das
+    Glossar muss es so sagen, wie der Code es tut, und auch, dass ein
+    Doppeltag umlegt statt hinzuzufügen."""
+    import pathlib
+
+    from core.phasenregeln import PHASENREGELN
+
+    pfad = pathlib.Path(__file__).resolve().parent.parent.parent / "TRAININGSOPTIONEN.md"
+    text = pfad.read_text(encoding="utf-8")
+
+    assert PHASENREGELN["Taper"]["doppel"] == ()
+    assert PHASENREGELN["Taper"]["doppel_auf_wunsch"] == ("schwimmen_als_zweite",)
+    assert "**Im Taper** nur locker" in text
+    assert "Umlegen, nicht hinzufügen" in text
+    assert "aus einer Urne" in text

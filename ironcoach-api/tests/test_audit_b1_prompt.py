@@ -129,13 +129,20 @@ def test_offseason_uebergang_gehoert_zur_familie_off_season():
     zwei Wochen nach dem Rennen. `PHASEN_ALIAS` kennt nur „· Formerhalt".
 
     Folge: `vorrang_block` (in `plan_adjust.systemprompt`) liefert für
-    „Übergang" eine Rangordnung, für „Formerhalt" nichts."""
+    „Übergang" eine Rangordnung, für „Formerhalt" nichts.
+
+    Seit die Off Season eine eigene Rangordnung hat, unterscheiden sich die
+    beiden Unterphasen dort absichtlich (Doppeltag nur im Formerhalt). Geprüft
+    wird deshalb, dass beide die Off-Season-Fassung bekommen und keine die
+    allgemeine mit „Grundbasis der Phase"."""
     from core.phasenregeln import vorrang_block
     from core.race_types import phase_family
 
     assert phase_family("Off Season · Übergang") == "Off Season"
-    assert vorrang_block("Off Season · Übergang") == vorrang_block(
-        "Off Season · Formerhalt")
+    for phase in ("Off Season · Übergang", "Off Season · Formerhalt"):
+        text = vorrang_block(phase)
+        assert "Grundbasis der Phase steht" not in text, phase
+        assert "## RANGORDNUNG" in text, phase
 
 
 # ── Checkliste 12: Beispielwerte eines einzelnen Athleten ────────────────────

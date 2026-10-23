@@ -91,14 +91,23 @@ export const OPTIONEN = [
   {
     id: 'doppel_schwimmen',
     name: 'Schwimmen als zweite Einheit',
-    kuerzel: 'Schwimmen + Kraft',
+    // Kein Knopf mehr (kein `kuerzel`): Schwimmen + Kraft setzt der Coach von
+    // selbst ein, wenn die Grundbasis nicht in die freien Tage passt, und
+    // Schwimmen nach einer harten Einheit zieht die Doppeltag-Urne. Ein Knopf
+    // daneben war eine dritte Quelle für dieselbe Entscheidung. Im Glossar
+    // bleibt die Form, ein Klick dort übernimmt den Wunschsatz als Text.
     gruppe: 'Doppeltage',
     art: WUENSCHEN,
-    phasen: ['grundlage', 'base', 'build', 'peak'],
+    // Auch im Taper — dort aber nur locker und nie von selbst, siehe
+    // `doppel_auf_wunsch` in `core/phasenregeln.py`.
+    phasen: ['grundlage', 'base', 'build', 'peak', 'taper'],
     kurz: 'Harte Rad- oder Laufeinheit, später am Tag Schwimmen. Oder Schwimmen plus Kraft.',
-    bedingung: 'immer möglich · Schwimmen erzeugt keine Stoßbelastung und zählt nicht zum Laufumfang',
+    bedingung: 'immer möglich, im Taper nur locker · Schwimmen erzeugt keine Stoßbelastung und zählt nicht zum Laufumfang',
     beleg: 'Schwimmen 10 h nach harten Laufintervallen brachte am Folgetag +14 % Laufzeit bis zur Erschöpfung gegenüber passiver Ruhe, Entzündungsmarker −23 % (Lum 2010).',
-    wunsch: 'Lege Schwimmen als zweite Einheit auf einen Trainingstag — gern mit Kraft am selben Tag, damit der Ruhetag frei bleibt.',
+    // „Eine Schwimmeinheit der Woche", nicht „Schwimmen": Der alte Satz ergab
+    // in einer Woche mit zwei Schwimmeinheiten eine dritte. Ein Doppeltag legt
+    // um, er fügt nichts hinzu (`phasenregeln.UMLEGEN`).
+    wunsch: 'Lege eine Schwimmeinheit dieser Woche als zweite Einheit auf einen Trainingstag — gern mit Kraft am selben Tag, damit der Ruhetag frei bleibt. Keine zusätzliche Einheit.',
     hinweis: 'Das Mittel, wenn die Woche voll ist: zwei Einheiten auf einen Tag statt den Ruhetag zu opfern.',
   },
   {

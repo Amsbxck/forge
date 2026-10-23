@@ -523,9 +523,10 @@ def build_plan_prompt(
     # früh in Taper und Wettkampfwoche; die Frage „was fällt weg, wenn nicht
     # alles hineinpasst" stellt sich aber in jeder Phase. Sie leer zu lassen
     # heißt, sie genau dort weglassen, wo an echten Plänen die Kraftvorgabe
-    # reihenweise verfehlt wurde. Nur die Off Season bleibt außen vor, weil
-    # `services/offseason.py` ihre Vorgaben selbst mitbringt.
-    vorrang_block = "" if offseason_block else vorrang_prompt(phase)
+    # reihenweise verfehlt wurde. Auch in der Off Season: `offseason.py`
+    # bringt dort die Vorgaben mit, sagt aber nicht, was bei einer zu vollen
+    # Woche wegfällt — `vorrang_block` hat dafür eine eigene Fassung.
+    vorrang_block = vorrang_prompt(phase)
     wochenform_block = wochenform or ""
     day_names = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
     week_days = [(day_names[i], str(week_start + timedelta(days=i))) for i in range(7)]
