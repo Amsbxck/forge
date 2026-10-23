@@ -3,8 +3,10 @@ import { STATUS_COLOR } from '../utils/colors'
 /** Die HRV als Ampel neben der Doppeltag-Ziehung.
  *
  *  Vorher stand dort „HRV normal" als erster Teil des Grundes — richtig, aber
- *  man musste lesen, um es zu sehen. Jetzt eine Ampel mit dem Schnitt der
- *  letzten sieben Tage daneben, in der Farbe der Ampel.
+ *  man musste lesen, um es zu sehen. Jetzt der Schnitt der letzten sieben
+ *  Tage in der Ampelfarbe. Mehr braucht es nicht: Ein Gehäuse mit drei Lampen
+ *  wirkte zu verspielt, ein senkrechter Farbstrich davor doppelte nur, was
+ *  Zahl und Skala schon zeigen.
  *
  *  **Die Farbe ist das Urteil der Urne, nicht des Schnitts.** Sie kommt aus
  *  `doppel_urne._hrv_status` (jüngste Messung der letzten drei Tage) — genau
@@ -15,8 +17,6 @@ import { STATUS_COLOR } from '../utils/colors'
  *  Die Skala darunter zeigt, wo der Schnitt in der eigenen Spanne liegt
  *  (rot unter, gelb dazwischen, grün im Band). Ohne Spanne fällt sie weg.
  */
-
-const LAMPEN = ['red', 'yellow', 'green']
 
 const URTEIL = {
   green: 'NORMAL',
@@ -65,35 +65,13 @@ export default function HrvAmpel({ hrv }) {
 
   return (
     <div
-      className="flex items-stretch gap-3 rounded-lg px-3 py-2.5"
+      className="rounded-lg px-3 py-2.5"
       style={{
         background: farbe ? `linear-gradient(90deg, ${farbe}14, transparent 70%)` : '#0d0f17',
         border: `1px solid ${farbe ? `${farbe}33` : '#1e2228'}`,
       }}
     >
-      {/* Das Gehäuse: drei Lampen wie an der Straße, die gültige leuchtet. */}
-      <div
-        className="flex flex-col justify-between items-center rounded-md px-[5px] py-[5px] shrink-0"
-        style={{ background: '#07080b', border: '1px solid #1e2228' }}
-        aria-hidden
-      >
-        {LAMPEN.map(l => {
-          const an = l === hrv.status
-          return (
-            <span
-              key={l}
-              className="block w-2 h-2 rounded-full transition-all duration-500"
-              style={{
-                background: an ? STATUS_COLOR[l] : `${STATUS_COLOR[l]}26`,
-                boxShadow: an ? `0 0 8px ${STATUS_COLOR[l]}, 0 0 2px ${STATUS_COLOR[l]}` : 'none',
-                animation: an ? 'ampel-atmen 3.2s ease-in-out infinite' : 'none',
-              }}
-            />
-          )
-        })}
-      </div>
-
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0">
         <div className="flex items-baseline gap-1.5">
           <span
             className="text-[26px] leading-none font-bold tabular-nums"
@@ -119,13 +97,6 @@ export default function HrvAmpel({ hrv }) {
         </div>
         <Skala spanne={hrv.spanne} wert={hrv.schnitt_7} />
       </div>
-
-      <style>{`
-        @keyframes ampel-atmen {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.72; }
-        }
-      `}</style>
     </div>
   )
 }
