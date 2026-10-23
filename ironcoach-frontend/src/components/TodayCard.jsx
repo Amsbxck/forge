@@ -3,7 +3,10 @@ import { getPlannedByMonday } from '../services/api'
 import { disciplineColor, disciplineLabel } from '../utils/colors'
 import { isoTag, montagMitVersatz } from '../utils/dates'
 
-const LABEL = 'text-[10px] font-mono tracking-widest text-[var(--text-secondary)]'
+// Kopf und Unterzeilen wie THIS WEEK und BREAKDOWN, damit die Kachel
+// zwischen den beiden nicht mehr aus der Reihe fällt.
+const LABEL = 'text-xs font-mono tracking-[0.25em] text-[var(--text-secondary)]'
+const KOPF = 'text-[9px] font-mono tracking-[0.2em] text-[var(--text-muted)]'
 const DISPLAY = { fontFamily: 'Barlow Condensed, sans-serif' }
 
 const INTENSITY_LABEL = {
@@ -82,45 +85,50 @@ export default function TodayCard({ onOpenPlan }) {
   // davon, dass für morgen noch kein Plan vorliegt.
   const morgenRuhetag = rows.some(r => r.planned_date === morgen) && morgige.length === 0
 
-  const wochentag = new Date().toLocaleDateString('de-DE', { weekday: 'long' })
+  const datumText = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+    .replace(',', '').toUpperCase()
+  // Getönt in der Farbe der heutigen Sportart, wie THIS WEEK mit seinen
+  // Sportfarben. Vorher ein Cyan-Schein — Cyan liest sich neben den
+  // Sportfarben aber als Schwimmen, auch an einem Lauftag.
+  const farbeHeute = heutige.length ? disciplineColor(heutige[0].discipline) : null
 
   return (
-    <div className="rounded-xl p-5 relative overflow-hidden"
+    <div className="rounded-xl p-5 sm:p-6 relative overflow-hidden"
          style={{
-           background: '#111318',
            // Hervorgehoben wie Zustand und HRV: dies ist der Tag, um den es
            // gerade geht, und in einer Reihe gleich aussehender Kacheln
            // verschwindet er sonst.
-           border: `1px solid ${heutige.length ? '#00d4ff3a' : '#1e2228'}`,
-           boxShadow: heutige.length ? '0 0 24px -10px #00d4ff' : 'none',
+           background: farbeHeute
+             ? `linear-gradient(115deg, ${farbeHeute}17 0%, ${farbeHeute}08 45%, transparent 75%), #111318`
+             : '#111318',
+           border: `1px solid ${farbeHeute ? `${farbeHeute}2a` : '#1e2228'}`,
          }}>
-      <div className="absolute inset-0 pointer-events-none" style={{
-        background: 'radial-gradient(ellipse 55% 90% at 88% 12%, #00d4ff14 0%, transparent 70%)',
-      }} />
-
-      <div className="relative z-10">
-        <div className="flex items-baseline justify-between gap-3 mb-3">
-          <span className={LABEL}>HEUTE · {wochentag.toUpperCase()}</span>
-          <button
-            onClick={onOpenPlan}
-            className="text-[10px] font-mono text-[var(--text-muted)] hover:text-[#00d4ff] transition-colors"
-          >
-            WOCHENPLAN ▸
-          </button>
+      <div>
+        <div className="flex items-baseline justify-between gap-3 mb-4">
+          <span className={LABEL}>TODAY</span>
+          <span className="flex items-baseline gap-4">
+            <span className="text-[10px] font-mono tracking-widest text-[var(--text-muted)]">{datumText}</span>
+            <button
+              onClick={onOpenPlan}
+              className="text-[10px] font-mono tracking-widest text-[var(--text-muted)] hover:text-[#e8eaf0] transition-colors"
+            >
+              WEEK PLAN ▸
+            </button>
+          </span>
         </div>
 
         {heutige.length === 0 ? (
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
               <div className="text-3xl font-black leading-none text-[var(--text-secondary)]" style={DISPLAY}>
-                {istRuhetag ? 'RUHETAG' : 'NICHTS GEPLANT'}
+                {istRuhetag ? 'REST DAY' : 'NOTHING PLANNED'}
               </div>
               <div className="text-xs font-mono text-[var(--text-muted)] mt-2">
                 {istRuhetag
-                  ? 'Erholung ist Teil des Plans — kein Training heute.'
+                  ? 'Recovery is part of the plan — no training today.'
                   : wochePlan
-                    ? 'Der Wochenplan sieht für heute nichts vor.'
-                    : 'Für diese Woche liegt kein Plan vor.'}
+                    ? 'The week plan has nothing for today.'
+                    : 'There is no plan for this week yet.'}
               </div>
             </div>
             {!istRuhetag && !wochePlan && (
@@ -129,7 +137,7 @@ export default function TodayCard({ onOpenPlan }) {
                 className="px-4 py-2 rounded-lg text-[11px] font-mono font-bold tracking-wide flex-shrink-0"
                 style={{ background: '#00d4ff20', border: '1px solid #00d4ff44', color: '#00d4ff' }}
               >
-                PLAN ERSTELLEN
+                CREATE PLAN
               </button>
             )}
           </div>
@@ -139,14 +147,20 @@ export default function TodayCard({ onOpenPlan }) {
               const farbe = disciplineColor(s.discipline)
               const ziele = targets(s)
               return (
-                <div key={s.id} className="flex items-start gap-4 flex-wrap">
+                // Auf einer Grundlinie: Seit die Dauer groß in Barlow steht,
+                // hingen Zone und TSS bei `items-start` oben neben der Zahl
+                // statt auf ihrer Zeile.
+                <div key={s.id} className="flex items-baseline gap-x-4 gap-y-2 flex-wrap">
                   <div className="flex items-baseline gap-3 min-w-0">
                     <span className="text-2xl font-black tracking-tight" style={{ ...DISPLAY, color: farbe }}>
                       {disciplineLabel(s.discipline).toUpperCase()}
                     </span>
                     {s.duration_min && (
-                      <span className="text-lg font-mono tabular-nums text-[#e8eaf0]">
-                        {s.duration_min} min
+                      <span className="flex items-baseline gap-1">
+                        <span className="text-2xl font-black leading-none tabular-nums text-[#f2f4f8]" style={DISPLAY}>
+                          {s.duration_min}
+                        </span>
+                        <span className="text-xs font-mono text-[var(--text-muted)]">min</span>
                       </span>
                     )}
                     {s.intensity && (
@@ -178,17 +192,17 @@ export default function TodayCard({ onOpenPlan }) {
             Die Intensität steht dabei — sie ist der Grund, warum man
             vorausschaut. Vor einer VO₂max-Einheit legt man sich früher hin. */}
         {(morgige.length > 0 || morgenRuhetag) && (
-          <div className="mt-4 pt-3 border-t border-[#1e2228] flex items-center gap-x-3 gap-y-1.5 flex-wrap">
-            <span className="text-[10px] font-mono tracking-widest text-[var(--text-muted)]">MORGEN</span>
+          <div className="mt-4 pt-3 border-t border-[#ffffff0f] flex items-center gap-x-3 gap-y-1.5 flex-wrap">
+            <span className={KOPF}>TOMORROW</span>
             {morgenRuhetag ? (
-              <span className="text-xs font-mono text-[var(--text-secondary)]">Ruhetag</span>
+              <span className="text-xs font-mono text-[var(--text-secondary)]">Rest day</span>
             ) : morgige.map(s => {
               const farbe = disciplineColor(s.discipline)
               return (
                 <span key={s.id} className="flex items-baseline gap-1.5">
                   <span className="text-xs font-mono" style={{ color: farbe }}>
                     {disciplineLabel(s.discipline)}
-                    {s.duration_min ? ` ${s.duration_min}min` : ''}
+                    {s.duration_min ? ` ${s.duration_min} min` : ''}
                   </span>
                   {s.intensity && (
                     <span className="text-[9px] font-mono px-1 py-0.5 rounded"
