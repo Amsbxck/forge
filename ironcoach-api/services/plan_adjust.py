@@ -108,6 +108,16 @@ def systemprompt(db: Session, plan: WeeklyPlan, rows: list,
     except Exception as e:  # pragma: no cover - Auskunft darf nie die Änderung reissen
         logger.warning("Grundbasis für die Anpassung nicht ermittelt: %s", e)
 
+    # Trägt die Woche schon einen Doppeltag, soll eine Tagesänderung ihn nicht
+    # nebenbei auflösen — und ein neuer Doppeltag-Wunsch keine Einheit
+    # dazunehmen (`phasenregeln.UMLEGEN`).
+    try:
+        from services.doppel_urne import anpassungs_block
+        stand += anpassungs_block(db, plan.week_start, plan.week_end, phase,
+                                  plan.user_id)
+    except Exception as e:  # pragma: no cover - Auskunft darf nie die Änderung reissen
+        logger.warning("Doppeltag der Woche nicht ermittelt: %s", e)
+
     return f"""Du passt einzelne Tage eines bestehenden Wochenplans an.
 
 ## Der Plan dieser Woche ({plan.week_start} bis {plan.week_end}, Phase {plan.plan_phase})

@@ -107,7 +107,12 @@ async def _regenerate(user_id: int | None, reason: str, montag: date | None = No
     db = SessionLocal()
     try:
         with acting_as(user_id):
-            plan = await generate_and_save_plan(db, special_requests=reason, montag=montag)
+            # Ohne Doppeltag: Nach einer Krankheits- oder Verletzungsmeldung
+            # soll die Woche leichter werden, nicht verdichtet. Die Urne sähe
+            # die Meldung nicht, nur die HRV.
+            plan = await generate_and_save_plan(
+                db, special_requests=reason, montag=montag, doppeltag=False,
+            )
         _NEUPLANUNG[user_id] = {
             "status": "fertig", "montag": str(montag), "plan_id": plan.id, "detail": None,
         }

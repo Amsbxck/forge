@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   generatePlan, adjustPlanDays,
   getPlanByMonday, getPlannedByMonday, cancelPlan,
-  getWeekMetrics, getNeuplanung,
+  getWeekMetrics, getNeuplanung, getDoppeltagZiehung,
 } from '../services/api'
 import { fehlerText } from '../utils/fehler'
 import WeekCalendar from '../components/WeekCalendar'
 import PlanExport from '../components/PlanExport'
 import HealthStatus from '../components/HealthStatus'
 import PlanOptionen from '../components/PlanOptionen'
-import WunschKnoepfe from '../components/WunschKnoepfe'
+import WunschKonsole from '../components/WunschKonsole'
 import { montagMitVersatz } from '../utils/dates'
 import { phaseColor } from '../utils/colors'
 import { OPTIONEN, wunschText } from '../utils/trainingsoptionen'
@@ -79,7 +79,7 @@ export default function WeeklyPlan() {
   // bei der ersten Planerstellung unsichtbar. `/api/metrics/week` liefert die
   // Phase der **laufenden** Woche; beim Vorblättern über eine Phasengrenze
   // kann sie um eine Stufe daneben liegen. Für die beiden Knopfarten (Doppeltag
-  // in jeder Phase außer Taper und Wettkampfwoche, Blockwoche im Aufbau) ist
+  // in jeder Phase außer der Wettkampfwoche, Blockwoche im Aufbau) ist
   // das tragbar — der Coach prüft die Bedingung ohnehin selbst.
   const [metrikPhase, setMetrikPhase] = useState(null)
   const [error, setError] = useState(null)
@@ -100,6 +100,11 @@ export default function WeeklyPlan() {
   const [totalWeeks, setTotalWeeks] = useState(null)
   const [notFound, setNotFound] = useState(false)
   const [hinweis, setHinweis] = useState(null)
+  // Die für die angezeigte Woche gezogene Doppeltag-Form (nur ohne Plan) und
+  // der Schalter „ohne Doppeltag". Beides nicht gespeichert, siehe
+  // `components/DoppeltagZiehung.jsx`.
+  const [ziehung, setZiehung] = useState(null)
+  const [ohneDoppeltag, setOhneDoppeltag] = useState(false)
 
   // Die Woche, die gerade angezeigt wird — als Ref, damit verspätete
   // Antworten und Zeitgeber wissen, ob sie noch gemeint sind. Vorher lud ein
@@ -185,10 +190,16 @@ export default function WeeklyPlan() {
     setError(null)
     try {
       // Für die Woche, die gerade angezeigt wird — nicht blind für heute.
-      const resp = await generatePlan(wunschText(gewaehlt, requests), zielMontag)
+      const resp = await generatePlan(
+        wunschText(gewaehlt, requests), zielMontag,
+        // Auch eine Blockwoche ohne: fünf harte Einheiten und dazu ein
+        // verdichteter Tag wären mehr, als die Blockwoche vorsieht.
+        !(ohneDoppeltag || doppelGewuenscht || ganzeWocheGewaehlt),
+      )
       setPlan(resp.data)
       setRequests('')
       setGewaehlt(new Set())
+      setOhneDoppeltag(false)
       // Danach die Einheiten derselben Woche nachladen. Vorher stand hier
       // `loadPlanned(null)`: Der neue Plan erschien in der Kachel, während
       // darunter noch die Einheiten der vorigen Woche standen — es sah aus,
@@ -282,6 +293,13 @@ export default function WeeklyPlan() {
     [gewaehlt]
   )
 
+  // Ein gewählter Doppeltag-Knopf ersetzt die gezogene Form — sonst bekäme die
+  // Woche zwei Doppeltage, und das hat niemand bestellt.
+  const doppelGewuenscht = useMemo(
+    () => [...gewaehlt].some(id => id.startsWith('doppel_')),
+    [gewaehlt]
+  )
+
   const absenden = () => {
     if (plan && ganzeWocheGewaehlt) {
       const ok = window.confirm(
@@ -316,6 +334,21 @@ export default function WeeklyPlan() {
   // Der Montag der angezeigten Woche — Ziel des Erstellen-Knopfes und
   // gleichzeitig seine Beschriftung.
   const zielMontag = montagMitVersatz(versatz)
+
+  // Die Ziehung nur laden, solange die Woche keinen Plan hat: Danach steht der
+  // Doppeltag im Plan selbst. Beim Blättern zurücksetzen, damit „ohne
+  // Doppeltag" nicht in die nächste Woche mitwandert.
+  useEffect(() => {
+    setOhneDoppeltag(false)
+    if (!notFound) { setZiehung(null); return }
+    let aktuell = true
+    getDoppeltagZiehung(zielMontag)
+      .then(({ data }) => { if (aktuell) setZiehung(data) })
+      // Ohne Ziehung bleibt die Kachel wie bisher — der Plan entsteht trotzdem.
+      .catch(() => { if (aktuell) setZiehung(null) })
+    return () => { aktuell = false }
+  }, [zielMontag, notFound])
+
   const zielSpanne = (() => {
     const mo = new Date(zielMontag + 'T00:00:00')
     const so = new Date(mo); so.setDate(mo.getDate() + 6)
@@ -393,77 +426,14 @@ export default function WeeklyPlan() {
           )}
         </div>
 
-        <div className="flex gap-2 items-center flex-wrap">
-          <WunschKnoepfe
-            phase={knopfPhase}
-            gewaehlt={gewaehlt}
-            freitext={requests}
-            onToggle={id => setGewaehlt(v => {
-              const n = new Set(v)
-              n.has(id) ? n.delete(id) : n.add(id)
-              return n
-            })}
-          />
-          <input
-            value={requests}
-            onChange={e => setRequests(e.target.value)}
-            // Vorher rief Enter **immer** `generate()` — auch bei
-            // vorhandenem Plan, wo der Knopf daneben anpasst. Wer „Donnerstag
-            // tauschen" eintippte und Enter drückte, bekam die ganze Woche neu
-            // geschrieben. Jetzt derselbe Weg wie der Knopf.
-            onKeyDown={e => { if (e.key === 'Enter' && absendbar) absenden() }}
-            placeholder="Besondere Wünsche (optional)"
-            className="rounded-lg px-3 py-2 text-sm font-mono text-[#e8eaf0] placeholder-[var(--text-muted)] outline-none transition-colors w-64"
-            style={{
-              background: '#111318',
-              border: '1px solid #1e2228',
-            }}
-            onFocus={e => { e.target.style.borderColor = '#00d4ff44' }}
-            onBlur={e => { e.target.style.borderColor = '#1e2228' }}
-          />
-          <button
-            onClick={absenden}
-            // Ein gewählter Knopf allein reicht. Vorher hing die Freigabe
-            // ausschließlich am Freitext — die Knöpfe hätten den Knopf nie
-            // aktiviert und wären bei vorhandenem Plan wirkungslos geblieben.
-            disabled={!absendbar}
-            title={plan
-              ? (ganzeWocheGewaehlt
-                ? `Blockwoche: die Woche ${zielSpanne} wird neu erstellt`
-                : `Wünsche anklicken oder eintippen — nur die betroffenen Tage werden angefasst (${zielSpanne})`)
-              : `Plan für die Woche ${zielSpanne} erzeugen`}
-            className="relative px-4 py-2 rounded-lg text-sm font-mono font-bold tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{
-              background: generating ? '#00d4ff15' : '#00d4ff20',
-              border: '1px solid #00d4ff44',
-              color: '#00d4ff',
-            }}
-            onMouseEnter={e => { if (!generating) e.currentTarget.style.background = '#00d4ff30' }}
-            onMouseLeave={e => { e.currentTarget.style.background = generating ? '#00d4ff15' : '#00d4ff20' }}
-          >
-            {generating ? (
-              <span className="flex items-center gap-2">
-                <span className="inline-flex gap-0.5">
-                  {[0, 1, 2].map(i => (
-                    <span
-                      key={i}
-                      className="w-1 h-1 rounded-full bg-[#00d4ff]"
-                      style={{ animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite` }}
-                    />
-                  ))}
-                </span>
-                GENERATING
-              </span>
-            ) : (
-              <span className="flex items-center gap-2">
-                {!plan ? 'PLAN ERSTELLEN'
-                  : ganzeWocheGewaehlt ? 'WOCHE NEU ERSTELLEN' : 'TAGE ANPASSEN'}
-                <span className="font-normal text-[11px] opacity-70">{zielSpanne}</span>
-              </span>
-            )}
-          </button>
-          {plan && <PlanExport plan={plan} />}
-        </div>
+        {/* Rechts im Kopf nur noch der Export. Wünsche, Doppeltag und der
+            Erstellen-Knopf stehen in der Konsole darunter (`WunschKonsole`) —
+            in der Kopfzeile brachen sie je nach Breite irgendwo um. */}
+        {plan && (
+          <div className="flex gap-2 items-center">
+            <PlanExport plan={plan} />
+          </div>
+        )}
       </div>
 
       {/* Gesundheit steht über dem Plan: wer krank ist, muss zuerst wissen,
@@ -476,6 +446,30 @@ export default function WeeklyPlan() {
         // dann, wenn das Guthaben aufgebraucht war.
         if (antwort?.plan_wird_angepasst) neuplanungVerfolgen()
       }} />
+
+      {/* Gesundheit davor: Wer krank ist, soll das sehen, bevor er plant. */}
+      <WunschKonsole
+        plan={plan}
+        phase={knopfPhase}
+        zielSpanne={zielSpanne}
+        modus={!plan ? 'PLAN ERSTELLEN' : ganzeWocheGewaehlt ? 'WOCHE NEU ERSTELLEN' : 'TAGE ANPASSEN'}
+        requests={requests}
+        onRequests={setRequests}
+        vorschau={wunschText(gewaehlt, requests)}
+        gewaehlt={gewaehlt}
+        onToggle={id => setGewaehlt(v => {
+          const n = new Set(v)
+          n.has(id) ? n.delete(id) : n.add(id)
+          return n
+        })}
+        ziehung={ziehung}
+        ohneDoppeltag={ohneDoppeltag}
+        ersetzt={doppelGewuenscht || ganzeWocheGewaehlt}
+        onDoppeltag={() => setOhneDoppeltag(v => !v)}
+        absendbar={absendbar}
+        absenden={absenden}
+        generating={generating}
+      />
 
       {hinweis && (
         <div className="rounded-xl px-4 py-3 font-mono text-[11px] flex items-start gap-3"

@@ -198,11 +198,10 @@ def bloecke(db: Session, user=None, fakten: dict | None = None) -> dict:
         nicht — ohne diesen Baustein beantwortete der Coach im Gespräch also
         genau die Frage ohne Rangordnung, um die es hier geht.
 
-        Nur die Off Season bleibt außen vor, wie überall: dort bringt
-        `services/offseason.py` die Vorgaben selbst mit.
+        Auch in der Off Season, mit eigener Fassung: `services/offseason.py`
+        bringt die Vorgaben mit, aber nicht, was bei einer zu vollen Woche
+        wegfällt — und ohne Ziel landet jeder neue Athlet dort.
         """
-        if fakten["offseason"]:
-            return ""
         from core.phasenregeln import vorrang_block
         return vorrang_block(fakten["phase"])
 
@@ -219,6 +218,46 @@ def bloecke(db: Session, user=None, fakten: dict | None = None) -> dict:
         return (
             prompt_block(db, ws, fakten["phase"], user_id=profile.user_id)
             + rotation_block(db, ws, fakten["phase"], user_id=profile.user_id)
+            + _doppeltag(ws)
+        )
+
+    def _doppeltag(ws):
+        """Der Doppeltag der Woche — im Chat derselbe wie im Plan.
+
+        Der Chat schreibt auch Wochenpläne. Ohne diesen Baustein bekäme eine
+        im Gespräch geplante Woche keinen oder einen anderen Doppeltag als die
+        Plankachel anzeigt; die Ziehung ist mit Athlet und Montag gesät und
+        damit in beiden Pfaden dieselbe.
+
+        **Hat die Woche schon einen Plan, gilt der Plan**, nicht die Ziehung:
+        Wer mit „ohne Doppeltag" erstellt hat, soll im Chat nicht doch einen
+        aufgedrängt bekommen. Dann steht hier nur, was die Woche trägt — und
+        oft gar nichts, was auch Tokens in jeder Nachricht spart.
+        """
+        if fakten["offseason"]:
+            return ""
+        from datetime import timedelta
+
+        from core.race_types import is_deload
+        from models import WeeklyPlan
+        from services.doppel_urne import anpassungs_block, ziehung
+        from services.doppel_urne import prompt_block as urne_block
+
+        hat_plan = db.query(WeeklyPlan.id).filter(
+            WeeklyPlan.week_start == ws,
+            WeeklyPlan.user_id == profile.user_id,
+        ).first() is not None
+        if hat_plan:
+            return anpassungs_block(db, ws, ws + timedelta(days=6),
+                                    fakten["phase"], profile.user_id)
+        deload = (
+            is_deload(fakten["week"], fakten["total_weeks"])
+            and not fakten.get("base_period")
+        )
+        return urne_block(
+            ziehung(db, ws, fakten["phase"], profile.user_id, deload=deload),
+            fakten["phase"],
+            bedingt=True,
         )
 
     def _obsidian():

@@ -151,6 +151,14 @@ PHASENREGELN: dict[str, dict] = {
     "Taper": {
         "zaehlt_als_qualitaet": QUALITAET_STRENG,
         "doppel": (),
+        # Von selbst setzt der Coach hier keinen Doppeltag ein — die Tageslast
+        # soll nicht mehr steigen. Lockeres Schwimmen als zweite Einheit ist
+        # aber die eine Form, die zum Taper passt: keine Stoßbelastung, und
+        # ein Schwimmen 10 h nach harten Intervallen machte den Folgetag
+        # besser, nicht schlechter (Lum 2010). Deshalb getrennt von `doppel`:
+        # Es kommt nur, wenn die Doppeltag-Urne es zieht
+        # (`services/doppel_urne.py`) oder der Athlet es wünscht.
+        "doppel_auf_wunsch": ("schwimmen_als_zweite",),
         "qualitaet": (1, 2),
         # Eine kurze, schwere Einheit mit wenigen Sätzen. Für den Taper gibt es
         # keine eigene Studie; die nächste Evidenz ist die Erhaltungsregel
@@ -187,6 +195,29 @@ PHASENREGELN: dict[str, dict] = {
 # aus `services/base_period.py`, Zähler und Doppeltage aber von hier.
 OHNE_PHASENTABELLE = ("Off Season",)
 
+# Ein Doppeltag legt um, er fügt nichts hinzu. Vorher stand nirgends, woraus
+# er entsteht, und ein Wunsch „Schwimmen als zweite Einheit" ergab in einer
+# Woche mit zwei Schwimmeinheiten eine dritte — die Woche wurde schwerer und
+# ihre Verteilung stimmte nicht mehr. Ein Satz, drei Leser (`doppel_block`,
+# `vorrang_block`, `services/doppel_urne.py`), damit die Pfade nicht
+# auseinanderlaufen.
+UMLEGEN = (
+    "Ein Doppeltag entsteht durch **Umlegen** vorhandener Einheiten, nicht "
+    "durch eine zusätzliche: Die Zahl der Einheiten je Disziplin und der "
+    "Wochenumfang bleiben wie ohne Doppeltag, der frei werdende Tag wird "
+    "Ruhetag oder bleibt locker."
+)
+
+# Die Ausnahme im Taper als Satz — `doppel_block` und `vorrang_block` sagen
+# dasselbe, der Chat sieht nur den zweiten.
+TAPER_SCHWIMMEN = (
+    "**Ausnahme:** lockeres Schwimmen (kurz, Z1–Z2) als zweite Einheit am Tag "
+    "der verkürzten harten Einheit — nur wenn die App es für diese Woche "
+    "gezogen hat oder der Athlet es wünscht, und aus einer Schwimmeinheit, die "
+    "ohnehin in der Woche steht (Lum 2010: keine Stoßbelastung, die Frequenz "
+    "bleibt)."
+)
+
 
 def regeln_fuer(phase: str | None) -> dict | None:
     """Die Regeln zur Phase — über die Familie, nicht über die Blocknummer."""
@@ -213,6 +244,12 @@ def doppel_block(phase: str | None) -> str:
         return ""
     erlaubt = regeln.get("doppel", ())
     if not erlaubt:
+        if regeln.get("doppel_auf_wunsch"):
+            return (
+                "## DOPPELTAGE\nIn dieser Phase keine von selbst — zwei "
+                "Einheiten an einem Tag erhöhen die Tageslast, und darum geht "
+                f"es hier nicht mehr. {TAPER_SCHWIMMEN}\n"
+            )
         return (
             "## DOPPELTAGE\nIn dieser Phase keine — zwei Einheiten an einem "
             "Tag erhöhen die Tageslast, und darum geht es hier nicht mehr.\n"
@@ -220,6 +257,7 @@ def doppel_block(phase: str | None) -> str:
     return (
         "## DOPPELTAGE\n\n"
         + doppel_text(erlaubt)
+        + f"\n\n{UMLEGEN}"
         + "\n\n**Wann ein Doppeltag die Antwort ist:** wenn die Einheiten der "
         "Woche nicht auf einzelne Tage passen. Ein Ruhetag ist kein Platz, der "
         "sich für eine weitere Einheit opfern lässt — dann gehören zwei "
@@ -228,6 +266,94 @@ def doppel_block(phase: str | None) -> str:
         "beansprucht verschiedene Muskeln. Ebenso, wenn die Einzellauf-Grenze "
         "bindet: ein langer Lauf auf zwei Einheiten geteilt bleibt je Einheit "
         "darunter.\n"
+    )
+
+
+def _offseason_vorrang(phase: str | None) -> str:
+    """Die Rangordnung der Off Season — die Regeln bleiben, nur der Engpass ist neu.
+
+    Bisher gab es hier gar keine Rangordnung: `services/offseason.py` verlangt
+    im Formerhalt zweimal Kraft und zwei bis drei Einheiten je Hauptdisziplin,
+    sagt aber nicht, was passiert, wenn ein Wunsch die Woche so füllt, dass
+    das nicht mehr auf einzelne Tage passt. Das trifft jeden neuen Athleten:
+    Ohne Saisonziel gilt die Off Season (Formerhalt), nicht die Grundlage. Der
+    Coach strich dann mal eine Krafteinheit, mal den Ruhetag.
+
+    **Kein Doppeltag aus eigenem Antrieb.** Die Off-Season-Woche bleibt, wie
+    `offseason.py` sie beschreibt, und die Urne zieht hier weiter „keinen“.
+    Ein Doppeltag kommt nur als Antwort auf den Engpass: Wunsch + Soll passen
+    nicht mehr auf die freien Tage. Beide Einheiten locker, weil die Off
+    Season Erholung ist — die eine optionale harte Einheit gehört nie in
+    einen Doppeltag.
+
+    **Übergang ohne Doppeltag.** Dort gilt „höchstens vier Einheiten, alle
+    locker" — ein Höchstwert, kein Soll. Es gibt nichts, das ein Doppeltag
+    retten müsste; ein Wunsch, der nicht passt, wird gekürzt.
+
+    Die Unterphase steht im gespeicherten `plan_phase` („Off Season ·
+    Formerhalt“), so kommt sie in den Anpassungspfad. Planerstellung und Chat
+    reichen nur „Off Season“ durch, haben aber den Off-Season-Abschnitt mit
+    der Unterphase im Kopf daneben — dann stehen beide Fälle da, jeder mit
+    seinem Namen.
+
+    Die Zahlen (zweimal Kraft, zwei Einheiten je Hauptdisziplin) stehen damit
+    an zwei Stellen. `tests/test_rangordnung_alle_pfade.py` prüft, dass
+    `offseason.py` sie weiter so nennt, statt eine zweite Quelle still
+    auseinanderlaufen zu lassen.
+    """
+    text = phase or ""
+    uebergang = "Übergang" in text
+    formerhalt = "Formerhalt" in text
+
+    erhalt_doppel = (
+        "**Passt dieses Soll wegen eines Wunsches nicht mehr auf die freien "
+        "Tage, setze einen Doppeltag ein — von selbst, ohne dass der Athlet "
+        "darum bittet.** Schwimmen + Kraft zuerst, sonst lockeres Rad + Kraft. "
+        "Beide Einheiten locker; die optionale harte Einheit steht nie in einem "
+        "Doppeltag. Ein Doppeltag sind zwei Einträge mit demselben Datum, "
+        f"mindestens {DOPPEL_MIN_ABSTAND_H} Stunden auseinander. {UMLEGEN} "
+        "Ohne diesen Engpass bleibt jede Einheit auf ihrem eigenen Tag."
+    )
+    uebergang_kein = (
+        "Doppeltage sind **kein** Mittel: Die vier Einheiten sind eine "
+        "Obergrenze, kein Soll, und die freien Tage sind Teil des Plans. Passt "
+        "ein Wunsch nicht hinein, geht es direkt zur nächsten Stufe."
+    )
+    erhalt_soll = (
+        "**2 Krafteinheiten** und mindestens **2 Einheiten je Hauptdisziplin**"
+    )
+
+    stufen = [
+        "**Gesundheit und Verletzung.** Sie überschreiben alles, auch alles "
+        "Folgende.",
+        "**Mindestens ein vollständiger Ruhetag** bleibt stehen. Er ist "
+        "keine freie Fläche, die sich für eine Einheit opfern lässt.",
+    ]
+    if uebergang:
+        stufen.append(uebergang_kein)
+    elif formerhalt:
+        stufen.append(f"**Das Soll des Formerhalts steht:** {erhalt_soll}. Es "
+                      "wird **nicht** gestrichen, um Platz für einen Wunsch zu "
+                      "machen.")
+        stufen.append(erhalt_doppel)
+    else:
+        stufen.append(
+            f"**Im Formerhalt steht das Soll:** {erhalt_soll}. Es wird "
+            "**nicht** gestrichen, um Platz für einen Wunsch zu machen. "
+            + erhalt_doppel
+        )
+        stufen.append(f"**Im Übergang** (erste Wochen nach dem Rennen, steht "
+                      f"im Off-Season-Abschnitt): {uebergang_kein}")
+    stufen.append(
+        "**Erst wenn auch das nicht reicht, kürze den Wunsch** — nicht das "
+        "Soll. Und schreibe in `coaching_comment`, was du gekürzt hast und "
+        "warum."
+    )
+
+    return (
+        "## RANGORDNUNG, WENN NICHT ALLES HINEINPASST\n\n"
+        + "\n".join(f"{i}. {s}" for i, s in enumerate(stufen, 1))
+        + "\n"
     )
 
 
@@ -254,8 +380,9 @@ def vorrang_block(phase: str | None) -> str:
         `TRAININGSOPTIONEN.md` einer der beiden Wege, auf denen ein Wunsch
         überhaupt geäußert wird.
 
-    Deshalb hat diese Funktion **keinen** leeren Rückgabeweg außer der Off
-    Season, wo `services/offseason.py` die Vorgabe selbst mitbringt. Ohne
+    Deshalb hat diese Funktion **keinen** leeren Rückgabeweg. Die Off Season
+    bekommt eine eigene Fassung (`_offseason_vorrang`), weil ihre Vorgaben aus
+    `services/offseason.py` kommen und nicht aus der Phasentabelle. Ohne
     Phasentabelle bleiben die Stufen stehen, nur ohne Zahlen.
 
     Zum Ruhetag: Dass er über der Phasenvorgabe steht, ist eine Entscheidung
@@ -267,7 +394,7 @@ def vorrang_block(phase: str | None) -> str:
     from core.race_types import phase_family
 
     if phase_family(phase) in OHNE_PHASENTABELLE:
-        return ""
+        return _offseason_vorrang(phase)
 
     regeln = regeln_fuer(phase)
     if regeln:
@@ -309,13 +436,17 @@ def vorrang_block(phase: str | None) -> str:
             "Schwimmen + Kraft zuerst: Schwimmen erzeugt keine Stoßbelastung "
             "und beansprucht andere Muskeln als Kraft. Ein Doppeltag sind zwei "
             "Einträge mit demselben Datum, mindestens "
-            f"{DOPPEL_MIN_ABSTAND_H} Stunden auseinander."
+            f"{DOPPEL_MIN_ABSTAND_H} Stunden auseinander. {UMLEGEN}"
         )
     elif regeln:
+        # Die Taper-Ausnahme auch hier: Der Chat rendert `doppel_block` nicht
+        # und kennte sie sonst nicht — er würde ein gewünschtes lockeres
+        # Schwimmen mit „Doppeltage sind kein Mittel" ablehnen.
+        ausnahme = f" {TAPER_SCHWIMMEN}" if regeln.get("doppel_auf_wunsch") else ""
         stufen.append(
             "In dieser Phase sind Doppeltage **kein** Mittel — die Tageslast "
             "soll hier nicht mehr steigen. Passt die Grundbasis nicht in die "
-            "Woche, geht es direkt zur nächsten Stufe."
+            f"Woche, geht es direkt zur nächsten Stufe.{ausnahme}"
         )
     stufen.append(
         "**Erst wenn auch das nicht reicht, kürze den Wunsch** — nicht die "

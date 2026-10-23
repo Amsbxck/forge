@@ -82,8 +82,35 @@ Kraftvorgabe erfüllt ist.
 
 **Einen Fall baut der Coach von selbst ein:** wenn die Grundbasis der Phase
 nicht mehr in die freien Tage passt. Dann ist der Doppeltag die Antwort, nicht
-das Streichen der Einheit — und auch nicht der Ruhetag. Alle anderen Formen
-unten musst du wünschen.
+das Streichen der Einheit — und auch nicht der Ruhetag.
+
+Das gilt auch in der **Off Season** (und damit für jeden ohne Saisonziel):
+Die Woche bleibt, wie die Off Season sie vorgibt, und ohne Engpass gibt es
+keinen Doppeltag. Füllt ein Wunsch die Woche aber so, dass die zwei
+Krafteinheiten und die zwei Einheiten je Disziplin des Formerhalts nicht mehr
+auf eigene Tage passen, legt der Coach zwei lockere Einheiten zusammen
+(Schwimmen + Kraft zuerst). Im Übergang direkt nach dem Rennen nicht: Dort
+sind vier lockere Einheiten eine Obergrenze, und der Wunsch wird gekürzt.
+
+**Die übrigen Formen zieht die App je Woche aus einer Urne.** Vor dem
+Erstellen steht in der Plankachel „DOPPELTAG DIESER WOCHE“ mit der gezogenen
+Form und dem Grund. Mit „ohne Doppeltag“ lässt du ihn für diese Woche weg, das
+kostet nichts. Wählst du selbst einen Doppeltag-Knopf, ersetzt er die Ziehung.
+
+| | |
+|---|---|
+| **In der Urne** | die Formen, die die Phase erlaubt, und „kein Doppeltag“ |
+| **HRV** | unter der Spanne nur lockeres Schwimmen oder keiner; die Doppelschwelle nur bei normaler HRV |
+| **Vorwochen** | was letzte Woche dran war, ist diese Woche aus der Urne, was vor zwei Wochen dran war, kommt halb so oft. Schwimmen nur mit zwei Schwimmeinheiten in der Woche, den langen Lauf teilen nur mit einem Lauf ab 90 min, die Doppelschwelle erst nach einem absolvierten Doppeltag in den letzten sechs Wochen |
+| **Keiner** | in Deload-Woche, Rennwoche und Off Season |
+| **Taper** | nur lockeres Schwimmen, und meist keiner |
+| **Gleich bleibend** | bei gleichem Stand von HRV und Vorwochen zieht dieselbe Woche dasselbe — was die Kachel anzeigt, bekommt der Plan |
+
+**Umlegen, nicht hinzufügen.** Ein Doppeltag entsteht aus Einheiten, die
+ohnehin in der Woche stehen: Die Zahl der Einheiten je Disziplin und der
+Wochenumfang bleiben gleich, der frei werdende Tag wird Ruhetag. Aus zwei
+Schwimmeinheiten werden also nicht drei, eine davon wandert auf den harten
+Tag.
 
 ### Locker morgens + Qualität abends
 
@@ -124,7 +151,7 @@ Harte Rad- oder Laufeinheit, später am Tag Schwimmen.
 
 | | |
 |---|---|
-| **Phase** | jede außer Taper und Wettkampfwoche |
+| **Phase** | jede außer der Wettkampfwoche. **Im Taper** nur locker (kurz, Z1–Z2) und nie von selbst, nur gezogen oder gewünscht |
 | **Besonderheit** | Schwimmen erzeugt **keine** Stoßbelastung — es zählt nicht zum Laufumfang und nicht zur Einzellauf-Grenze |
 | **HRV** | unter der Spanne darf das Schwimmen bleiben, wenn es locker ist |
 | **Beleg** | Lum 2010, 9 gut trainierte Triathleten: Schwimmen 10 h nach harten Laufintervallen ergab am Folgetag **+14 %** Laufzeit bis zur Erschöpfung gegenüber passiver Ruhe, Entzündungsmarker −23 % |

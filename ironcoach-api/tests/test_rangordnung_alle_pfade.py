@@ -60,14 +60,67 @@ def test_jede_phase_bekommt_eine_rangordnung(phase):
     assert "coaching_comment" in text
 
 
-def test_nur_die_off_season_bleibt_aussen_vor():
-    """Dort bringt `services/offseason.py` die Vorgaben selbst mit.
+def test_formerhalt_setzt_den_doppeltag_nur_beim_engpass():
+    """Off Season ohne Rangordnung hieß: Ein Wunsch, der die Woche füllte,
+    kostete mal eine Krafteinheit, mal den Ruhetag. Jeder neue Athlet ohne
+    Ziel steht im Formerhalt.
 
-    Diese Logik ist ausdrücklich unangetastet — zwei Quellen für dieselbe
-    Vorgabe wären der nächste Widerspruch.
+    Die Regeln selbst bleiben (`services/offseason.py` unangetastet), neu ist
+    nur die Antwort auf den Engpass.
     """
-    assert vorrang_block("Off Season") == ""
-    assert vorrang_block("Off Season · Formerhalt") == ""
+    text = vorrang_block("Off Season · Formerhalt")
+    assert UEBERSCHRIFT in text
+    assert "Ruhetag" in text
+    assert "2 Krafteinheiten" in text
+    assert "setze einen Doppeltag ein" in text
+    assert "Schwimmen + Kraft zuerst" in text
+    assert "Umlegen" in text
+    # Kein Doppeltag aus eigenem Antrieb.
+    assert "Ohne diesen Engpass" in text
+    assert "coaching_comment" in text
+
+
+def test_uebergang_kuerzt_den_wunsch_statt_doppeltag():
+    """Im Übergang sind vier lockere Einheiten eine Obergrenze, kein Soll."""
+    text = vorrang_block("Off Season · Übergang")
+    assert UEBERSCHRIFT in text
+    assert "setze einen Doppeltag ein" not in text
+    assert "kein** Mittel" in text
+    assert "kürze den Wunsch" in text
+
+
+def test_off_season_ohne_unterphase_nennt_beide_faelle():
+    """Planerstellung und Chat reichen nur „Off Season" durch; die Unterphase
+    steht dort im Off-Season-Abschnitt daneben."""
+    text = vorrang_block("Off Season")
+    assert "Im Formerhalt" in text
+    assert "setze einen Doppeltag ein" in text
+    assert "Im Übergang" in text
+
+
+def test_off_season_soll_stimmt_mit_offseason_py_ueberein():
+    """Die Zahlen stehen an zwei Stellen — hier wird festgehalten, dass sie
+    nicht still auseinanderlaufen. Ändert `offseason.py` die Kraftvorgabe,
+    muss `phasenregeln._offseason_vorrang` mitziehen."""
+    from services.offseason import prompt_block
+
+    erhalt = prompt_block(None, None)
+    assert "Krafttraining zweimal pro Woche" in erhalt
+    assert "Zwei bis drei Einheiten je Hauptdisziplin" in erhalt
+    uebergang = prompt_block(None, date.today() - timedelta(days=3), today=date.today())
+    assert "Höchstens vier Einheiten" in uebergang
+
+
+def test_planprompt_traegt_die_rangordnung_auch_in_der_off_season():
+    from core.prompt_templates import build_plan_prompt
+
+    text = build_plan_prompt(
+        athlete_profile=PROFIL, sessions=[], hrv=[], week=1,
+        plan_start=date(2026, 11, 9), total_weeks=33,
+        offseason="## OFF SEASON (KRITISCH — ersetzt Phasenvorgabe und Zielwerte)\n- x\n",
+    )
+    assert UEBERSCHRIFT in text
+    assert "Im Formerhalt" in text
 
 
 def test_die_zahlen_der_phase_stehen_drin():

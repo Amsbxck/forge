@@ -133,6 +133,12 @@ def _einheiten(db: Session, von: date, bis: date,
     ]
 
 
+# Öffentlich für `services/doppel_urne.py`, das dieselben Vorgaben liest. Eine
+# eigene Kopie des Filters „jüngster Plan je Woche" wäre dort die dritte.
+einheiten_der_woche = _einheiten
+ist_hart = _ist_hart
+
+
 def harte_einheiten(db: Session, von: date, bis: date,
                     user_id: int | None = None,
                     phase: str | None = None) -> dict:
